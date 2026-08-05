@@ -1,0 +1,40 @@
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Firmware ESP32
+firmware/*/build/
+firmware/*/managed_components/
+firmware/*/sdkconfig.old
+firmware/*/dependencies.lock
+
+# Node.js / Frontend
+node_modules/
+dist/
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Secrets
+*.pem
+*.key
+secrets/
+credentials.json
+
+# Backups y binarios
+backups/
+*.bak
+*.bin
+*.elf
+*.map

@@ -4,18 +4,26 @@
 
 El sistema sigue un modelo de cuatro capas: percepción, borde, nube y aplicación. Esta separación permite que cada capa evolucione de forma independiente, que el sistema continúe operando ante caídas parciales de conectividad, y que la plataforma escale a múltiples clientes (multi-inquilino) sin rediseñar la arquitectura.
 
-+----------------+ +----------------+ +-------------------+ +----------------+
-| PERCEPCION | | BORDE | | NUBE | | APLICACION |
-| | | | | | | |
-| Sensores | | Hub ESP32-S3 | | Cloudflare Tunnel | | PWA cliente |
-| ESP32-C3 |---->| - ESP-NOW |---->| Mosquitto (WSS) |---->| Dashboard |
-| (magnetico, | ESP | - FSM alarma | WiFi| Node-RED (API) | MQTT| super-admin |
-| PIR, humo, | NOW | - MQTT/WSS | WSS | InfluxDB/Postgres | HTTP| Grafana |
-| inundacion) | | - Sirena loc. | 443 | Traccar / Gotify | | App movil |
-| | | | | | | |
-| Tracker vehic. |-----|----------------|---->| (conexion 4G directa al servidor) |
-| ESP32-S3+A7670 | | | | | | |
-+----------------+ +----------------+ +-------------------+ +----------------+
+    [CAPA PERCEPCION]
+      Sensores hogar ESP32-C3 (magnetico, PIR, humo, temp, inundacion, panico)
+      Actuador sirena | Tracker vehicular ESP32-S3 + A7670SA-FASE
+           | ESP-NOW (hogar)                 | UART + GNSS/4G (vehiculo)
+           v                                 |
+    [CAPA BORDE]                             |
+      Hub ESP32-S3: coordinador ESP-NOW,     |
+      FSM de alarma, sirena local,           |
+      store-and-forward, BLE provisioning    |
+           | WiFi + MQTT sobre WSS (443)     | 4G + MQTT/WSS + OsmAnd (5055)
+           v                                 v
+    [CAPA NUBE - seguimiento360.com]
+      Cloudflare Tunnel (TLS en el borde, sin puertos abiertos)
+        -> Mosquitto (MQTT/WSS)   -> Node-RED (reglas + API REST)
+        -> InfluxDB (telemetria)  -> PostgreSQL (usuarios/tenants)
+        -> Traccar (GPS)          -> Gotify/Telegram (notificaciones)
+           | HTTPS / MQTT / WebSocket
+           v
+    [CAPA APLICACION]
+      PWA cliente | Dashboard super-admin | Grafana
 
 ## 4.2 Capa de Percepción (Dispositivos)
 
@@ -56,11 +64,11 @@ Comprende dos interfaces web: la aplicación web progresiva (PWA) orientada al c
 
 El sistema organiza la información en una jerarquía de cuatro niveles: inquilino (cliente), sitio (propiedad), hub y dispositivo. Los vehículos se asocian directamente al inquilino. Esta jerarquía se refleja en el esquema de tópicos MQTT:
 
-seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/status
-seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/command
-seguimiento360/tenant/{tenant_id}/site/{site_id}/sensor/{sensor_id}/alert
-seguimiento360/tenant/{tenant_id}/vehicle/{vehicle_id}/gps
-seguimiento360/admin/ota/manifest
+    seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/status
+    seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/command
+    seguimiento360/tenant/{tenant_id}/site/{site_id}/sensor/{sensor_id}/alert
+    seguimiento360/tenant/{tenant_id}/vehicle/{vehicle_id}/gps
+    seguimiento360/admin/ota/manifest
 
 El aislamiento de datos entre clientes se garantiza mediante autenticación MQTT con credenciales únicas por dispositivo y listas de control de acceso (ACL) que restringen cada dispositivo a los tópicos de su propio inquilino. El super-administrador dispone de permisos sobre el árbol completo bajo seguimiento360/admin.
 

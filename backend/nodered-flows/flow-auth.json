@@ -1,0 +1,154 @@
+[
+  {
+    "id": "1a2b3c4d5e6f7001",
+    "type": "tab",
+    "label": "Autenticacion",
+    "disabled": false,
+    "info": "API de registro, login y perfil para el sistema de alarmas",
+    "env": []
+  },
+  {
+    "id": "1a2b3c4d5e6f7010",
+    "type": "http in",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "POST /api/auth/register",
+    "url": "/api/auth/register",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 160,
+    "y": 80,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7011"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7011",
+    "type": "function",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "Registrar usuario",
+    "func": "const pg = global.get('pg');\nconst bcrypt = global.get('bcrypt');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const { email, password, full_name, phone } = msg.payload;\n    if (!email || !password) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email y password son requeridos' };\n        return msg;\n    }\n    if (password.length < 8) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Password debe tener al menos 8 caracteres' };\n        return msg;\n    }\n    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    if (!emailRegex.test(email)) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email invalido' };\n        return msg;\n    }\n    await client.connect();\n    const existing = await client.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);\n    if (existing.rows.length > 0) {\n        msg.statusCode = 409;\n        msg.payload = { error: 'El email ya esta registrado' };\n        return msg;\n    }\n    const password_hash = await bcrypt.hash(password, 10);\n    const userResult = await client.query('INSERT INTO users (email, password_hash, full_name, phone, role, is_active) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, email, full_name, role', [email.toLowerCase(), password_hash, full_name || null, phone || null, 'customer']);\n    const user = userResult.rows[0];\n    const tenantResult = await client.query('INSERT INTO tenants (name, owner_user_id, is_active) VALUES ($1, $2, true) RETURNING id', [email.split('@')[0], user.id]);\n    msg.statusCode = 201;\n    msg.payload = { success: true, user: user, tenant_id: tenantResult.rows[0].id };\n    return msg;\n} catch (err) {\n    node.error('Register: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 80,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7012"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7012",
+    "type": "http response",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 640,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "1a2b3c4d5e6f7020",
+    "type": "http in",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "POST /api/auth/login",
+    "url": "/api/auth/login",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 150,
+    "y": 220,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7021"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7021",
+    "type": "function",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "Login + JWT",
+    "func": "const pg = global.get('pg');\nconst bcrypt = global.get('bcrypt');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const { email, password } = msg.payload;\n    if (!email || !password) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email y password son requeridos' };\n        return msg;\n    }\n    await client.connect();\n    const result = await client.query('SELECT u.id, u.email, u.password_hash, u.full_name, u.phone, u.role, u.is_active, t.id as tenant_id FROM users u LEFT JOIN tenants t ON t.owner_user_id = u.id AND t.is_active = true WHERE u.email = $1', [email.toLowerCase()]);\n    if (result.rows.length === 0) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Credenciales invalidas' };\n        return msg;\n    }\n    const user = result.rows[0];\n    if (!user.is_active) {\n        msg.statusCode = 403;\n        msg.payload = { error: 'Cuenta desactivada' };\n        return msg;\n    }\n    const match = await bcrypt.compare(password, user.password_hash);\n    if (!match) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Credenciales invalidas' };\n        return msg;\n    }\n    const token = jwt.sign({ user_id: user.id, email: user.email, role: user.role, tenant_id: user.tenant_id }, jwtSecret, { expiresIn: '24h' });\n    msg.statusCode = 200;\n    msg.payload = { success: true, token: token, user: { id: user.id, email: user.email, full_name: user.full_name, role: user.role, tenant_id: user.tenant_id } };\n    return msg;\n} catch (err) {\n    node.error('Login: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 220,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7022"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7022",
+    "type": "http response",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 640,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "1a2b3c4d5e6f7030",
+    "type": "http in",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "GET /api/auth/profile",
+    "url": "/api/auth/profile",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 150,
+    "y": 360,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7031"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7031",
+    "type": "function",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "Perfil con JWT",
+    "func": "const pg = global.get('pg');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const authHeader = msg.req.headers.authorization;\n    if (!authHeader || !authHeader.startsWith('Bearer ')) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Token no proporcionado' };\n        return msg;\n    }\n    const token = authHeader.substring(7);\n    let decoded;\n    try {\n        decoded = jwt.verify(token, jwtSecret);\n    } catch (e) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Token invalido o expirado' };\n        return msg;\n    }\n    await client.connect();\n    const result = await client.query('SELECT u.id, u.email, u.full_name, u.phone, u.role, u.is_active, u.created_at, t.id as tenant_id, t.name as tenant_name FROM users u LEFT JOIN tenants t ON t.owner_user_id = u.id WHERE u.id = $1', [decoded.user_id]);\n    if (result.rows.length === 0) {\n        msg.statusCode = 404;\n        msg.payload = { error: 'Usuario no encontrado' };\n        return msg;\n    }\n    msg.statusCode = 200;\n    msg.payload = { success: true, user: result.rows[0] };\n    return msg;\n} catch (err) {\n    node.error('Profile: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 360,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7032"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7032",
+    "type": "http response",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 640,
+    "y": 360,
+    "wires": []
+  }
+]

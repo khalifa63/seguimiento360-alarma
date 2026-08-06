@@ -24,8 +24,12 @@ git bundle create "$DEST/repo-$DATE.bundle" --all >> $LOG 2>&1
 rsync -a --delete --exclude=.git "$REPO/" "$DEST/working-copy/" >> $LOG 2>&1
 
 if [ -d ~/iot-alarma ]; then
-    rsync -a --delete --exclude=.env ~/iot-alarma/ "$DEST/iot-alarma-config/" >> $LOG 2>&1
+    rsync -a --delete --exclude=.env --exclude=postgres/ ~/iot-alarma/ "$DEST/iot-alarma-config/" >> $LOG 2>&1
     [ -f ~/iot-alarma/.env ] && cp ~/iot-alarma/.env "$DEST/iot-alarma-config/.env-$DATE"
+    if docker ps --format '{{.Names}}' | grep -q '^mosquitto$'; then
+        mkdir -p "$DEST/iot-alarma-config/mosquitto/config"
+        docker cp mosquitto:/mosquitto/config/. "$DEST/iot-alarma-config/mosquitto/config/" 2>>$LOG
+    fi
 fi
 
 if docker ps --format '{{.Names}}' | grep -q '^postgres$'; then

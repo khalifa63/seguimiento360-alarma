@@ -755,7 +755,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Verificar código",
-    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n  msg.statusCode = 404;\n  msg.payload = { error: 'Código no encontrado o ya usado' };\n  return msg;\n}\nif (row.status !== 'active') {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Código ya canjeado' };\n  return msg;\n}\nmsg.codeData = row;\nreturn msg;",
+    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n  msg.statusCode = 404;\n  msg.payload = { error: 'Código no encontrado o ya usado' };\n  return [null, msg];\n}\nif (row.status !== 'active') {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Código ya canjeado' };\n  return [null, msg];\n}\n// Verificar que el site_id pertenece al tenant\nif (row.tenant_id && row.tenant_id !== msg._user.tenant_id) {\n  msg.statusCode = 403;\n  msg.payload = { error: 'Código no disponible para tu cuenta' };\n  return [null, msg];\n}\nmsg.codeData = row;\nmsg.siteId = msg.params[2];\nreturn [msg, null];",
     "outputs": 1,
     "x": 1020,
     "y": 1040,
@@ -770,7 +770,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Preparar UPSERT",
-    "func": "const cd = msg.codeData;\nconst b = msg.payload;\nconst serialNumber = 'SN-' + cd.code;\nmsg.params = [\n  msg._user.tenant_id, cd.site_id, cd.device_type, serialNumber,\n  cd.id, msg._user.user_id, cd.site_id\n];\nreturn msg;",
+    "func": "const cd = msg.codeData;\nconst serialNumber = 'SN-' + cd.code;\nmsg.params = [\n  msg._user.tenant_id,\n  msg.siteId,\n  cd.device_type,\n  serialNumber\n];\nreturn msg;",
     "outputs": 1,
     "x": 1220,
     "y": 1040,
@@ -803,7 +803,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Preparar UPDATE code",
-    "func": "const device = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nmsg.params = [device.id, msg.codeData.id];\nmsg.statusCode = 201;\nmsg.payload = { success: true, device: device, code: msg.codeData.code };\nreturn msg;",
+    "func": "const device = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nif (!device || !device.id) {\n  msg.statusCode = 500;\n  msg.payload = { error: 'Error al crear dispositivo' };\n  return [null, msg];\n}\nmsg.params = [device.id, msg.codeData.id];\nreturn msg;",
     "outputs": 1,
     "x": 1620,
     "y": 1040,
@@ -825,6 +825,21 @@
     "outputs": 1,
     "x": 1820,
     "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Respuesta claim",
+    "func": "msg.statusCode = 201;\nmsg.payload = { \n  success: true, \n  device: msg.payload,\n  code: msg.codeData.code,\n  message: 'Dispositivo vinculado exitosamente'\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 1620,
+    "y": 1080,
     "wires": [
       [
         "s360v2_http_ok"

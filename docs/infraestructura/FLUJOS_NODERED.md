@@ -118,3 +118,37 @@ Flujo: JWT -> validar formato/checksum -> SELECT por code (SIN filtro status)
 
     curl -s -H "Authorization: Bearer $TOKEN" http://localhost:1880/api/sites
     curl -s -H "Authorization: Bearer $TOKEN" http://localhost:1880/api/devices
+
+## Fase 3.2.3a: Hubs + Alarm Control (MQTT)
+
+### Arquitectura MQTT
+Mosquitto tiene listeners diferenciados:
+
+| Puerto | Protocolo | Exposición | Auth | Uso |
+|---|---|---|---|---|
+| 1883 | MQTT TCP | Solo red Docker | NO | Node-RED, scripts internos |
+| 8083 | WebSocket | Vía Cloudflare | SÍ | ESP32 remotos |
+| 8883 | MQTT TLS | Pendiente SSL | SÍ | Futuro |
+| 9001 | WebSocket | Vía Cloudflare | SÍ | Alternativo |
+
+### Tablas nuevas
+- `hubs`: dispositivos ESP32 físicos (1 sitio : N hubs)
+- `alarm_state`: último estado de alarma por sitio
+
+### Tópicos MQTT
+- Downlink: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/command` (retained)
+- Uplink hello: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/hello`
+- Uplink response: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/response`
+
+### Endpoints
+- `POST /api/hubs` {site_id, name, device_type} -> 201 hub pending
+- `GET /api/hubs?site_id=X` -> lista con alarm_state
+- `POST /api/alarm/control` {action: arm|disarm, hub_id} -> publica MQTT + audit log
+- `GET /api/alarm/state?site_id=X` -> estado actual
+
+### Flujo de confirmación de dispositivo
+1. Usuario registra hub (status=pending)
+2. ESP32 al primer boot publica hello con serial_number
+3. Node-RED recibe hello, verifica serial coincide
+4. UPDATE hubs SET status='active', last_seen=NOW()
+5. Hub queda disponible para comandos arm/disarm

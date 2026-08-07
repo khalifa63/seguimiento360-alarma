@@ -859,7 +859,7 @@
     "name": "Mosquitto interno",
     "broker": "mosquitto",
     "port": "1883",
-    "clientid": "nodered-s360",
+    "clientid": "nodered-s360-internal",
     "autoConnect": true,
     "usetls": false,
     "protocolVersion": "4",
@@ -879,8 +879,8 @@
     "willRetain": "false",
     "willPayload": "{\"status\":\"offline\"}",
     "sessionExpiry": "",
-    "user": "nodered",
-    "password": "s360_nodered_2026"
+    "user": "",
+    "password": ""
   },
   {
     "id": "s360v5_hub_in",

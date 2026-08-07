@@ -161,3 +161,23 @@ El WHERE con tenant_id garantiza aislamiento multi-tenant.
 ### Nota PUT /api/sites/:id (fix 2026-08-08)
 Update parcial con COALESCE: solo se modifican los campos presentes en el body.
 PUT con solo name conserva address; PUT con solo address conserva name.
+
+## 7. Vinculación de dispositivos (Fase 3.2.2) — 2026-08-08
+
+### Tabla claim_codes
+Formato de código: XX-YYYYYY-Z (2 prefijo + 6 random + 1 checksum)
+CHARSET: 23456789ABCDEFGHJKMNPQRSTUVWXYZ (31 chars, sin 0/1/I/L/O/U)
+Checksum: suma ASCII del código base mod 31
+
+### POST /api/admin/generate-codes
+Auth: Bearer JWT (cualquier usuario por ahora)
+Body: prefix (2 chars, default XX), quantity (1-500, default 1)
+Query: INSERT INTO claim_codes (code, device_type, tenant_id, created_by) VALUES ...
+201: success + generated + codes[]
+
+### POST /api/claim
+Auth: Bearer JWT
+Body: code (requerido, formato XX-YYYYYY-Z), site_id (requerido)
+Validaciones: formato, checksum, código active, site_id del tenant
+Query: UPSERT en devices + UPDATE claim_codes status='used'
+201: success + device + code | 400 formato/checksum/ya usado | 404 no encontrado | 401

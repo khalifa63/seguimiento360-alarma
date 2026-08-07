@@ -582,5 +582,253 @@
         "s360v2_http_ok"
       ]
     ]
+  },
+  {
+    "id": "s360v4_gen_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "POST /api/admin/generate-codes",
+    "url": "/api/admin/generate-codes",
+    "method": "post",
+    "upload": false,
+    "x": 180,
+    "y": 880,
+    "wires": [
+      [
+        "s360v4_gen_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_gen_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Validar JWT admin",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 400,
+    "y": 880,
+    "wires": [
+      [
+        "s360v4_gen_func"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_gen_func",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Generar códigos",
+    "func": "const CHARSET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nfunction generateCode(prefix) {\n  let code = prefix;\n  for (let i = 0; i < 6; i++) {\n    code += CHARSET[Math.floor(Math.random() * CHARSET.length)];\n  }\n  let sum = 0;\n  for (let i = 0; i < code.length; i++) {\n    sum += code.charCodeAt(i);\n  }\n  code += CHARSET[sum % CHARSET.length];\n  return code;\n}\n\nconst b = msg.payload || {};\nconst prefix = (b.prefix || 'XX').substring(0, 2).toUpperCase();\nconst quantity = Math.min(Math.max(parseInt(b.quantity) || 1, 1), 500);\nconst codes = [];\n\nfor (let i = 0; i < quantity; i++) {\n  codes.push(generateCode(prefix));\n}\n\nmsg.codes = codes;\nmsg.params = [msg._user.tenant_id, msg._user.user_id];\nreturn msg;",
+    "outputs": 1,
+    "x": 620,
+    "y": 880,
+    "wires": [
+      [
+        "s360v4_gen_insert"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_gen_insert",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Preparar INSERT",
+    "func": "const codes = msg.codes;\nconst values = codes.map((code, i) => '(' + (i+1) + ', ' + (i+2) + ', ' + (i+3) + ')').join(', ');\nconst params = [];\nlet paramIdx = 1;\ncodes.forEach(code => {\n  params.push(code, 'alarm_hub', msg.params[0], msg.params[1]);\n});\nmsg.query = 'INSERT INTO claim_codes (code, device_type, tenant_id, created_by) VALUES ' +\n  codes.map((_, i) => '($' + (i*4+1) + ', $' + (i*4+2) + ', $' + (i*4+3) + ', $' + (i*4+4) + ')').join(', ') +\n  ' RETURNING id, code, device_type, status, created_at';\nmsg.params = params;\nreturn msg;",
+    "outputs": 1,
+    "x": 820,
+    "y": 880,
+    "wires": [
+      [
+        "s360v4_gen_query"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_gen_query",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "INSERT claim_codes",
+    "query": "",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 1020,
+    "y": 880,
+    "wires": [
+      [
+        "s360v4_gen_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_gen_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Respuesta generate",
+    "func": "msg.statusCode = 201;\nmsg.payload = { success: true, generated: msg.payload.length, codes: msg.payload.map(r => r.code) };\nreturn msg;",
+    "outputs": 1,
+    "x": 1220,
+    "y": 880,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "POST /api/claim",
+    "url": "/api/claim",
+    "method": "post",
+    "upload": false,
+    "x": 180,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Validar JWT claim",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 400,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_validate"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_validate",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Validar código",
+    "func": "const b = msg.payload || {};\nconst code = (b.code || '').trim().toUpperCase();\nconst siteId = b.site_id;\n\nif (!code || !siteId) {\n  msg.statusCode = 400;\n  msg.payload = { error: 'code y site_id son requeridos' };\n  return [null, msg];\n}\n\nconst CHARSET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nif (code.length !== 10 || code[2] !== '-' || code[9] !== '-') {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Formato inválido. Esperado: XX-YYYYYY-Z' };\n  return [null, msg];\n}\n\nconst base = code.substring(0, 8);\nlet sum = 0;\nfor (let i = 0; i < base.length; i++) {\n  if (base[i] === '-') continue;\n  sum += base.charCodeAt(i);\n}\nconst expectedChecksum = CHARSET[sum % CHARSET.length];\nif (code[9] !== expectedChecksum) {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Checksum inválido' };\n  return [null, msg];\n}\n\nmsg.params = [code, msg._user.tenant_id, siteId];\nreturn [msg, null];",
+    "outputs": 2,
+    "x": 620,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_select"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_select",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "SELECT claim_code",
+    "query": "SELECT id, code, device_type, status, tenant_id, site_id\nFROM claim_codes\nWHERE code = $1 AND status = 'active'\nAND (tenant_id IS NULL OR tenant_id = $2);",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 820,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_check"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_check",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Verificar código",
+    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n  msg.statusCode = 404;\n  msg.payload = { error: 'Código no encontrado o ya usado' };\n  return msg;\n}\nif (row.status !== 'active') {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Código ya canjeado' };\n  return msg;\n}\nmsg.codeData = row;\nreturn msg;",
+    "outputs": 1,
+    "x": 1020,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_upsert"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_upsert",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Preparar UPSERT",
+    "func": "const cd = msg.codeData;\nconst b = msg.payload;\nconst serialNumber = 'SN-' + cd.code;\nmsg.params = [\n  msg._user.tenant_id, cd.site_id, cd.device_type, serialNumber,\n  cd.id, msg._user.user_id, cd.site_id\n];\nreturn msg;",
+    "outputs": 1,
+    "x": 1220,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_device"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_device",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "UPSERT device",
+    "query": "INSERT INTO devices (tenant_id, site_id, device_type, serial_number, status, bound_at)\nVALUES ($1, $2, $3, $4, 'active', NOW())\nON CONFLICT (serial_number) DO UPDATE\nSET tenant_id = EXCLUDED.tenant_id, site_id = EXCLUDED.site_id, status = 'active', bound_at = NOW()\nRETURNING id, tenant_id, site_id, device_type, serial_number, status, bound_at;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 1420,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_mark"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_mark",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Preparar UPDATE code",
+    "func": "const device = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nmsg.params = [device.id, msg.codeData.id];\nmsg.statusCode = 201;\nmsg.payload = { success: true, device: device, code: msg.codeData.code };\nreturn msg;",
+    "outputs": 1,
+    "x": 1620,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v4_claim_update_code"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_update_code",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "UPDATE claim_code",
+    "query": "UPDATE claim_codes\nSET status = 'used', claimed_device_id = $1, claimed_at = NOW()\nWHERE id = $2;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 1820,
+    "y": 1040,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
   }
 ]

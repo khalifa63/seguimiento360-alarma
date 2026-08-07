@@ -38,9 +38,11 @@ async function request(path, options) {
 }
 
 export const Api = {
-  register: (payload) => request('/api/auth/register', { method: 'POST', body: payload }),
-  login:    (payload) => request('/api/auth/login',    { method: 'POST', body: payload }),
-  profile:  ()        => request('/api/auth/profile',  { auth: true }),
-  sites:    ()        => request('/api/sites',         { auth: true }),
-  devices:  ()        => request('/api/devices',       { auth: true })
+  register:   (payload) => request('/api/auth/register', { method: 'POST', body: payload }),
+  login:      (payload) => request('/api/auth/login',    { method: 'POST', body: payload }),
+  profile:    ()        => request('/api/auth/profile',  { auth: true }),
+  sites:      ()        => request('/api/sites',         { auth: true }),
+  createSite: (payload) => request('/api/sites',         { auth: true, method: 'POST', body: payload }),
+  updateSite: (id, payload) => request('/api/sites/' + id, { auth: true, method: 'PUT', body: payload }),
+  devices:    ()        => request('/api/devices',       { auth: true })
 };

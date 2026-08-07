@@ -47,3 +47,11 @@ Registro de diferencias reales respecto a la documentacion original (infraestruc
   - Service Worker v2 con network-first para navegaciones
 - **Acceso:** https://seguimiento360.com/app/
 - **API:** https://nodered.seguimiento360.com/api/auth/*
+
+### PWA Autenticación (Fase 2) — 2026-08-07
+- Estado: ✅ Completado y probado end-to-end
+- PWA vanilla en frontend/pwa/, desplegada en ~/iot-alarma/website/app/ (https://seguimiento360.com/app/)
+- Build versionado (cache-busting) via scripts/deploy-pwa.sh
+- Login/Registro/Perfil con JWT 24 h; rutas protegidas por hash-router
+- CORS operativo via httpNodeCors + httpNodeMiddleware en settings.js de Node-RED
+- Multi-tenant: el registro crea user + tenant (owner_user_id)

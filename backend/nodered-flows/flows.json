@@ -851,5 +851,531 @@
         "s360v2_http_ok"
       ]
     ]
+  },
+  {
+    "id": "s360_mqtt_broker",
+    "type": "mqtt-broker",
+    "z": "s360_panel_001",
+    "name": "Mosquitto interno",
+    "broker": "mosquitto",
+    "port": "1883",
+    "clientid": "nodered-s360",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "seguimiento360/node-red/status",
+    "birthQos": "1",
+    "birthRetain": "false",
+    "birthPayload": "{\"status\":\"online\",\"service\":\"node-red\",\"ts\":1786144331043}",
+    "closeTopic": "seguimiento360/node-red/status",
+    "closeQos": "1",
+    "closeRetain": "false",
+    "closePayload": "{\"status\":\"offline\"}",
+    "willTopic": "seguimiento360/node-red/status",
+    "willQos": "1",
+    "willRetain": "false",
+    "willPayload": "{\"status\":\"offline\"}",
+    "sessionExpiry": "",
+    "user": "nodered",
+    "password": "s360_nodered_2026"
+  },
+  {
+    "id": "s360v5_hub_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "POST /api/hubs",
+    "url": "/api/hubs",
+    "method": "post",
+    "upload": false,
+    "x": 140,
+    "y": 1400,
+    "wires": [
+      [
+        "s360v5_hub_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "JWT hubs",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 340,
+    "y": 1400,
+    "wires": [
+      [
+        "s360v5_hub_prep"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_prep",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep INSERT hub",
+    "func": "const b = msg.payload || {};\nconst siteId = parseInt(b.site_id, 10);\nconst name = (b.name || '').trim();\nconst serial = (b.serial_number || 'HUB-' + Date.now()).trim();\nif (!siteId || !name) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'site_id y name son requeridos' };\n    return [null, msg];\n}\nmsg.params = [msg._user.tenant_id, siteId, serial, b.device_type || 'alarm_hub', name];\nreturn [msg, null];",
+    "outputs": 2,
+    "x": 540,
+    "y": 1400,
+    "wires": [
+      [
+        "s360v5_hub_insert"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_insert",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "INSERT hub",
+    "query": "INSERT INTO hubs (tenant_id, site_id, serial_number, device_type, name, status)\nVALUES ($1, $2, $3, $4, $5, 'pending')\nRETURNING id, tenant_id, site_id, serial_number, device_type, name, status, created_at;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 740,
+    "y": 1400,
+    "wires": [
+      [
+        "s360v5_hub_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Resp hub 201",
+    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nmsg.statusCode = 201;\nmsg.payload = { success: true, hub: row, message: 'Hub registrado. Esperando confirmación del dispositivo físico.' };\nreturn msg;",
+    "outputs": 1,
+    "x": 940,
+    "y": 1400,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hubs_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "GET /api/hubs",
+    "url": "/api/hubs",
+    "method": "get",
+    "upload": false,
+    "x": 140,
+    "y": 1560,
+    "wires": [
+      [
+        "s360v5_hubs_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hubs_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "JWT hubs list",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 340,
+    "y": 1560,
+    "wires": [
+      [
+        "s360v5_hubs_prep"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hubs_prep",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep SELECT hubs",
+    "func": "const siteId = parseInt(msg.req.query.site_id, 10);\nif (!siteId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'site_id requerido' };\n    return [null, msg];\n}\nmsg.params = [msg._user.tenant_id, siteId];\nreturn [msg, null];",
+    "outputs": 2,
+    "x": 540,
+    "y": 1560,
+    "wires": [
+      [
+        "s360v5_hubs_query"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hubs_query",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "SELECT hubs",
+    "query": "SELECT h.id, h.tenant_id, h.site_id, h.serial_number, h.device_type, h.name,\n       h.status, h.last_seen, h.created_at,\n       COALESCE(ast.state, 'disarmed') AS alarm_state\nFROM hubs h\nLEFT JOIN alarm_state ast ON ast.hub_id = h.id\nWHERE h.tenant_id = $1 AND h.site_id = $2\nORDER BY h.name;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 740,
+    "y": 1560,
+    "wires": [
+      [
+        "s360v5_hubs_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hubs_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Resp hubs 200",
+    "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
+    "outputs": 1,
+    "x": 940,
+    "y": 1560,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "POST /api/alarm/control",
+    "url": "/api/alarm/control",
+    "method": "post",
+    "upload": false,
+    "x": 140,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "JWT alarm",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 340,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_prep"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_prep",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep alarm control",
+    "func": "const b = msg.payload || {};\nconst action = (b.action || '').trim().toLowerCase();\nconst hubId = parseInt(b.hub_id, 10);\nif (!['arm', 'disarm'].includes(action) || !hubId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'action (arm|disarm) y hub_id son requeridos' };\n    return [null, msg];\n}\nmsg.action = action;\nmsg.params = [msg._user.tenant_id, hubId];\nreturn [msg, null];",
+    "outputs": 2,
+    "x": 540,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_lookup"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_lookup",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "Lookup hub + site",
+    "query": "SELECT h.id AS hub_id, h.tenant_id, h.site_id, h.serial_number, h.status AS hub_status,\n       s.name AS site_name\nFROM hubs h\nJOIN sites s ON s.id = h.site_id\nWHERE h.id = $2 AND h.tenant_id = $1 AND h.status = 'active';",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 740,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_check"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_check",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Verificar hub",
+    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n    msg.statusCode = 404;\n    msg.payload = { error: 'Hub no encontrado o sin confirmar' };\n    return [null, msg];\n}\nmsg.hub = row;\nconst topic = 'seguimiento360/tenant/' + row.tenant_id + '/site/' + row.site_id + '/hub/' + row.hub_id + '/command';\nconst payload = JSON.stringify({\n    action: msg.action,\n    issued_by: msg._user.user_id,\n    issued_at: new Date().toISOString(),\n    request_id: Date.now().toString(36)\n});\nmsg.topic = topic;\nmsg.payload = payload;\nmsg.qos = 1;\nmsg.retain = true;\nreturn [msg, null];",
+    "outputs": 2,
+    "x": 940,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_publish"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_publish",
+    "type": "mqtt out",
+    "z": "s360_panel_001",
+    "name": "Publicar comando",
+    "topic": "",
+    "qos": "1",
+    "retain": "true",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "s360_mqtt_broker",
+    "x": 1140,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_log"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_log",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep log + update state",
+    "func": "const hub = msg.hub;\n// device_id es NULL (acciones sobre hubs no están en tabla devices)\nmsg.auditParams = [\n    null,                                    // device_id (NULL para hubs)\n    hub.tenant_id,                           // tenant_id\n    msg._user.user_id,                       // performed_by\n    'alarm_' + msg.action,                   // action\n    { topic: msg.topic, action: msg.action, hub_id: hub.hub_id, site_id: hub.site_id }  // details (JSONB)\n];\nmsg.stateParams = [hub.site_id, hub.hub_id, msg.action === 'arm' ? 'armed' : 'disarmed', msg._user.user_id];\nreturn msg;",
+    "outputs": 1,
+    "x": 1340,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_audit"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_audit",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "INSERT audit",
+    "query": "INSERT INTO device_audit_log (device_id, tenant_id, performed_by, action, details)\nVALUES ($1, $2, $3, $4, $5);",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 1540,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_state"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_state",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep UPSERT state",
+    "func": "msg.params = msg.stateParams;\nreturn msg;",
+    "outputs": 1,
+    "x": 1740,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_state_upsert"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_state_upsert",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "UPSERT alarm_state",
+    "query": "INSERT INTO alarm_state (site_id, hub_id, state, updated_by)\nVALUES ($1, $2, $3, $4)\nON CONFLICT (site_id) DO UPDATE\nSET hub_id = EXCLUDED.hub_id, state = EXCLUDED.state,\n    updated_at = NOW(), updated_by = EXCLUDED.updated_by;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 1940,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Resp alarm 200",
+    "func": "msg.statusCode = 200;\nmsg.payload = {\n    success: true,\n    action: msg.action,\n    hub_id: msg.hub.hub_id,\n    site_id: msg.hub.site_id,\n    topic: msg.topic,\n    message: 'Comando ' + msg.action + ' enviado al hub',\n    note: 'El ESP32 lo ejecutará en su próximo wake-up (5-10 min)'\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 2140,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_state_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "GET /api/alarm/state",
+    "url": "/api/alarm/state",
+    "method": "get",
+    "upload": false,
+    "x": 140,
+    "y": 1880,
+    "wires": [
+      [
+        "s360v5_state_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_state_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "JWT state",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 340,
+    "y": 1880,
+    "wires": [
+      [
+        "s360v5_state_prep"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_state_prep",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep state",
+    "func": "const siteId = parseInt(msg.req.query.site_id, 10);\nif (!siteId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'site_id requerido' };\n    return [null, msg];\n}\nmsg.params = [msg._user.tenant_id, siteId];\nreturn [msg, null];",
+    "outputs": 2,
+    "x": 540,
+    "y": 1880,
+    "wires": [
+      [
+        "s360v5_state_query"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_state_query",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "SELECT alarm_state",
+    "query": "SELECT ast.site_id, ast.hub_id, ast.state, ast.updated_at, ast.updated_by,\n       h.serial_number, h.name AS hub_name, h.status AS hub_status,\n       s.name AS site_name\nFROM alarm_state ast\nJOIN sites s ON s.id = ast.site_id\nLEFT JOIN hubs h ON h.id = ast.hub_id\nWHERE ast.site_id = $2 AND s.tenant_id = $1;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 740,
+    "y": 1880,
+    "wires": [
+      [
+        "s360v5_state_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_state_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Resp state",
+    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nmsg.statusCode = 200;\nmsg.payload = row || { state: 'disarmed', site_id: msg.params[1], note: 'Sin estado previo' };\nreturn msg;",
+    "outputs": 1,
+    "x": 940,
+    "y": 1880,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_confirm_in",
+    "type": "mqtt in",
+    "z": "s360_panel_001",
+    "name": "Sub hub hello",
+    "topic": "seguimiento360/+/+/+/+/hello",
+    "qos": "1",
+    "datatype": "json",
+    "broker": "s360_mqtt_broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 140,
+    "y": 2040,
+    "wires": [
+      [
+        "s360v5_hub_confirm_func"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_confirm_func",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Parse hello",
+    "func": "// Topico: seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/hello\nconst parts = msg.topic.split('/');\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hid = parseInt(parts[6], 10);\nconst serial = (msg.payload && msg.payload.serial_number) || '';\nif (!hid || !serial) { node.warn('Hello sin datos validos: ' + msg.topic); return null; }\nmsg.params = [tid, hid, serial];\nreturn msg;",
+    "outputs": 1,
+    "x": 340,
+    "y": 2040,
+    "wires": [
+      [
+        "s360v5_hub_confirm_update"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_hub_confirm_update",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "UPDATE hub active",
+    "query": "UPDATE hubs\nSET status = 'active', last_seen = NOW()\nWHERE id = $2 AND tenant_id = $1 AND serial_number = $3\nRETURNING id, serial_number, status;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 540,
+    "y": 2040,
+    "wires": []
   }
 ]

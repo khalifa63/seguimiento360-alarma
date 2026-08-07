@@ -1,183 +1,120 @@
-# Flujos de Node-RED — Catálogo Operativo (Seguimiento 360)
+# Flujos Node-RED y API
 
-**Actualizado:** 2026-08-07
-**Snapshot limpio:** backend/nodered-flows/flows.json (10 nodos, podado)
-**Auditoría de funciones:** backend/nodered-flows/autenticacion-funciones.js
-**Archivo legacy:** backend/nodered-flows/archive/flows-legacy-ghostkey-20260807.json
-(desarrollo GhostKey, schema ghostkey_v2 sobre BD traccar; NO activo, solo referencia)
+Actualizada: 2026-08-08
 
----
+## Tabs activos
+- Autenticacion (id 1a2b3c4d5e6f7001)
+- S360 - Panel (id s360_panel_001)
 
-## 1. Configuración runtime (backend/nodered/settings.js)
+## Nodos compartidos
+- s360_pg_alarmas: postgreSQLConfig, host postgres, BD seguimiento360_alarmas,
+  user admin, password env PG_PASSWORD
+- s360v2_http_ok / s360v2_http_error: http response (respetan msg.statusCode)
 
-- credentialSecret: process.env.NODE_RED_CREDENTIAL_SECRET (desencripta flows_cred.json)
-- functionGlobalContext: pg (pg), bcrypt (bcryptjs), jwt (jsonwebtoken)
-- httpNodeRoot: "/"
-- httpNodeCors: ACTIVO (origin "*", metodos GET,PUT,POST,DELETE, preflight 204)
-- httpNodeMiddleware: headers CORS + OPTIONS 204 (defensa en profundidad)
-- Editor: sin adminAuth (endurecimiento pendiente, Cap. 7.7 del marco teorico)
+## settings.js (UN solo functionGlobalContext)
 
-## 2. Tab activo: Autenticacion (id 1a2b3c4d5e6f7001)
+    functionGlobalContext: {
+        pg: require('pg'),
+        bcrypt: require('bcryptjs'),
+        jwt: require('jsonwebtoken'),
+        dbConfig: { host: 'postgres', port: 5432,
+                    database: 'seguimiento360_alarmas', user: 'admin',
+                    password: process.env.PG_PASSWORD },
+        jwtSecret: process.env.JWT_SECRET
+    }
 
-Patron por endpoint: http in -> function -> http response.
-BD: seguimiento360_alarmas (contenedor postgres, red Docker iot-alarma_default).
+## Endpoints de autenticación
 
-### POST /api/auth/register — funcion "Registrar usuario"
-- Body: email, password, full_name, phone
-- Validaciones: requeridos email/password/full_name; regex email; password >= 8; email a minusculas
-- bcrypt 10 rounds; role default customer
-- Transaccion: INSERT users + INSERT tenants (owner_user_id = nuevo user)
-- 201: success + user + tenant_id | 400 validacion | 409 email duplicado | 500
+POST /api/auth/register -> 201 user
+POST /api/auth/login    -> 200 {token, user}
+GET  /api/auth/profile  -> 200 user
 
-### POST /api/auth/login — funcion "Login + JWT"
-- 200: success + token JWT (expiracion 24 h) + user con tenant_id
-- Payload JWT: user_id, tenant_id, role (Cap. 7.4)
-- 400 faltantes | 401 credenciales invalidas | 403 cuenta desactivada (is_active=false) | 500
+Query login:
 
-### GET /api/auth/profile — funcion "Perfil con JWT"
-- Header: Authorization Bearer
-- 200: user completo + tenant_name | 401 token ausente/invalido/expirado | 404 | 500
+    SELECT u.id, u.email, u.password_hash, u.full_name, u.phone, u.role,
+           u.is_active, t.id as tenant_id
+    FROM users u
+    LEFT JOIN tenants t ON t.owner_user_id = u.id AND t.is_active = true
+    WHERE u.email = $1;
 
-## 3. Estandares para nuevos endpoints (Fase 3 en adelante)
+Payload JWT: {user_id, email, role, tenant_id, iat, exp}, expira 24h,
+firmado con global.get('jwtSecret').
 
-1. Un tab por funcionalidad, nombre "S360 - <nombre>".
-2. Primera function del chain: validar JWT con jwt de functionGlobalContext;
-   rechazar con 401 antes de tocar BD.
-3. SQL con pg usando parametros $1..$n; SIEMPRE filtrar por tenant_id del JWT
-   (aislamiento multi-inquilino, Cap. 7.4).
-4. Errores como {"error": "mensaje"} con msg.statusCode; exitos con payload JSON.
-5. NO definir headers CORS por nodo: CORS es global (httpNodeCors).
-6. Todo cambio de flujos: docker cp del snapshot al repo + commit (fuente de verdad).
-7. Auditoria de acciones criticas en device_audit_log (bind/unbind/transfer).
+## Sitios
 
-## 4. Patrones rescatables del legacy GhostKey (referencia de rediseño)
+GET /api/sites
 
-Cuando se construyan los endpoints de alarma/dispositivos sobre el esquema
-multi-inquilino, reutilizar estos patrones probados del archivo legacy:
-
-- FSM de estados: FACTORY, WAREHOUSE, DISARMED, ARMED, ALERT_MOVING,
-  ALERT_STOPPED, INACTIVE, BATTERY_CRITICAL.
-- Modelo desired_state vs device_state: el estado real solo cambia tras ACK
-  "executed" del hardware (estilo Kubernetes, evita races).
-- Cola de comandos: pending -> delivered -> executed/failed/expired,
-  con prioridad, expiracion 24 h y reentrega de delivered.
-- Claim codes con checksum: formato XX-YYYYYY-Z, CHARSET de 31 caracteres
-  (sin 0,1,I,L,O,U), checksum = suma ASCII mod 31.
-- Eventos con catalogo (event_definitions) y politicas de notificacion
-  (cooldown, plantillas title/message, provider Gotify).
-- Snapshot (tabla devices) separado del historico (device_telemetry).
-- Soft-delete universal con deleted_at IS NULL.
-
-## 5. Tópicos MQTT multi-inquilino (Cap. 4.6, pendiente implementar en flujos)
-
-    seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/status
-    seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/command
-    seguimiento360/tenant/{tenant_id}/site/{site_id}/sensor/{sensor_id}/alert
-    seguimiento360/tenant/{tenant_id}/vehicle/{vehicle_id}/gps
-    seguimiento360/admin/ota/manifest
-
-## 6. Tab: S360 - Panel (Fase 3.1) — 2026-08-08
-
-Endpoints del panel, filtrados por tenant_id del JWT.
-Config Postgres: nodo s360_pg_alarmas (host postgres, BD seguimiento360_alarmas,
-user admin, password via env PG_PASSWORD).
-
-### GET /api/sites
-Auth: Bearer JWT
-Query:
     SELECT id, name, address, latitude, longitude, is_active, created_at
-    FROM sites
-    WHERE tenant_id = $1
-    ORDER BY name;
-Respuesta 200: array de sitios del tenant autenticado.
+    FROM sites WHERE tenant_id = $1 ORDER BY name;
 
-### GET /api/devices
-Auth: Bearer JWT
-Query:
-    SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,
-           d.bound_at, d.unbound_at, d.site_id, s.name as site_name
-    FROM devices d
-    LEFT JOIN sites s ON s.id = d.site_id
-    WHERE d.tenant_id = $1
-    ORDER BY s.name, d.device_type;
-Respuesta 200: array de dispositivos con nombre de sitio.
+POST /api/sites (name requerido; tenant_id del JWT, nunca del body)
 
-### PWA
-- Vista #/devices (js/views/devices.js): sitios con dispositivos agrupados,
-  dispositivos sin sitio asignados y regreso al dashboard.
-- Dashboard: boton "Ver Mis Sitios y Dispositivos".
-
-## 6. Tab: S360 - Panel (Fase 3.1) — 2026-08-08
-
-Endpoints del panel, filtrados por tenant_id del JWT.
-Config Postgres: nodo s360_pg_alarmas (host postgres, BD seguimiento360_alarmas,
-user admin, password via env PG_PASSWORD).
-
-### GET /api/sites
-Auth: Bearer JWT
-Query:
-    SELECT id, name, address, latitude, longitude, is_active, created_at
-    FROM sites
-    WHERE tenant_id = $1
-    ORDER BY name;
-Respuesta 200: array de sitios del tenant autenticado.
-
-### GET /api/devices
-Auth: Bearer JWT
-Query:
-    SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,
-           d.bound_at, d.unbound_at, d.site_id, s.name as site_name
-    FROM devices d
-    LEFT JOIN sites s ON s.id = d.site_id
-    WHERE d.tenant_id = $1
-    ORDER BY s.name, d.device_type;
-Respuesta 200: array de dispositivos con nombre de sitio.
-
-### PWA
-- Vista #/devices (js/views/devices.js): sitios con dispositivos agrupados,
-  dispositivos sin sitio asignados y regreso al dashboard.
-- Dashboard: boton "Ver Mis Sitios y Dispositivos".
-
-### POST /api/sites (Fase 3.2.1) — 2026-08-08
-Auth: Bearer JWT
-Body: name (requerido), address, latitude, longitude (opcionales)
-Query:
     INSERT INTO sites (tenant_id, name, address, latitude, longitude)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING id, tenant_id, name, address, latitude, longitude, is_active, created_at;
-tenant_id tomado SIEMPRE del JWT (nunca del body).
-201: success + site | 400 nombre faltante | 401 | 500
+    VALUES ($1,$2,$3,$4,$5)
+    RETURNING id, tenant_id, name, address, latitude, longitude,
+              is_active, created_at;
 
-### PUT /api/sites/:id (Fase 3.2.1)
-Auth: Bearer JWT
-Body: name (requerido), address, latitude, longitude
-Query:
-    UPDATE sites SET name=$1, address=$2, latitude=$3, longitude=$4
-    WHERE id=$5 AND tenant_id=$6
-    RETURNING ...;
-El WHERE con tenant_id garantiza aislamiento multi-tenant.
-200: success + site | 404 no encontrado | 400 | 401
+PUT /api/sites/:id (update parcial)
 
-### Nota PUT /api/sites/:id (fix 2026-08-08)
-Update parcial con COALESCE: solo se modifican los campos presentes en el body.
-PUT con solo name conserva address; PUT con solo address conserva name.
+    UPDATE sites
+    SET name = COALESCE($1, name), address = COALESCE($2, address),
+        latitude = COALESCE($3, latitude), longitude = COALESCE($4, longitude)
+    WHERE id = $5 AND tenant_id = $6
+    RETURNING id, tenant_id, name, address, latitude, longitude,
+              is_active, created_at;
 
-## 7. Vinculación de dispositivos (Fase 3.2.2) — 2026-08-08
+Respuestas: 200/201 success+site | 400 nombre | 404 ajeno/inexistente | 401
 
-### Tabla claim_codes
-Formato de código: XX-YYYYYY-Z (2 prefijo + 6 random + 1 checksum)
-CHARSET: 23456789ABCDEFGHJKMNPQRSTUVWXYZ (31 chars, sin 0/1/I/L/O/U)
-Checksum: suma ASCII del código base mod 31
+## Dispositivos
 
-### POST /api/admin/generate-codes
-Auth: Bearer JWT (cualquier usuario por ahora)
-Body: prefix (2 chars, default XX), quantity (1-500, default 1)
-Query: INSERT INTO claim_codes (code, device_type, tenant_id, created_by) VALUES ...
-201: success + generated + codes[]
+GET /api/devices
 
-### POST /api/claim
-Auth: Bearer JWT
-Body: code (requerido, formato XX-YYYYYY-Z), site_id (requerido)
-Validaciones: formato, checksum, código active, site_id del tenant
-Query: UPSERT en devices + UPDATE claim_codes status='used'
-201: success + device + code | 400 formato/checksum/ya usado | 404 no encontrado | 401
+    SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,
+           d.bound_at, d.unbound_at, d.site_id, s.name as site_name
+    FROM devices d LEFT JOIN sites s ON s.id = d.site_id
+    WHERE d.tenant_id = $1 ORDER BY s.name, d.device_type;
+
+## Claim codes
+
+POST /api/admin/generate-codes {prefix(2 chars), quantity(1-500)}
+
+    INSERT INTO claim_codes (code, device_type, tenant_id, created_by)
+    VALUES (...) ... RETURNING id, code, device_type, status, created_at;
+
+POST /api/claim {code, site_id}
+Flujo: JWT -> validar formato/checksum -> SELECT por code (SIN filtro status)
+-> check JS (404/400/403) -> UPSERT devices -> UPDATE claim_codes -> 201
+
+    INSERT INTO devices (tenant_id, site_id, device_type, serial_number,
+                         status, bound_at)
+    VALUES ($1,$2,$3,$4,'active',NOW())
+    ON CONFLICT (serial_number) DO UPDATE
+    SET tenant_id = EXCLUDED.tenant_id, site_id = EXCLUDED.site_id,
+        status = 'active', bound_at = NOW()
+    RETURNING id, tenant_id, site_id, device_type, serial_number, status,
+              bound_at;
+
+    UPDATE claim_codes
+    SET status = 'used', claimed_device_id = $1, claimed_at = NOW()
+    WHERE id = $2;
+
+## Troubleshooting
+
+- "Token inválido": validar que la función usa global.get('jwtSecret'),
+  no env.get('JWT_SECRET').
+- "bind message supplies X parameters...": gate con outputs:2 debe retornar
+  [null, msg] en error; revisar que wires tenga DOS arrays.
+- Request colgada (curl sin respuesta): wires incompleto en nodo outputs:2.
+- "relation does not exist": tabla no creada; verificar con \dt.
+- Crash-loop "list.map is not a function": settings.js malformado
+  (externalModules); restaurar desde el repo.
+
+## curl de prueba
+
+    TOKEN=$(curl -s -X POST http://localhost:1880/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"email":"test2@seg360.com","password":"Test1234"}' \
+      | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+    curl -s -H "Authorization: Bearer $TOKEN" http://localhost:1880/api/sites
+    curl -s -H "Authorization: Bearer $TOKEN" http://localhost:1880/api/devices

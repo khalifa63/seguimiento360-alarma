@@ -75,3 +75,34 @@ multi-inquilino, reutilizar estos patrones probados del archivo legacy:
     seguimiento360/tenant/{tenant_id}/site/{site_id}/sensor/{sensor_id}/alert
     seguimiento360/tenant/{tenant_id}/vehicle/{vehicle_id}/gps
     seguimiento360/admin/ota/manifest
+
+## 6. Tab: S360 - Panel (Fase 3.1) — 2026-08-08
+
+Endpoints del panel, filtrados por tenant_id del JWT.
+Config Postgres: nodo s360_pg_alarmas (host postgres, BD seguimiento360_alarmas,
+user admin, password via env PG_PASSWORD).
+
+### GET /api/sites
+Auth: Bearer JWT
+Query:
+    SELECT id, name, address, latitude, longitude, is_active, created_at
+    FROM sites
+    WHERE tenant_id = $1
+    ORDER BY name;
+Respuesta 200: array de sitios del tenant autenticado.
+
+### GET /api/devices
+Auth: Bearer JWT
+Query:
+    SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,
+           d.bound_at, d.unbound_at, d.site_id, s.name as site_name
+    FROM devices d
+    LEFT JOIN sites s ON s.id = d.site_id
+    WHERE d.tenant_id = $1
+    ORDER BY s.name, d.device_type;
+Respuesta 200: array de dispositivos con nombre de sitio.
+
+### PWA
+- Vista #/devices (js/views/devices.js): sitios con dispositivos agrupados,
+  dispositivos sin sitio asignados y regreso al dashboard.
+- Dashboard: boton "Ver Mis Sitios y Dispositivos".

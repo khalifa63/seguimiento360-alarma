@@ -33,6 +33,12 @@ export function renderDashboard(container) {
         </p>
       </div>
 
+      <button class="btn" onclick="location.hash='#/devices'" style="margin-bottom:1rem;">
+        📋 Ver Mis Sitios y Dispositivos
+      </button>
+      <button class="btn" onclick="location.hash='#/devices'" style="margin-bottom:1rem;">
+        📋 Ver Mis Sitios y Dispositivos
+      </button>
       <button class="btn btn-secondary" id="logout-btn">Cerrar Sesión</button>
     `;
     document.getElementById('logout-btn').addEventListener('click', () => Auth.logout());

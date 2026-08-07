@@ -7,12 +7,12 @@ export async function renderDevices(container) {
 
   try {
     const [sitesRes, devicesRes] = await Promise.all([
-      Api.request('/api/sites', { auth: true }),
-      Api.request('/api/devices', { auth: true })
+      Api.sites(),
+      Api.devices()
     ]);
 
-    const sites = sitesRes.payload || [];
-    const devices = devicesRes.payload || [];
+    const sites = sitesRes || [];
+    const devices = devicesRes || [];
 
     // Agrupar dispositivos por site_id
     const devicesBySite = {};

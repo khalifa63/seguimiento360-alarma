@@ -40,5 +40,7 @@ async function request(path, options) {
 export const Api = {
   register: (payload) => request('/api/auth/register', { method: 'POST', body: payload }),
   login:    (payload) => request('/api/auth/login',    { method: 'POST', body: payload }),
-  profile:  ()        => request('/api/auth/profile',  { auth: true })
+  profile:  ()        => request('/api/auth/profile',  { auth: true }),
+  sites:    ()        => request('/api/sites',         { auth: true }),
+  devices:  ()        => request('/api/devices',       { auth: true })
 };

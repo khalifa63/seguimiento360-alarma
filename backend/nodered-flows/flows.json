@@ -719,16 +719,13 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Validar código",
-    "func": "const b = msg.payload || {};\nconst code = (b.code || '').trim().toUpperCase();\nconst siteId = parseInt(b.site_id, 10);\n\nif (!code || !Number.isInteger(siteId)) {\n  msg.statusCode = 400;\n  msg.payload = { error: 'code y site_id son requeridos' };\n  return [null, msg];\n}\n\nconst CHARSET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nif (code.length !== 11 || code[2] !== '-' || code[9] !== '-') {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Formato inválido. Esperado: XX-YYYYYY-Z' };\n  return [null, msg];\n}\n\nconst parts = code.split('-');\nconst base = parts[0] + parts[1];\nconst checksum = parts[2];\nlet sum = 0;\nfor (let i = 0; i < base.length; i++) {\n  sum += base.charCodeAt(i);\n}\nif (CHARSET[sum % CHARSET.length] !== checksum) {\n  msg.statusCode = 400;\n  msg.payload = { error: 'Checksum inválido' };\n  return [null, msg];\n}\n\nmsg.siteId = siteId;\nmsg.params = [code];  // Solo el código, sin tenant_id en el SELECT\nreturn [msg, null];",
-    "outputs": 2,
+    "func": "const b = msg.payload || {};\nconst code = (b.code || '').trim().toUpperCase();\nconst siteId = parseInt(b.site_id, 10);\n\nif (!code || !Number.isInteger(siteId)) {\n  msg.statusCode = 400;\n  msg.error = { error: 'code y site_id son requeridos' };\n  return msg;\n}\n\nconst CHARSET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nif (code.length !== 11 || code[2] !== '-' || code[9] !== '-') {\n  msg.statusCode = 400;\n  msg.error = { error: 'Formato inválido. Esperado: XX-YYYYYY-Z' };\n  return msg;\n}\n\nconst parts = code.split('-');\nconst base = parts[0] + parts[1];\nconst checksum = parts[2];\nlet sum = 0;\nfor (let i = 0; i < base.length; i++) {\n  sum += base.charCodeAt(i);\n}\nif (CHARSET[sum % CHARSET.length] !== checksum) {\n  msg.statusCode = 400;\n  msg.error = { error: 'Checksum inválido' };\n  return msg;\n}\n\nmsg.siteId = siteId;\nmsg.params = [code];\nreturn msg;",
+    "outputs": 1,
     "x": 620,
     "y": 1040,
     "wires": [
       [
         "s360v4_claim_select"
-      ],
-      [
-        "s360v2_http_error"
       ]
     ]
   },
@@ -755,7 +752,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Verificar código",
-    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\n\nif (!row) {\n  msg.statusCode = 404;\n  msg.payload = { error: 'Código no encontrado' };\n  return [null, msg];\n}\n\nif (row.status !== 'active') {\n  msg.statusCode = 400;\n  msg.payload = { \n    error: 'Código ya canjeado', \n    code: row.code, \n    status: row.status,\n    claimed_at: row.claimed_at\n  };\n  return [null, msg];\n}\n\nif (row.tenant_id && row.tenant_id !== msg._user.tenant_id) {\n  msg.statusCode = 403;\n  msg.payload = { error: 'Código no disponible para tu cuenta' };\n  return [null, msg];\n}\n\nmsg.codeData = row;\nreturn [msg, null];",
+    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\n\nif (!row) {\n  msg.statusCode = 404;\n  msg.error = { error: 'Código no encontrado' };\n  return msg;\n}\n\nif (row.status !== 'active') {\n  msg.statusCode = 400;\n  msg.error = { \n    error: 'Código ya canjeado', \n    code: row.code, \n    status: row.status,\n    claimed_at: row.claimed_at\n  };\n  return msg;\n}\n\nif (row.tenant_id && row.tenant_id !== msg._user.tenant_id) {\n  msg.statusCode = 403;\n  msg.error = { error: 'Código no disponible para tu cuenta' };\n  return msg;\n}\n\nmsg.codeData = row;\nreturn msg;",
     "outputs": 1,
     "x": 1020,
     "y": 1040,
@@ -770,7 +767,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Preparar UPSERT",
-    "func": "const cd = msg.codeData;\nconst serialNumber = 'SN-' + cd.code;\nmsg.params = [\n  msg._user.tenant_id,\n  msg.siteId,\n  cd.device_type,\n  serialNumber\n];\nreturn msg;",
+    "func": "if (msg.error) return msg;  // Propagar error\nconst cd = msg.codeData;\nconst serialNumber = 'SN-' + cd.code;\nmsg.params = [\n  msg._user.tenant_id,\n  msg.siteId,\n  cd.device_type,\n  serialNumber\n];\nreturn msg;",
     "outputs": 1,
     "x": 1220,
     "y": 1040,
@@ -803,7 +800,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Preparar UPDATE code",
-    "func": "const device = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nif (!device || !device.id) {\n  msg.statusCode = 500;\n  msg.payload = { error: 'Error al crear dispositivo' };\n  return [null, msg];\n}\nmsg.params = [device.id, msg.codeData.id];\nmsg.createdDevice = device;\nreturn msg;",
+    "func": "if (msg.error) return msg;  // Propagar error\nconst device = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nif (!device || !device.id) {\n  msg.statusCode = 500;\n  msg.error = { error: 'Error al crear dispositivo' };\n  return msg;\n}\nmsg.params = [device.id, msg.codeData.id];\nmsg.createdDevice = device;\nreturn msg;",
     "outputs": 1,
     "x": 1620,
     "y": 1040,
@@ -836,13 +833,53 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Respuesta claim",
-    "func": "msg.statusCode = 201;\nmsg.payload = {\n  success: true,\n  device: msg.createdDevice,\n  code: msg.codeData.code,\n  message: 'Dispositivo vinculado exitosamente'\n};\nreturn msg;",
+    "func": "if (msg.error) {\n  msg.payload = msg.error;\n  return msg;\n}\nmsg.statusCode = 201;\nmsg.payload = {\n  success: true,\n  device: msg.createdDevice,\n  code: msg.codeData.code,\n  message: 'Dispositivo vinculado exitosamente'\n};\nreturn msg;",
     "outputs": 1,
     "x": 1620,
     "y": 1080,
     "wires": [
       [
         "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_catch",
+    "type": "catch",
+    "z": "s360_panel_001",
+    "name": "Catch claim errors",
+    "scope": [
+      "s360v4_claim_in",
+      "s360v4_claim_jwt",
+      "s360v4_claim_validate",
+      "s360v4_claim_select",
+      "s360v4_claim_check",
+      "s360v4_claim_upsert",
+      "s360v4_claim_device",
+      "s360v4_claim_mark",
+      "s360v4_claim_update_code"
+    ],
+    "uncaught": false,
+    "x": 140,
+    "y": 1200,
+    "wires": [
+      [
+        "s360v4_claim_catch_handler"
+      ]
+    ]
+  },
+  {
+    "id": "s360v4_claim_catch_handler",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Error handler",
+    "func": "msg.statusCode = 500;\nmsg.payload = { \n  error: 'Error interno del servidor',\n  detail: msg.error && msg.error.message ? msg.error.message : 'Error desconocido'\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 340,
+    "y": 1200,
+    "wires": [
+      [
+        "s360v2_http_error"
       ]
     ]
   }

@@ -152,3 +152,20 @@ Mosquitto tiene listeners diferenciados:
 3. Node-RED recibe hello, verifica serial coincide
 4. UPDATE hubs SET status='active', last_seen=NOW()
 5. Hub queda disponible para comandos arm/disarm
+
+## Configuración MQTT con listeners diferenciados
+
+### mosquitto.conf
+- Puerto 1883: MQTT TCP, allow_anonymous true (red Docker interna)
+- Puerto 8083: WebSocket, allow_anonymous false, password_file + acl (acceso externo)
+- Puerto 9001: WebSocket alternativo, allow_anonymous false
+
+### ACL
+- user nodered: topic readwrite # (acceso completo)
+- pattern seguimiento360/+/+/+/+/%u/# (para ESP32 con username específico)
+- pattern ghostkey/%u/# (legacy GhostKey)
+
+### Credenciales Node-RED
+- user: nodered
+- password: s360_nodered_2026
+- broker: mosquitto:1883

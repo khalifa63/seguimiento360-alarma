@@ -137,3 +137,23 @@ Respuesta 200: array de dispositivos con nombre de sitio.
 - Vista #/devices (js/views/devices.js): sitios con dispositivos agrupados,
   dispositivos sin sitio asignados y regreso al dashboard.
 - Dashboard: boton "Ver Mis Sitios y Dispositivos".
+
+### POST /api/sites (Fase 3.2.1) — 2026-08-08
+Auth: Bearer JWT
+Body: name (requerido), address, latitude, longitude (opcionales)
+Query:
+    INSERT INTO sites (tenant_id, name, address, latitude, longitude)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, tenant_id, name, address, latitude, longitude, is_active, created_at;
+tenant_id tomado SIEMPRE del JWT (nunca del body).
+201: success + site | 400 nombre faltante | 401 | 500
+
+### PUT /api/sites/:id (Fase 3.2.1)
+Auth: Bearer JWT
+Body: name (requerido), address, latitude, longitude
+Query:
+    UPDATE sites SET name=$1, address=$2, latitude=$3, longitude=$4
+    WHERE id=$5 AND tenant_id=$6
+    RETURNING ...;
+El WHERE con tenant_id garantiza aislamiento multi-tenant.
+200: success + site | 404 no encontrado | 400 | 401

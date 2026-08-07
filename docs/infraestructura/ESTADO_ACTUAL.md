@@ -35,3 +35,15 @@ Registro de diferencias reales respecto a la documentacion original (infraestruc
 - [ ] Estandarizar origenes del tunnel a nombres de contenedor
 - [ ] Restringir puertos publicados a 127.0.0.1 donde sea posible
 - [ ] adminAuth para Node-RED
+
+### PWA Autenticación (Fase 2)
+- **Estado:** ✅ Completado
+- **Fecha:** 2026-08-07
+- **Componentes:**
+  - PWA vanilla (HTML/CSS/JS) en `frontend/pwa/`
+  - Build versionado con `scripts/deploy-pwa.sh`
+  - Login/Registro/Perfil con JWT (24h expiry)
+  - CORS habilitado vía `httpNodeCors` en `settings.js`
+  - Service Worker v2 con network-first para navegaciones
+- **Acceso:** https://seguimiento360.com/app/
+- **API:** https://nodered.seguimiento360.com/api/auth/*

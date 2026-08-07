@@ -1,0 +1,71 @@
+:root {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --accent: #3b82f6;
+  --danger: #ef4444;
+  --success: #10b981;
+  --radius: 8px;
+  --font-main: system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-main);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Contenedor principal SPA */
+#app-container {
+  flex: 1;
+  padding: 1rem;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Utilidades */
+.hidden { display: none !important; }
+.btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  background-color: var(--accent);
+  color: white;
+}
+.btn:active { opacity: 0.8; }
+.btn-secondary { background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid #334155; }
+.input-group { margin-bottom: 1rem; }
+.input-group label { display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.9rem; }
+.input-group input {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid #334155;
+  border-radius: var(--radius);
+  color: white;
+  font-size: 1rem;
+}
+.card {
+  background: var(--bg-secondary);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  border: 1px solid #334155;
+}
+.alert { padding: 10px; border-radius: var(--radius); margin-bottom: 1rem; font-size: 0.9rem; }
+.alert-error { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid var(--danger); }
+.alert-success { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid var(--success); }

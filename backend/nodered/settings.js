@@ -549,7 +549,18 @@ adminAuth: {
     /** The following property can be used to set predefined values in Global Context.
      * This allows extra node modules to be made available with in Function node.
      * For example, the following:
-     *    functionGlobalContext: { os:require('os') }
+     *    functionGlobalContext: {os:require('os')
+    pg: require('pg'),
+    bcrypt: require('bcryptjs'),
+    jwt: require('jsonwebtoken'),
+    dbConfig: {
+        host: 'postgres',
+        port: 5432,
+        database: 'seguimiento360_alarmas',
+        user: 'admin',
+        password: process.env.PG_PASSWORD
+    },
+    jwtSecret: process.env.JWT_SECRET,}
      * will allow the `os` module to be accessed in a Function node using:
      *    global.get("os")
      */

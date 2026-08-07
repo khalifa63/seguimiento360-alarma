@@ -1,573 +1,416 @@
 [
-    {
-        "id": "1a2b3c4d5e6f7001",
-        "type": "tab",
-        "label": "Autenticacion",
-        "disabled": false,
-        "info": "API de registro, login y perfil para el sistema de alarmas",
-        "env": []
-    },
-    {
-        "id": "1a2b3c4d5e6f7010",
-        "type": "http in",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "POST /api/auth/register",
-        "url": "/api/auth/register",
-        "method": "post",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 160,
-        "y": 80,
-        "wires": [
-            [
-                "1a2b3c4d5e6f7011"
-            ]
-        ]
-    },
-    {
-        "id": "1a2b3c4d5e6f7011",
-        "type": "function",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "Registrar usuario",
-        "func": "const pg = global.get('pg');\nconst bcrypt = global.get('bcrypt');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const { email, password, full_name, phone } = msg.payload;\n    if (!email || !password) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email y password son requeridos' };\n        return msg;\n    }\n    if (password.length < 8) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Password debe tener al menos 8 caracteres' };\n        return msg;\n    }\n    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    if (!emailRegex.test(email)) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email invalido' };\n        return msg;\n    }\n    await client.connect();\n    const existing = await client.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);\n    if (existing.rows.length > 0) {\n        msg.statusCode = 409;\n        msg.payload = { error: 'El email ya esta registrado' };\n        return msg;\n    }\n    const password_hash = await bcrypt.hash(password, 10);\n    const userResult = await client.query('INSERT INTO users (email, password_hash, full_name, phone, role, is_active) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, email, full_name, role', [email.toLowerCase(), password_hash, full_name || null, phone || null, 'customer']);\n    const user = userResult.rows[0];\n    const tenantResult = await client.query('INSERT INTO tenants (name, owner_user_id, is_active) VALUES ($1, $2, true) RETURNING id', [email.split('@')[0], user.id]);\n    msg.statusCode = 201;\n    msg.payload = { success: true, user: user, tenant_id: tenantResult.rows[0].id };\n    return msg;\n} catch (err) {\n    node.error('Register: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 410,
-        "y": 80,
-        "wires": [
-            [
-                "1a2b3c4d5e6f7012"
-            ]
-        ]
-    },
-    {
-        "id": "1a2b3c4d5e6f7012",
-        "type": "http response",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "",
-        "statusCode": "",
-        "headers": {},
-        "x": 640,
-        "y": 80,
-        "wires": []
-    },
-    {
-        "id": "1a2b3c4d5e6f7020",
-        "type": "http in",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "POST /api/auth/login",
-        "url": "/api/auth/login",
-        "method": "post",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 150,
-        "y": 220,
-        "wires": [
-            [
-                "1a2b3c4d5e6f7021"
-            ]
-        ]
-    },
-    {
-        "id": "1a2b3c4d5e6f7021",
-        "type": "function",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "Login + JWT",
-        "func": "const pg = global.get('pg');\nconst bcrypt = global.get('bcrypt');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const { email, password } = msg.payload;\n    if (!email || !password) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email y password son requeridos' };\n        return msg;\n    }\n    await client.connect();\n    const result = await client.query('SELECT u.id, u.email, u.password_hash, u.full_name, u.phone, u.role, u.is_active, t.id as tenant_id FROM users u LEFT JOIN tenants t ON t.owner_user_id = u.id AND t.is_active = true WHERE u.email = $1', [email.toLowerCase()]);\n    if (result.rows.length === 0) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Credenciales invalidas' };\n        return msg;\n    }\n    const user = result.rows[0];\n    if (!user.is_active) {\n        msg.statusCode = 403;\n        msg.payload = { error: 'Cuenta desactivada' };\n        return msg;\n    }\n    const match = await bcrypt.compare(password, user.password_hash);\n    if (!match) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Credenciales invalidas' };\n        return msg;\n    }\n    const token = jwt.sign({ user_id: user.id, email: user.email, role: user.role, tenant_id: user.tenant_id }, jwtSecret, { expiresIn: '24h' });\n    msg.statusCode = 200;\n    msg.payload = { success: true, token: token, user: { id: user.id, email: user.email, full_name: user.full_name, role: user.role, tenant_id: user.tenant_id } };\n    return msg;\n} catch (err) {\n    node.error('Login: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 400,
-        "y": 220,
-        "wires": [
-            [
-                "1a2b3c4d5e6f7022"
-            ]
-        ]
-    },
-    {
-        "id": "1a2b3c4d5e6f7022",
-        "type": "http response",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "",
-        "statusCode": "",
-        "headers": {},
-        "x": 640,
-        "y": 220,
-        "wires": []
-    },
-    {
-        "id": "1a2b3c4d5e6f7030",
-        "type": "http in",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "GET /api/auth/profile",
-        "url": "/api/auth/profile",
-        "method": "get",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 150,
-        "y": 360,
-        "wires": [
-            [
-                "1a2b3c4d5e6f7031"
-            ]
-        ]
-    },
-    {
-        "id": "1a2b3c4d5e6f7031",
-        "type": "function",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "Perfil con JWT",
-        "func": "const pg = global.get('pg');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const authHeader = msg.req.headers.authorization;\n    if (!authHeader || !authHeader.startsWith('Bearer ')) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Token no proporcionado' };\n        return msg;\n    }\n    const token = authHeader.substring(7);\n    let decoded;\n    try {\n        decoded = jwt.verify(token, jwtSecret);\n    } catch (e) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Token invalido o expirado' };\n        return msg;\n    }\n    await client.connect();\n    const result = await client.query('SELECT u.id, u.email, u.full_name, u.phone, u.role, u.is_active, u.created_at, t.id as tenant_id, t.name as tenant_name FROM users u LEFT JOIN tenants t ON t.owner_user_id = u.id WHERE u.id = $1', [decoded.user_id]);\n    if (result.rows.length === 0) {\n        msg.statusCode = 404;\n        msg.payload = { error: 'Usuario no encontrado' };\n        return msg;\n    }\n    msg.statusCode = 200;\n    msg.payload = { success: true, user: result.rows[0] };\n    return msg;\n} catch (err) {\n    node.error('Profile: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 400,
-        "y": 360,
-        "wires": [
-            [
-                "1a2b3c4d5e6f7032"
-            ]
-        ]
-    },
-    {
-        "id": "1a2b3c4d5e6f7032",
-        "type": "http response",
-        "z": "1a2b3c4d5e6f7001",
-        "name": "",
-        "statusCode": "",
-        "headers": {},
-        "x": 640,
-        "y": 360,
-        "wires": []
-    },
-    {
-        "id": "s360_panel_001",
-        "type": "tab",
-        "label": "S360 - Panel",
-        "disabled": false,
-        "info": "Endpoints del panel de alarma (sitios, dispositivos, armado/desarmado)"
-    },
-    {
-        "id": "s360_get_sites_in",
-        "type": "http in",
-        "z": "s360_panel_001",
-        "name": "GET /api/sites",
-        "url": "/api/sites",
-        "method": "get",
-        "upload": false,
-        "x": 140,
-        "y": 100,
-        "wires": [
-            [
-                "s360_get_sites_jwt"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_sites_jwt",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Validar JWT",
-        "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
-        "outputs": 2,
-        "x": 340,
-        "y": 100,
-        "wires": [
-            [
-                "s360_get_sites_query"
-            ],
-            [
-                "s360_http_error"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_sites_query",
-        "type": "postgresql",
-        "z": "s360_panel_001",
-        "name": "SELECT sites",
-        "query": "SELECT id, name, address, latitude, longitude, is_active, created_at\nFROM sites\nWHERE tenant_id = $1\nORDER BY name;",
-        "postgreSQLConfig": "s360_pg_alarmas",
-        "split": false,
-        "rowsPerMsg": 1,
-        "outputs": 1,
-        "x": 540,
-        "y": 100,
-        "wires": [
-            [
-                "s360_get_sites_resp"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_sites_resp",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Respuesta 200",
-        "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
-        "outputs": 1,
-        "x": 740,
-        "y": 100,
-        "wires": [
-            [
-                "s360_http_ok"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_in",
-        "type": "http in",
-        "z": "s360_panel_001",
-        "name": "GET /api/devices",
-        "url": "/api/devices",
-        "method": "get",
-        "upload": false,
-        "x": 140,
-        "y": 260,
-        "wires": [
-            [
-                "s360_get_devices_jwt"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_jwt",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Validar JWT",
-        "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
-        "outputs": 2,
-        "x": 340,
-        "y": 260,
-        "wires": [
-            [
-                "s360_get_devices_query"
-            ],
-            [
-                "s360_http_error"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_query",
-        "type": "postgresql",
-        "z": "s360_panel_001",
-        "name": "SELECT devices",
-        "query": "SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,\n       d.bound_at, d.unbound_at, d.site_id, s.name as site_name\nFROM devices d\nLEFT JOIN sites s ON s.id = d.site_id\nWHERE d.tenant_id = $1\nORDER BY s.name, d.device_type;",
-        "postgreSQLConfig": "s360_pg_alarmas",
-        "split": false,
-        "rowsPerMsg": 1,
-        "outputs": 1,
-        "x": 540,
-        "y": 260,
-        "wires": [
-            [
-                "s360_get_devices_resp"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_resp",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Respuesta 200",
-        "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
-        "outputs": 1,
-        "x": 740,
-        "y": 260,
-        "wires": [
-            [
-                "s360_http_ok"
-            ]
-        ]
-    },
-    {
-        "id": "s360_http_ok",
-        "type": "http response",
-        "z": "s360_panel_001",
-        "name": "HTTP 200",
-        "statusCode": "",
-        "x": 940,
-        "y": 100,
-        "wires": []
-    },
-    {
-        "id": "s360_http_error",
-        "type": "http response",
-        "z": "s360_panel_001",
-        "name": "HTTP Error",
-        "statusCode": "",
-        "x": 940,
-        "y": 400,
-        "wires": []
-    },
-    {
-        "id": "s360_catch",
-        "type": "catch",
-        "z": "s360_panel_001",
-        "name": "Catch errores",
-        "scope": null,
-        "uncaught": false,
-        "x": 340,
-        "y": 400,
-        "wires": [
-            [
-                "s360_catch_handler"
-            ]
-        ]
-    },
-    {
-        "id": "s360_catch_handler",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Error 500",
-        "func": "msg.statusCode = 500;\nmsg.payload = { error: 'Error interno', detail: msg.error && msg.error.message ? msg.error.message : 'desconocido' };\nreturn msg;",
-        "outputs": 1,
-        "x": 540,
-        "y": 400,
-        "wires": [
-            [
-                "s360_http_error"
-            ]
-        ]
-    },
-    {
-        "id": "s360_panel_001",
-        "type": "tab",
-        "label": "S360 - Panel",
-        "disabled": false,
-        "info": "Endpoints del panel de alarma (sitios, dispositivos, armado/desarmado)"
-    },
-    {
-        "id": "s360_get_sites_in",
-        "type": "http in",
-        "z": "s360_panel_001",
-        "name": "GET /api/sites",
-        "url": "/api/sites",
-        "method": "get",
-        "upload": false,
-        "x": 140,
-        "y": 100,
-        "wires": [
-            [
-                "s360_get_sites_jwt"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_sites_jwt",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Validar JWT",
-        "func": "const secret = env.get('JWT_SECRET');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), secret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
-        "outputs": 2,
-        "libs": [
-            {
-                "var": "jwt",
-                "module": "jsonwebtoken"
-            }
-        ],
-        "x": 340,
-        "y": 100,
-        "wires": [
-            [
-                "s360_get_sites_query"
-            ],
-            [
-                "s360_http_error"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_sites_query",
-        "type": "postgresql",
-        "z": "s360_panel_001",
-        "name": "SELECT sites",
-        "query": "SELECT id, name, address, latitude, longitude, is_active, created_at\nFROM sites\nWHERE tenant_id = $1\nORDER BY name;",
-        "postgreSQLConfig": "s360_pg_alarmas",
-        "split": false,
-        "rowsPerMsg": 1,
-        "outputs": 1,
-        "x": 540,
-        "y": 100,
-        "wires": [
-            [
-                "s360_get_sites_resp"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_sites_resp",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Respuesta 200",
-        "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
-        "outputs": 1,
-        "x": 740,
-        "y": 100,
-        "wires": [
-            [
-                "s360_http_ok"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_in",
-        "type": "http in",
-        "z": "s360_panel_001",
-        "name": "GET /api/devices",
-        "url": "/api/devices",
-        "method": "get",
-        "upload": false,
-        "x": 140,
-        "y": 260,
-        "wires": [
-            [
-                "s360_get_devices_jwt"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_jwt",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Validar JWT",
-        "func": "const secret = env.get('JWT_SECRET');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), secret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
-        "outputs": 2,
-        "libs": [
-            {
-                "var": "jwt",
-                "module": "jsonwebtoken"
-            }
-        ],
-        "x": 340,
-        "y": 260,
-        "wires": [
-            [
-                "s360_get_devices_query"
-            ],
-            [
-                "s360_http_error"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_query",
-        "type": "postgresql",
-        "z": "s360_panel_001",
-        "name": "SELECT devices",
-        "query": "SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,\n       d.bound_at, d.unbound_at, d.site_id, s.name as site_name\nFROM devices d\nLEFT JOIN sites s ON s.id = d.site_id\nWHERE d.tenant_id = $1\nORDER BY s.name, d.device_type;",
-        "postgreSQLConfig": "s360_pg_alarmas",
-        "split": false,
-        "rowsPerMsg": 1,
-        "outputs": 1,
-        "x": 540,
-        "y": 260,
-        "wires": [
-            [
-                "s360_get_devices_resp"
-            ]
-        ]
-    },
-    {
-        "id": "s360_get_devices_resp",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Respuesta 200",
-        "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
-        "outputs": 1,
-        "x": 740,
-        "y": 260,
-        "wires": [
-            [
-                "s360_http_ok"
-            ]
-        ]
-    },
-    {
-        "id": "s360_http_ok",
-        "type": "http response",
-        "z": "s360_panel_001",
-        "name": "HTTP 200",
-        "statusCode": "",
-        "x": 940,
-        "y": 100,
-        "wires": []
-    },
-    {
-        "id": "s360_http_error",
-        "type": "http response",
-        "z": "s360_panel_001",
-        "name": "HTTP Error",
-        "statusCode": "",
-        "x": 940,
-        "y": 400,
-        "wires": []
-    },
-    {
-        "id": "s360_catch",
-        "type": "catch",
-        "z": "s360_panel_001",
-        "name": "Catch errores",
-        "scope": null,
-        "uncaught": false,
-        "x": 340,
-        "y": 400,
-        "wires": [
-            [
-                "s360_catch_handler"
-            ]
-        ]
-    },
-    {
-        "id": "s360_catch_handler",
-        "type": "function",
-        "z": "s360_panel_001",
-        "name": "Error 500",
-        "func": "msg.statusCode = 500;\nmsg.payload = { error: 'Error interno', detail: msg.error && msg.error.message ? msg.error.message : 'desconocido' };\nreturn msg;",
-        "outputs": 1,
-        "x": 540,
-        "y": 400,
-        "wires": [
-            [
-                "s360_http_error"
-            ]
-        ]
-    },
-    {
-        "id": "s360_pg_alarmas",
-        "type": "postgreSQLConfig",
-        "name": "S360 alarmas DB",
-        "host": "postgres",
-        "hostFieldType": "str",
-        "port": 5432,
-        "portFieldType": "num",
-        "database": "seguimiento360_alarmas",
-        "databaseFieldType": "str",
-        "ssl": "false",
-        "sslFieldType": "bool",
-        "applicationName": "",
-        "applicationNameType": "str",
-        "max": 10,
-        "maxFieldType": "num",
-        "idle": 1000,
-        "idleFieldType": "num",
-        "connectionTimeout": 10000,
-        "connectionTimeoutFieldType": "num",
-        "user": "admin",
-        "userFieldType": "str",
-        "password": "PG_PASSWORD",
-        "passwordFieldType": "env"
-    }
+  {
+    "id": "1a2b3c4d5e6f7001",
+    "type": "tab",
+    "label": "Autenticacion",
+    "disabled": false,
+    "info": "API de registro, login y perfil para el sistema de alarmas",
+    "env": []
+  },
+  {
+    "id": "1a2b3c4d5e6f7010",
+    "type": "http in",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "POST /api/auth/register",
+    "url": "/api/auth/register",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 160,
+    "y": 80,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7011"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7011",
+    "type": "function",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "Registrar usuario",
+    "func": "const pg = global.get('pg');\nconst bcrypt = global.get('bcrypt');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const { email, password, full_name, phone } = msg.payload;\n    if (!email || !password) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email y password son requeridos' };\n        return msg;\n    }\n    if (password.length < 8) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Password debe tener al menos 8 caracteres' };\n        return msg;\n    }\n    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    if (!emailRegex.test(email)) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email invalido' };\n        return msg;\n    }\n    await client.connect();\n    const existing = await client.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);\n    if (existing.rows.length > 0) {\n        msg.statusCode = 409;\n        msg.payload = { error: 'El email ya esta registrado' };\n        return msg;\n    }\n    const password_hash = await bcrypt.hash(password, 10);\n    const userResult = await client.query('INSERT INTO users (email, password_hash, full_name, phone, role, is_active) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, email, full_name, role', [email.toLowerCase(), password_hash, full_name || null, phone || null, 'customer']);\n    const user = userResult.rows[0];\n    const tenantResult = await client.query('INSERT INTO tenants (name, owner_user_id, is_active) VALUES ($1, $2, true) RETURNING id', [email.split('@')[0], user.id]);\n    msg.statusCode = 201;\n    msg.payload = { success: true, user: user, tenant_id: tenantResult.rows[0].id };\n    return msg;\n} catch (err) {\n    node.error('Register: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 80,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7012"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7012",
+    "type": "http response",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 640,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "1a2b3c4d5e6f7020",
+    "type": "http in",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "POST /api/auth/login",
+    "url": "/api/auth/login",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 150,
+    "y": 220,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7021"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7021",
+    "type": "function",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "Login + JWT",
+    "func": "const pg = global.get('pg');\nconst bcrypt = global.get('bcrypt');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const { email, password } = msg.payload;\n    if (!email || !password) {\n        msg.statusCode = 400;\n        msg.payload = { error: 'Email y password son requeridos' };\n        return msg;\n    }\n    await client.connect();\n    const result = await client.query('SELECT u.id, u.email, u.password_hash, u.full_name, u.phone, u.role, u.is_active, t.id as tenant_id FROM users u LEFT JOIN tenants t ON t.owner_user_id = u.id AND t.is_active = true WHERE u.email = $1', [email.toLowerCase()]);\n    if (result.rows.length === 0) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Credenciales invalidas' };\n        return msg;\n    }\n    const user = result.rows[0];\n    if (!user.is_active) {\n        msg.statusCode = 403;\n        msg.payload = { error: 'Cuenta desactivada' };\n        return msg;\n    }\n    const match = await bcrypt.compare(password, user.password_hash);\n    if (!match) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Credenciales invalidas' };\n        return msg;\n    }\n    const token = jwt.sign({ user_id: user.id, email: user.email, role: user.role, tenant_id: user.tenant_id }, jwtSecret, { expiresIn: '24h' });\n    msg.statusCode = 200;\n    msg.payload = { success: true, token: token, user: { id: user.id, email: user.email, full_name: user.full_name, role: user.role, tenant_id: user.tenant_id } };\n    return msg;\n} catch (err) {\n    node.error('Login: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 220,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7022"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7022",
+    "type": "http response",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 640,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "1a2b3c4d5e6f7030",
+    "type": "http in",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "GET /api/auth/profile",
+    "url": "/api/auth/profile",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 150,
+    "y": 360,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7031"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7031",
+    "type": "function",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "Perfil con JWT",
+    "func": "const pg = global.get('pg');\nconst jwt = global.get('jwt');\nconst dbConfig = global.get('dbConfig');\nconst jwtSecret = global.get('jwtSecret');\nconst client = new pg.Client(dbConfig);\ntry {\n    const authHeader = msg.req.headers.authorization;\n    if (!authHeader || !authHeader.startsWith('Bearer ')) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Token no proporcionado' };\n        return msg;\n    }\n    const token = authHeader.substring(7);\n    let decoded;\n    try {\n        decoded = jwt.verify(token, jwtSecret);\n    } catch (e) {\n        msg.statusCode = 401;\n        msg.payload = { error: 'Token invalido o expirado' };\n        return msg;\n    }\n    await client.connect();\n    const result = await client.query('SELECT u.id, u.email, u.full_name, u.phone, u.role, u.is_active, u.created_at, t.id as tenant_id, t.name as tenant_name FROM users u LEFT JOIN tenants t ON t.owner_user_id = u.id WHERE u.id = $1', [decoded.user_id]);\n    if (result.rows.length === 0) {\n        msg.statusCode = 404;\n        msg.payload = { error: 'Usuario no encontrado' };\n        return msg;\n    }\n    msg.statusCode = 200;\n    msg.payload = { success: true, user: result.rows[0] };\n    return msg;\n} catch (err) {\n    node.error('Profile: ' + err.message, msg);\n    msg.statusCode = 500;\n    msg.payload = { error: 'Error interno del servidor' };\n    return msg;\n} finally {\n    client.end().catch(()=>{});\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 360,
+    "wires": [
+      [
+        "1a2b3c4d5e6f7032"
+      ]
+    ]
+  },
+  {
+    "id": "1a2b3c4d5e6f7032",
+    "type": "http response",
+    "z": "1a2b3c4d5e6f7001",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 640,
+    "y": 360,
+    "wires": []
+  },
+  {
+    "id": "s360_panel_001",
+    "type": "tab",
+    "label": "S360 - Panel",
+    "disabled": false,
+    "info": "Endpoints del panel de alarma (sitios, dispositivos, armado/desarmado)"
+  },
+  {
+    "id": "s360_panel_001",
+    "type": "tab",
+    "label": "S360 - Panel",
+    "disabled": false,
+    "info": "Endpoints del panel de alarma (sitios, dispositivos, armado/desarmado)"
+  },
+  {
+    "id": "s360_pg_alarmas",
+    "type": "postgreSQLConfig",
+    "name": "S360 alarmas DB",
+    "host": "postgres",
+    "hostFieldType": "str",
+    "port": 5432,
+    "portFieldType": "num",
+    "database": "seguimiento360_alarmas",
+    "databaseFieldType": "str",
+    "ssl": "false",
+    "sslFieldType": "bool",
+    "applicationName": "",
+    "applicationNameType": "str",
+    "max": 10,
+    "maxFieldType": "num",
+    "idle": 1000,
+    "idleFieldType": "num",
+    "connectionTimeout": 10000,
+    "connectionTimeoutFieldType": "num",
+    "user": "admin",
+    "userFieldType": "str",
+    "password": "PG_PASSWORD",
+    "passwordFieldType": "env"
+  },
+  {
+    "id": "diag_get_secrets",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Diagnóstico JWT",
+    "func": "const globalSecret = global.get('jwtSecret');\nconst envSecret = env.get('JWT_SECRET');\nconst jwt = global.get('jwt');\n\nconst auth = msg.req.headers['authorization'] || '';\nlet token = null;\nif (auth.startsWith('Bearer ')) {\n    token = auth.slice(7);\n}\n\nlet verifyResult = 'N/A';\nif (token && jwt && globalSecret) {\n    try {\n        const decoded = jwt.verify(token, globalSecret);\n        verifyResult = 'OK: ' + JSON.stringify(decoded);\n    } catch(e) {\n        verifyResult = 'ERROR: ' + e.message;\n    }\n}\n\nmsg.payload = {\n    globalSecret: globalSecret ? globalSecret.substring(0, 20) + '...' : 'undefined',\n    globalSecretLength: globalSecret ? globalSecret.length : 0,\n    envSecret: envSecret ? envSecret.substring(0, 20) + '...' : 'undefined',\n    envSecretLength: envSecret ? envSecret.length : 0,\n    areEqual: globalSecret === envSecret,\n    token: token ? token.substring(0, 50) + '...' : 'none',\n    verifyWithGlobal: verifyResult\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 500,
+    "y": 600,
+    "wires": [
+      [
+        "diag_response"
+      ]
+    ]
+  },
+  {
+    "id": "diag_http_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "GET /api/diagnose",
+    "url": "/api/diagnose",
+    "method": "get",
+    "x": 300,
+    "y": 600,
+    "wires": [
+      [
+        "diag_get_secrets"
+      ]
+    ]
+  },
+  {
+    "id": "diag_response",
+    "type": "http response",
+    "z": "s360_panel_001",
+    "name": "Response",
+    "x": 700,
+    "y": 600,
+    "wires": []
+  },
+  {
+    "id": "s360v2_sites_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "GET /api/sites",
+    "url": "/api/sites",
+    "method": "get",
+    "upload": false,
+    "x": 140,
+    "y": 100,
+    "wires": [
+      [
+        "s360v2_sites_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_sites_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Validar JWT sites",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 360,
+    "y": 100,
+    "wires": [
+      [
+        "s360v2_sites_query"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_sites_query",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "SELECT sites",
+    "query": "SELECT id, name, address, latitude, longitude, is_active, created_at\nFROM sites\nWHERE tenant_id = $1\nORDER BY name;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 560,
+    "y": 100,
+    "wires": [
+      [
+        "s360v2_sites_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_sites_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Respuesta sites",
+    "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
+    "outputs": 1,
+    "x": 760,
+    "y": 100,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_devices_in",
+    "type": "http in",
+    "z": "s360_panel_001",
+    "name": "GET /api/devices",
+    "url": "/api/devices",
+    "method": "get",
+    "upload": false,
+    "x": 140,
+    "y": 260,
+    "wires": [
+      [
+        "s360v2_devices_jwt"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_devices_jwt",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Validar JWT devices",
+    "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+    "outputs": 2,
+    "x": 360,
+    "y": 260,
+    "wires": [
+      [
+        "s360v2_devices_query"
+      ],
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_devices_query",
+    "type": "postgresql",
+    "z": "s360_panel_001",
+    "name": "SELECT devices",
+    "query": "SELECT d.id, d.serial_number, d.device_type, d.firmware_version, d.status,\n       d.bound_at, d.unbound_at, d.site_id, s.name as site_name\nFROM devices d\nLEFT JOIN sites s ON s.id = d.site_id\nWHERE d.tenant_id = $1\nORDER BY s.name, d.device_type;",
+    "postgreSQLConfig": "s360_pg_alarmas",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 560,
+    "y": 260,
+    "wires": [
+      [
+        "s360v2_devices_resp"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_devices_resp",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Respuesta devices",
+    "func": "msg.statusCode = 200;\nmsg.payload = msg.payload || [];\nreturn msg;",
+    "outputs": 1,
+    "x": 760,
+    "y": 260,
+    "wires": [
+      [
+        "s360v2_http_ok"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_http_ok",
+    "type": "http response",
+    "z": "s360_panel_001",
+    "name": "HTTP 200",
+    "statusCode": "",
+    "x": 960,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "s360v2_http_error",
+    "type": "http response",
+    "z": "s360_panel_001",
+    "name": "HTTP Error",
+    "statusCode": "",
+    "x": 960,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "s360v2_catch",
+    "type": "catch",
+    "z": "s360_panel_001",
+    "name": "Catch Panel",
+    "scope": null,
+    "uncaught": false,
+    "x": 340,
+    "y": 400,
+    "wires": [
+      [
+        "s360v2_catch_handler"
+      ]
+    ]
+  },
+  {
+    "id": "s360v2_catch_handler",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Error 500",
+    "func": "msg.statusCode = 500;\nmsg.payload = { error: 'Error interno', detail: msg.error && msg.error.message ? msg.error.message : 'desconocido' };\nreturn msg;",
+    "outputs": 1,
+    "x": 560,
+    "y": 400,
+    "wires": [
+      [
+        "s360v2_http_error"
+      ]
+    ]
+  }
 ]

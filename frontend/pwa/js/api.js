@@ -32,6 +32,7 @@ async function request(path, options) {
   if (!res.ok) {
     const err = new Error((data && data.error) ? data.error : 'Error ' + res.status);
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;
@@ -41,8 +42,17 @@ export const Api = {
   register:   (payload) => request('/api/auth/register', { method: 'POST', body: payload }),
   login:      (payload) => request('/api/auth/login',    { method: 'POST', body: payload }),
   profile:    ()        => request('/api/auth/profile',  { auth: true }),
+
+  // Sitios (Fase 3.2.1)
   sites:      ()        => request('/api/sites',         { auth: true }),
   createSite: (payload) => request('/api/sites',         { auth: true, method: 'POST', body: payload }),
   updateSite: (id, payload) => request('/api/sites/' + id, { auth: true, method: 'PUT', body: payload }),
-  devices:    ()        => request('/api/devices',       { auth: true })
+
+  // Dispositivos (Fase 3.1 + 3.2.2)
+  devices:    ()        => request('/api/devices',       { auth: true }),
+  claimDevice:(payload) => request('/api/claim',         { auth: true, method: 'POST', body: payload }),
+
+  // Admin (Fase 3.2.2b)
+  generateCodes: (payload) => request('/api/admin/generate-codes', { auth: true, method: 'POST', body: payload }),
+  claimCodes:    ()        => request('/api/admin/claim-codes',    { auth: true })
 };

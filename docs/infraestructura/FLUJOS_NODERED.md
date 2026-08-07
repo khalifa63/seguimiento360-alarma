@@ -1,0 +1,77 @@
+# Flujos de Node-RED — Catálogo Operativo (Seguimiento 360)
+
+**Actualizado:** 2026-08-07
+**Snapshot limpio:** backend/nodered-flows/flows.json (10 nodos, podado)
+**Auditoría de funciones:** backend/nodered-flows/autenticacion-funciones.js
+**Archivo legacy:** backend/nodered-flows/archive/flows-legacy-ghostkey-20260807.json
+(desarrollo GhostKey, schema ghostkey_v2 sobre BD traccar; NO activo, solo referencia)
+
+---
+
+## 1. Configuración runtime (backend/nodered/settings.js)
+
+- credentialSecret: process.env.NODE_RED_CREDENTIAL_SECRET (desencripta flows_cred.json)
+- functionGlobalContext: pg (pg), bcrypt (bcryptjs), jwt (jsonwebtoken)
+- httpNodeRoot: "/"
+- httpNodeCors: ACTIVO (origin "*", metodos GET,PUT,POST,DELETE, preflight 204)
+- httpNodeMiddleware: headers CORS + OPTIONS 204 (defensa en profundidad)
+- Editor: sin adminAuth (endurecimiento pendiente, Cap. 7.7 del marco teorico)
+
+## 2. Tab activo: Autenticacion (id 1a2b3c4d5e6f7001)
+
+Patron por endpoint: http in -> function -> http response.
+BD: seguimiento360_alarmas (contenedor postgres, red Docker iot-alarma_default).
+
+### POST /api/auth/register — funcion "Registrar usuario"
+- Body: email, password, full_name, phone
+- Validaciones: requeridos email/password/full_name; regex email; password >= 8; email a minusculas
+- bcrypt 10 rounds; role default customer
+- Transaccion: INSERT users + INSERT tenants (owner_user_id = nuevo user)
+- 201: success + user + tenant_id | 400 validacion | 409 email duplicado | 500
+
+### POST /api/auth/login — funcion "Login + JWT"
+- 200: success + token JWT (expiracion 24 h) + user con tenant_id
+- Payload JWT: user_id, tenant_id, role (Cap. 7.4)
+- 400 faltantes | 401 credenciales invalidas | 403 cuenta desactivada (is_active=false) | 500
+
+### GET /api/auth/profile — funcion "Perfil con JWT"
+- Header: Authorization Bearer
+- 200: user completo + tenant_name | 401 token ausente/invalido/expirado | 404 | 500
+
+## 3. Estandares para nuevos endpoints (Fase 3 en adelante)
+
+1. Un tab por funcionalidad, nombre "S360 - <nombre>".
+2. Primera function del chain: validar JWT con jwt de functionGlobalContext;
+   rechazar con 401 antes de tocar BD.
+3. SQL con pg usando parametros $1..$n; SIEMPRE filtrar por tenant_id del JWT
+   (aislamiento multi-inquilino, Cap. 7.4).
+4. Errores como {"error": "mensaje"} con msg.statusCode; exitos con payload JSON.
+5. NO definir headers CORS por nodo: CORS es global (httpNodeCors).
+6. Todo cambio de flujos: docker cp del snapshot al repo + commit (fuente de verdad).
+7. Auditoria de acciones criticas en device_audit_log (bind/unbind/transfer).
+
+## 4. Patrones rescatables del legacy GhostKey (referencia de rediseño)
+
+Cuando se construyan los endpoints de alarma/dispositivos sobre el esquema
+multi-inquilino, reutilizar estos patrones probados del archivo legacy:
+
+- FSM de estados: FACTORY, WAREHOUSE, DISARMED, ARMED, ALERT_MOVING,
+  ALERT_STOPPED, INACTIVE, BATTERY_CRITICAL.
+- Modelo desired_state vs device_state: el estado real solo cambia tras ACK
+  "executed" del hardware (estilo Kubernetes, evita races).
+- Cola de comandos: pending -> delivered -> executed/failed/expired,
+  con prioridad, expiracion 24 h y reentrega de delivered.
+- Claim codes con checksum: formato XX-YYYYYY-Z, CHARSET de 31 caracteres
+  (sin 0,1,I,L,O,U), checksum = suma ASCII mod 31.
+- Eventos con catalogo (event_definitions) y politicas de notificacion
+  (cooldown, plantillas title/message, provider Gotify).
+- Snapshot (tabla devices) separado del historico (device_telemetry).
+- Soft-delete universal con deleted_at IS NULL.
+
+## 5. Tópicos MQTT multi-inquilino (Cap. 4.6, pendiente implementar en flujos)
+
+    seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/status
+    seguimiento360/tenant/{tenant_id}/site/{site_id}/hub/{hub_id}/command
+    seguimiento360/tenant/{tenant_id}/site/{site_id}/sensor/{sensor_id}/alert
+    seguimiento360/tenant/{tenant_id}/vehicle/{vehicle_id}/gps
+    seguimiento360/admin/ota/manifest

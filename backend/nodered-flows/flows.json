@@ -179,14 +179,8 @@
         "type": "function",
         "z": "s360_panel_001",
         "name": "Validar JWT",
-        "func": "const secret = env.get('JWT_SECRET');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), secret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+        "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
         "outputs": 2,
-        "libs": [
-            {
-                "var": "jwt",
-                "module": "jsonwebtoken"
-            }
-        ],
         "x": 340,
         "y": 100,
         "wires": [
@@ -252,14 +246,8 @@
         "type": "function",
         "z": "s360_panel_001",
         "name": "Validar JWT",
-        "func": "const secret = env.get('JWT_SECRET');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), secret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+        "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    msg.params = [msg._user.tenant_id];\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
         "outputs": 2,
-        "libs": [
-            {
-                "var": "jwt",
-                "module": "jsonwebtoken"
-            }
-        ],
         "x": 340,
         "y": 260,
         "wires": [

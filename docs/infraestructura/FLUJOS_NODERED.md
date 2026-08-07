@@ -157,3 +157,7 @@ Query:
     RETURNING ...;
 El WHERE con tenant_id garantiza aislamiento multi-tenant.
 200: success + site | 404 no encontrado | 400 | 401
+
+### Nota PUT /api/sites/:id (fix 2026-08-08)
+Update parcial con COALESCE: solo se modifican los campos presentes en el body.
+PUT con solo name conserva address; PUT con solo address conserva name.

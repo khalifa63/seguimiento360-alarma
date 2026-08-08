@@ -83,3 +83,19 @@ Publicación MQTT asíncrona post-respuesta HTTP:
 2. Efecto lateral: trigger con setTimeout(100ms) → mqtt out
 3. Ventaja: respuesta HTTP inmediata (< 100ms), publish no bloquea
 4. Alineado con PDF §4.3 (fire-and-forget, ESP32 lee en wake-up)
+
+### Hallazgo arquitectónico: router real
+El entry point real es app.js (cargado desde index.html). 
+El archivo router.js era un huérfano que nunca se importaba.
+Rutas registradas en app.js (objeto routes):
+  /login          -> renderLogin
+  /register       -> renderRegister
+  /dashboard      -> renderDashboard
+  /devices        -> renderDevices
+  /alarm-control  -> renderAlarmControl
+
+Para agregar nuevas vistas en el futuro:
+1. Crear views/xxx.js exportando renderXxx(container)
+2. Importar en app.js
+3. Agregar entrada al objeto routes
+4. Enlazar desde el dashboard

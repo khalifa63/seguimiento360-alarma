@@ -99,3 +99,26 @@ Para agregar nuevas vistas en el futuro:
 2. Importar en app.js
 3. Agregar entrada al objeto routes
 4. Enlazar desde el dashboard
+
+### Cierre definitivo Fase 3.2.3b (layout + router)
+- Limite de ancho GLOBAL en css/styles.css (arregla todas las vistas):
+    #app-container { max-width: 720px; margin: 0 auto; padding: 1rem; }
+- alarm-control.js reescrito con los imports REALES del proyecto:
+    import { Api } from '../api.js?v=__V__'
+    import { Auth } from '../auth.js?v=__V__'
+    import { escapeHtml } from '../utils.js?v=__V__'
+- Ruta oficial /alarm-control integrada en app.js (router real)
+- router.js eliminado (huérfano que nunca se importaba)
+- Botones ARMAR/DESARMAR + polling 10s + selector de sitio operativos
+
+### Lecciones aprendidas de 3.2.3b (obligatorias para futuras fases)
+1. Todo bloque de frontend DEBE incluir ./scripts/deploy-pwa.sh
+   (fix sin deploy no existe: el usuario sigue viendo la version vieja)
+2. Antes de escribir una vista, verificar exports reales de los modulos:
+    grep -n "export" frontend/pwa/js/*.js
+   (caso: apiCall/isAuthenticated/showNotification NO existian;
+   el proyecto usa Api/Auth/escapeHtml)
+3. Todo import .js lleva ?v=__V__ (cache-busting del deploy)
+4. Probar en incognito descarta cache como causa en 10 segundos
+5. El entry point real lo define index.html: js/app.js
+   (nunca asumir que un router alternativo se usa)

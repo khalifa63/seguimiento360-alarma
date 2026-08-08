@@ -65,3 +65,56 @@ Validar checksum ANTES del SELECT (anti-enumeración).
 - UPDATE sin COALESCE con body parcial
 - prompt() de una sola entrada para editar entidades multi-campo
 - Triple backticks dentro de heredocs (rompe el copiado): usar indentación
+
+## P7: Imports versionados en PWA
+
+Todo import o recurso local lleva ?v=__V__ y deploy-pwa.sh lo
+reemplaza por un timestamp en cada deploy:
+
+    import { Api } from '../api.js?v=__V__';
+
+Esto fuerza recarga en navegador y Service Worker tras cada deploy.
+
+## P8: Limite de ancho global (mobile-first con tope en desktop)
+
+Una sola regla en css/styles.css centra TODAS las vistas:
+
+    #app-container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+
+Preferible a max-width inline por vista: consistente y mantenible.
+En movil ocupa 100% (720px > ancho de pantalla); en desktop queda centrado.
+
+## P9: Deploy obligatorio en bloques de frontend
+
+Todo bloque que toca frontend/pwa/ termina SIEMPRE con:
+
+    ./scripts/deploy-pwa.sh
+    git add frontend/pwa
+    git commit -m "..." && git push
+
+Sin deploy el cambio vive en el repo pero no en el servidor.
+
+## P10: Verificar exports antes de escribir una vista
+
+Antes de importar funciones de un modulo existente:
+
+    grep -n "export" frontend/pwa/js/api.js
+    grep -n "export" frontend/pwa/js/auth.js
+    grep -n "export" frontend/pwa/js/utils.js
+
+El proyecto exporta objetos/funciones especificos:
+- api.js: export const Api = { sites, createSite, hubs, alarmControl, ... }
+- auth.js: export const Auth = { getToken, getUser, logout, ... }
+- utils.js: export function escapeHtml(...)
+
+## Anti-patrones agregados
+
+- Escribir imports sin verificar exports reales del modulo
+- Olvidar ./scripts/deploy-pwa.sh en bloques de frontend
+- Crear routers paralelos sin revisar el entry point de index.html
+  (caso: router.js huerfano vs app.js real)
+- Asumir cache como causa sin probar primero en incognito

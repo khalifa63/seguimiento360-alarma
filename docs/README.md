@@ -38,3 +38,11 @@ al terminal sin romper heredocs.
     docker exec postgres psql -U admin -d seguimiento360_alarmas -c "\dt"
     docker exec nodered grep -c "functionGlobalContext:" /data/settings.js
     ./scripts/deploy-pwa.sh
+
+## Regla de oro frontend (agregada 2026-08-08)
+
+Antes de entregar cualquier bloque que modifique frontend/pwa/:
+1. Verificar exports reales: grep -n "export" frontend/pwa/js/*.js
+2. Usar imports con ?v=__V__
+3. Incluir ./scripts/deploy-pwa.sh antes del commit
+4. Pedir prueba en incognito (descarta cache)

@@ -1,212 +1,159 @@
-import { apiCall } from '../api.js?v=202608072018';
-import { isAuthenticated, getUser } from '../auth.js?v=202608072018';
-import { showNotification } from '../utils.js?v=202608072018';
+import { Api } from '../api.js?v=__V__';
+import { Auth } from '../auth.js?v=__V__';
+import { escapeHtml } from '../utils.js?v=__V__';
+
+let currentSites = [];
+let selectedSiteId = null;
+let pollingInterval = null;
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+}
+
+function updateStateUI(state) {
+  const stateEl = document.getElementById('current-state');
+  const armBtn = document.getElementById('btn-arm');
+  const disarmBtn = document.getElementById('btn-disarm');
+  if (!stateEl || !armBtn || !disarmBtn) return;
+
+  const isArmed = state.state === 'armed';
+  stateEl.textContent = isArmed ? '🔴 ARMADA' : '🟢 DESARMADA';
+  stateEl.style.color = isArmed ? 'var(--error, #ef4444)' : 'var(--success, #10b981)';
+  stateEl.style.fontWeight = 'bold';
+  stateEl.style.fontSize = '1.4rem';
+
+  armBtn.disabled = isArmed;
+  disarmBtn.disabled = !isArmed;
+  armBtn.style.opacity = isArmed ? '0.4' : '1';
+  disarmBtn.style.opacity = !isArmed ? '0.4' : '1';
+
+  const metaEl = document.getElementById('state-meta');
+  if (metaEl && state.updated_at) {
+    metaEl.textContent = 'Actualizado: ' + new Date(state.updated_at).toLocaleString();
+  }
+}
+
+async function refreshState() {
+  if (!selectedSiteId) return;
+  try {
+    const state = await Api.alarmState(selectedSiteId);
+    updateStateUI(state);
+  } catch (err) {
+    console.error('polling estado:', err);
+  }
+}
 
 export async function renderAlarmControl(container) {
-  if (!isAuthenticated()) {
-    window.location.hash = '#/login';
+  stopPolling();
+  container.innerHTML = '<div class="card" style="text-align:center;"><p>Cargando...</p></div>';
+
+  try {
+    currentSites = await Api.sites();
+  } catch (err) {
+    container.innerHTML = '<div class="alert alert-error">' + escapeHtml(err.message) + '</div>';
     return;
   }
 
-  const user = getUser();
+  let html = '<h2 style="margin-bottom:1rem;">🚨 Control de Alarma</h2>';
 
-  container.innerHTML = `
-    <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
-      <h1 style="text-align: center; margin-bottom: 30px;">🚨 Control de Alarma</h1>
-      
-      <div style="margin-bottom: 20px;">
-        <label style="display: block; margin-bottom: 8px; font-weight: 600;">Seleccionar Sitio:</label>
-        <select id="site-selector" style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer;">
-          <option value="">Cargando sitios...</option>
-        </select>
-      </div>
+  html += '<div class="card" style="margin-bottom:1rem;">';
+  html += '<label style="display:block; margin-bottom:0.5rem; font-weight:bold;">Sitio:</label>';
+  html += '<select id="site-selector" style="width:100%; padding:0.75rem; font-size:1rem;">';
+  html += '<option value="">-- Selecciona un sitio --</option>';
+  currentSites.forEach(function(s) {
+    html += '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>';
+  });
+  html += '</select>';
+  html += '</div>';
 
-      <div id="alarm-panel" style="display: none; margin-top: 30px;">
-        <div style="background: #f7fafc; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-          <h3 style="margin: 0 0 10px 0; font-size: 18px;">Estado Actual</h3>
-          <div id="alarm-status" style="font-size: 24px; font-weight: bold; text-align: center; padding: 20px;">
-            Desconocido
-          </div>
-          <div id="hub-info" style="font-size: 14px; color: #718096; margin-top: 10px;"></div>
-        </div>
+  html += '<div id="control-panel" style="display:none;">';
 
-        <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-          <button id="btn-arm" style="flex: 1; padding: 20px; font-size: 18px; font-weight: bold; background: #e53e3e; color: white; border: none; border-radius: 12px; cursor: pointer; transition: all 0.2s;">
-            🔴 ARMAR
-          </button>
-          <button id="btn-disarm" style="flex: 1; padding: 20px; font-size: 18px; font-weight: bold; background: #38a169; color: white; border: none; border-radius: 12px; cursor: pointer; transition: all 0.2s;">
-            🟢 DESARMAR
-          </button>
-        </div>
+  html += '<div class="card" style="margin-bottom:1rem; text-align:center;">';
+  html += '<h3 style="margin-bottom:0.5rem;">Estado actual</h3>';
+  html += '<div id="current-state" style="margin:0.75rem 0;">🟢 DESARMADA</div>';
+  html += '<p id="state-meta" style="color:var(--text-secondary); font-size:0.85rem;"></p>';
+  html += '</div>';
 
-        <div id="alarm-message" style="padding: 15px; border-radius: 8px; margin-top: 20px; display: none;"></div>
-      </div>
+  html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1rem;">';
+  html += '<button id="btn-arm" class="btn" style="padding:1.25rem; font-size:1.05rem; background:var(--error, #ef4444); color:#fff; font-weight:bold;">🔴 ARMAR</button>';
+  html += '<button id="btn-disarm" class="btn" style="padding:1.25rem; font-size:1.05rem; background:var(--success, #10b981); color:#fff; font-weight:bold;">🟢 DESARMAR</button>';
+  html += '</div>';
 
-      <div id="no-hub-warning" style="display: none; background: #fff3cd; border: 2px solid #ffc107; padding: 20px; border-radius: 12px; margin-top: 20px;">
-        <h3 style="margin: 0 0 10px 0; color: #856404;">⚠️ Sin Hubs Activos</h3>
-        <p style="margin: 0; color: #856404;">
-          Este sitio no tiene hubs activos. Por favor, registra y activa un hub desde la sección 
-          <a href="#/devices" style="color: #007bff; font-weight: bold;">Dispositivos</a>.
-        </p>
-      </div>
-    </div>
-  `;
+  html += '<div id="alarm-msg" style="margin-bottom:1rem;"></div>';
 
-  const siteSelector = container.querySelector('#site-selector');
-  const alarmPanel = container.querySelector('#alarm-panel');
-  const noHubWarning = container.querySelector('#no-hub-warning');
-  const alarmStatus = container.querySelector('#alarm-status');
-  const hubInfo = container.querySelector('#hub-info');
-  const btnArm = container.querySelector('#btn-arm');
-  const btnDisarm = container.querySelector('#btn-disarm');
-  const alarmMessage = container.querySelector('#alarm-message');
+  html += '<div id="hub-info" class="card" style="font-size:0.85rem; color:var(--text-secondary);"></div>';
 
-  // Cargar sitios
-  try {
-    const sites = await apiCall('/api/sites', 'GET');
-    siteSelector.innerHTML = sites.length > 0 
-      ? '<option value="">Selecciona un sitio</option>' + sites.map(s => `<option value="${s.id}">${s.name}</option>`).join('')
-      : '<option value="">No hay sitios registrados</option>';
-  } catch (error) {
-    showNotification('Error al cargar sitios: ' + error.message, 'error');
-    siteSelector.innerHTML = '<option value="">Error al cargar</option>';
-  }
+  html += '</div>';
 
-  let currentHubId = null;
-  let pollingInterval = null;
+  html += '<button class="btn" onclick="location.hash=\'#/dashboard\'" style="margin-top:1.5rem;">← Volver al Dashboard</button>';
 
-  // Polling del estado cada 10 segundos
-  async function pollAlarmState(siteId) {
-    try {
-      const state = await apiCall(`/api/alarm/state?site_id=${siteId}`, 'GET');
-      
-      if (state.state === 'armed') {
-        alarmStatus.textContent = '🔴 ARMADO';
-        alarmStatus.style.color = '#e53e3e';
-        btnArm.disabled = true;
-        btnDisarm.disabled = false;
-        btnArm.style.opacity = '0.5';
-        btnDisarm.style.opacity = '1';
-      } else {
-        alarmStatus.textContent = '🟢 DESARMADO';
-        alarmStatus.style.color = '#38a169';
-        btnArm.disabled = false;
-        btnDisarm.disabled = true;
-        btnArm.style.opacity = '1';
-        btnDisarm.style.opacity = '0.5';
-      }
+  container.innerHTML = html;
 
-      if (state.hub_name) {
-        hubInfo.textContent = `Hub: ${state.hub_name} (${state.hub_status})`;
-      }
-    } catch (error) {
-      console.error('Error en polling:', error);
-    }
-  }
-
-  // Manejar selección de sitio
-  siteSelector.addEventListener('change', async (e) => {
-    const siteId = e.target.value;
-    
-    // Limpiar polling anterior
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      pollingInterval = null;
-    }
-
-    if (!siteId) {
-      alarmPanel.style.display = 'none';
-      noHubWarning.style.display = 'none';
+  document.getElementById('site-selector').addEventListener('change', async function(e) {
+    selectedSiteId = parseInt(e.target.value, 10);
+    const panel = document.getElementById('control-panel');
+    if (!selectedSiteId) {
+      panel.style.display = 'none';
+      stopPolling();
       return;
     }
+    panel.style.display = 'block';
 
     try {
-      // Obtener hubs del sitio
-      const hubs = await apiCall(`/api/hubs?site_id=${siteId}`, 'GET');
-      const activeHubs = hubs.filter(h => h.status === 'active');
+      const results = await Promise.all([
+        Api.hubs(selectedSiteId),
+        Api.alarmState(selectedSiteId)
+      ]);
+      const hubs = results[0];
+      const state = results[1];
 
-      if (activeHubs.length === 0) {
-        alarmPanel.style.display = 'none';
-        noHubWarning.style.display = 'block';
+      const hubInfo = document.getElementById('hub-info');
+      const activeHub = hubs.find(function(h) { return h.status === 'active'; });
+      if (activeHub) {
+        hubInfo.innerHTML = '<strong>Hub activo:</strong> ' + escapeHtml(activeHub.name) +
+          '<br><strong>Serial:</strong> ' + escapeHtml(activeHub.serial_number) +
+          '<br><strong>Último visto:</strong> ' + (activeHub.last_seen ? new Date(activeHub.last_seen).toLocaleString() : 'nunca');
+      } else {
+        hubInfo.innerHTML = '⚠️ No hay hubs activos en este sitio. Registra uno en <a href="#/devices" style="color:var(--accent);">Dispositivos</a>.';
+      }
+
+      updateStateUI(state);
+      stopPolling();
+      pollingInterval = setInterval(refreshState, 10000);
+    } catch (err) {
+      alert('Error cargando estado: ' + err.message);
+    }
+  });
+
+  document.getElementById('btn-arm').addEventListener('click', function() { sendCommand('arm'); });
+  document.getElementById('btn-disarm').addEventListener('click', function() { sendCommand('disarm'); });
+
+  async function sendCommand(action) {
+    const msg = document.getElementById('alarm-msg');
+    try {
+      const hubs = await Api.hubs(selectedSiteId);
+      const activeHub = hubs.find(function(h) { return h.status === 'active'; });
+      if (!activeHub) {
+        msg.innerHTML = '<p style="color:var(--error, #ef4444);">❌ No hay hubs activos en este sitio</p>';
         return;
       }
-
-      // Usar el primer hub activo
-      currentHubId = activeHubs[0].id;
-      
-      alarmPanel.style.display = 'block';
-      noHubWarning.style.display = 'none';
-      alarmMessage.style.display = 'none';
-
-      // Polling inmediato y luego cada 10 segundos
-      await pollAlarmState(siteId);
-      pollingInterval = setInterval(() => pollAlarmState(siteId), 10000);
-
-    } catch (error) {
-      showNotification('Error al cargar hubs: ' + error.message, 'error');
+      msg.innerHTML = '<p style="color:var(--accent);">⏳ Enviando comando...</p>';
+      const res = await Api.alarmControl({ action: action, hub_id: activeHub.id });
+      msg.innerHTML = '<p style="color:var(--success, #10b981);">✅ ' + escapeHtml(res.message) + '</p>' +
+        '<p style="color:var(--text-secondary); font-size:0.85rem;">💡 ' + escapeHtml(res.note) + '</p>';
+      setTimeout(refreshState, 500);
+      setTimeout(function() { msg.innerHTML = ''; }, 8000);
+    } catch (err) {
+      msg.innerHTML = '<p style="color:var(--error, #ef4444);">❌ ' + escapeHtml(err.message) + '</p>';
     }
-  });
-
-  // Manejar armado
-  btnArm.addEventListener('click', async () => {
-    if (!currentHubId) return;
-
-    btnArm.disabled = true;
-    btnArm.textContent = '⏳ Armando...';
-
-    try {
-      const response = await apiCall('/api/alarm/control', 'POST', {
-        action: 'arm',
-        hub_id: currentHubId
-      });
-
-      showNotification(response.message + ' - El dispositivo lo ejecutará en su próximo ciclo de despertar (5-10 min)', 'success');
-      
-      // Actualizar estado inmediatamente
-      const siteId = siteSelector.value;
-      if (siteId) {
-        await pollAlarmState(siteId);
-      }
-    } catch (error) {
-      showNotification('Error al armar: ' + error.message, 'error');
-    } finally {
-      btnArm.disabled = false;
-      btnArm.textContent = '🔴 ARMAR';
-    }
-  });
-
-  // Manejar desarmado
-  btnDisarm.addEventListener('click', async () => {
-    if (!currentHubId) return;
-
-    btnDisarm.disabled = true;
-    btnDisarm.textContent = '⏳ Desarmando...';
-
-    try {
-      const response = await apiCall('/api/alarm/control', 'POST', {
-        action: 'disarm',
-        hub_id: currentHubId
-      });
-
-      showNotification(response.message + ' - El dispositivo lo ejecutará en su próximo ciclo de despertar (5-10 min)', 'success');
-      
-      // Actualizar estado inmediatamente
-      const siteId = siteSelector.value;
-      if (siteId) {
-        await pollAlarmState(siteId);
-      }
-    } catch (error) {
-      showNotification('Error al desarmar: ' + error.message, 'error');
-    } finally {
-      btnDisarm.disabled = false;
-      btnDisarm.textContent = '🟢 DESARMAR';
-    }
-  });
-
-  // Limpiar polling al salir
-  window.addEventListener('hashchange', () => {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-    }
-  }, { once: true });
+  }
 }
+
+window.addEventListener('hashchange', function() {
+  if (!location.hash.includes('alarm-control')) {
+    stopPolling();
+  }
+});

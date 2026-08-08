@@ -69,3 +69,17 @@ Estado: Fase 3.2.2b completada. Siguiente: 3.2.3 (armado/desarmado MQTT).
 - Error HTTP: msg.statusCode + msg.payload {error} -> s360v2_http_error
 - Exito HTTP: s360v2_http_ok (respeta msg.statusCode)
 - SQL: SIEMPRE tenant_id del JWT; updates parciales con COALESCE
+
+## Fase 3.2.3b: Frontend alarma (PWA) ✅
+- Vista #/alarm-control accesible desde dashboard
+- Selector de sitio + botones ARMAR (rojo) / DESARMAR (verde)
+- Polling cada 10s de /api/alarm/state (NO WebSocket, respetando batería ESP32)
+- Toast con nota: "El ESP32 lo ejecutará en su próximo wake-up (5-10 min)"
+- Muestra último hub activo del sitio + serial + last_seen
+
+### Patrón de diseño aplicado
+Publicación MQTT asíncrona post-respuesta HTTP:
+1. Flujo síncrono: validar → auditar → actualizar estado → http_ok
+2. Efecto lateral: trigger con setTimeout(100ms) → mqtt out
+3. Ventaja: respuesta HTTP inmediata (< 100ms), publish no bloquea
+4. Alineado con PDF §4.3 (fire-and-forget, ESP32 lee en wake-up)

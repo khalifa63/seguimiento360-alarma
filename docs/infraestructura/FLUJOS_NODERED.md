@@ -192,3 +192,18 @@ Mosquitto tiene listeners diferenciados:
 - Downlink: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/command` (retained)
 - Uplink hello: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/hello`
 - Uplink response: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/response`
+
+## Configuración MQTT con per_listener_settings (solución final)
+
+### Problema resuelto
+Mosquitto 2.x carga plugins de seguridad globalmente cuando cualquier listener tiene autenticación configurada. Esto causaba que el listener 1883 (con `allow_anonymous true`) también rechazara conexiones anónimas.
+
+### Solución: `per_listener_settings true`
+Esta directiva al inicio de `mosquitto.conf` permite que cada listener tenga su propia configuración de seguridad independiente.
+
+### Configuración de puertos
+
+### Resultado
+- **Puerto 1883**: Conexiones anónimas permitidas (Node-RED, scripts internos)
+- **Puertos 8083/9001**: Requieren autenticación (ESP32 remotos vía Cloudflare)
+- **Seguridad por capas**: Red Docker interna confiable + acceso externo con auth fuerte

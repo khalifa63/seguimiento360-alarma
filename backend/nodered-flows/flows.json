@@ -1091,7 +1091,7 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Prep alarm control",
-    "func": "const b = msg.payload || {};\nconst action = (b.action || '').trim().toLowerCase();\nconst hubId = parseInt(b.hub_id, 10);\nif (!['arm', 'disarm'].includes(action) || !hubId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'action (arm|disarm) y hub_id son requeridos' };\n    return [null, msg];\n}\nmsg.action = action;\nmsg.params = [msg._user.tenant_id, hubId];\nreturn [msg, null];",
+    "func": "node.warn(\"=== DEBUG s360v5_alarm_prep ===\"); node.warn(\"msg.payload:\", JSON.stringify(msg.payload)); node.warn(\"msg.params:\", JSON.stringify(msg.params)); node.warn(\"msg._user:\", JSON.stringify(msg._user)); node.warn(\"msg.hub:\", JSON.stringify(msg.hub));\nconst b = msg.payload || {};\nconst action = (b.action || '').trim().toLowerCase();\nconst hubId = parseInt(b.hub_id, 10);\nif (!['arm', 'disarm'].includes(action) || !hubId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'action (arm|disarm) y hub_id son requeridos' };\n    return [null, msg];\n}\nmsg.action = action;\nmsg.params = [msg._user.tenant_id, hubId];\nreturn [msg, null];",
     "outputs": 2,
     "x": 540,
     "y": 1720,
@@ -1127,16 +1127,14 @@
     "type": "function",
     "z": "s360_panel_001",
     "name": "Verificar hub",
-    "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n    msg.statusCode = 404;\n    msg.payload = { error: 'Hub no encontrado o sin confirmar' };\n    return [null, msg];\n}\nmsg.hub = row;\nconst topic = 'seguimiento360/tenant/' + row.tenant_id + '/site/' + row.site_id + '/hub/' + row.hub_id + '/command';\nconst payload = JSON.stringify({\n    action: msg.action,\n    issued_by: msg._user.user_id,\n    issued_at: new Date().toISOString(),\n    request_id: Date.now().toString(36)\n});\nmsg.topic = topic;\nmsg.payload = payload;\nmsg.qos = 1;\nmsg.retain = true;\nreturn [msg, null];",
+    "func": "node.warn(\"=== DEBUG s360v5_alarm_check ===\"); node.warn(\"msg.payload:\", JSON.stringify(msg.payload)); node.warn(\"msg.params:\", JSON.stringify(msg.params)); node.warn(\"msg._user:\", JSON.stringify(msg._user)); node.warn(\"msg.hub:\", JSON.stringify(msg.hub));\nconst row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n    msg.statusCode = 404;\n    msg.payload = { error: 'Hub no encontrado o sin confirmar' };\n    return [null, msg];\n}\nmsg.hub = row;\nconst topic = 'seguimiento360/tenant/' + row.tenant_id + '/site/' + row.site_id + '/hub/' + row.hub_id + '/command';\nconst payload = JSON.stringify({\n    action: msg.action,\n    issued_by: msg._user.user_id,\n    issued_at: new Date().toISOString(),\n    request_id: Date.now().toString(36)\n});\nmsg.topic = topic;\nmsg.payload = payload;\nmsg.qos = 1;\nmsg.retain = true;\nreturn [msg, null];",
     "outputs": 2,
     "x": 940,
     "y": 1720,
     "wires": [
       [
-        "s360v5_alarm_publish"
-      ],
-      [
-        "s360v2_http_error"
+        "s360v5_alarm_publish",
+        "s360v5_alarm_log"
       ]
     ]
   },
@@ -1156,24 +1154,20 @@
     "broker": "s360_mqtt_broker",
     "x": 1140,
     "y": 1720,
-    "wires": [
-      [
-        "s360v5_alarm_log"
-      ]
-    ]
+    "wires": []
   },
   {
     "id": "s360v5_alarm_log",
     "type": "function",
     "z": "s360_panel_001",
     "name": "Prep log + update state",
-    "func": "const hub = msg.hub;\n// device_id es NULL (acciones sobre hubs no están en tabla devices)\nmsg.auditParams = [\n    null,                                    // device_id (NULL para hubs)\n    hub.tenant_id,                           // tenant_id\n    msg._user.user_id,                       // performed_by\n    'alarm_' + msg.action,                   // action\n    { topic: msg.topic, action: msg.action, hub_id: hub.hub_id, site_id: hub.site_id }  // details (JSONB)\n];\nmsg.stateParams = [hub.site_id, hub.hub_id, msg.action === 'arm' ? 'armed' : 'disarmed', msg._user.user_id];\nreturn msg;",
+    "func": "\nconst hub = msg.hub;\n\n// Preparar params para device_audit_log (5 columnas)\nmsg.auditParams = [\n  null,                                    // device_id (NULL para hubs)\n  hub.tenant_id,                           // tenant_id\n  msg._user.user_id,                       // performed_by\n  'alarm_' + msg.action,                   // action\n  JSON.stringify({                         // details (JSONB como string)\n    topic: msg.topic,\n    action: msg.action,\n    hub_id: hub.hub_id,\n    site_id: hub.site_id,\n    issued_at: new Date().toISOString()\n  })\n];\n\n// Preparar params para alarm_state (4 columnas)\nmsg.stateParams = [\n  hub.site_id,\n  hub.hub_id,\n  msg.action === 'arm' ? 'armed' : 'disarmed',\n  msg._user.user_id\n];\n\n// Restaurar msg.action para el response node\nmsg.action = msg.action;\nmsg.hub = hub;\n\nreturn msg;\n",
     "outputs": 1,
     "x": 1340,
     "y": 1720,
     "wires": [
       [
-        "s360v5_alarm_audit"
+        "s360v5_alarm_prep_audit"
       ]
     ]
   },
@@ -1182,7 +1176,7 @@
     "type": "postgresql",
     "z": "s360_panel_001",
     "name": "INSERT audit",
-    "query": "INSERT INTO device_audit_log (device_id, tenant_id, performed_by, action, details)\nVALUES ($1, $2, $3, $4, $5);",
+    "query": "INSERT INTO device_audit_log (device_id, tenant_id, performed_by, action, details)\nVALUES ($1, $2, $3, $4, $5::jsonb);",
     "postgreSQLConfig": "s360_pg_alarmas",
     "split": false,
     "rowsPerMsg": 1,
@@ -1191,7 +1185,7 @@
     "y": 1720,
     "wires": [
       [
-        "s360v5_alarm_state"
+        "s360v5_alarm_prep_state"
       ]
     ]
   },
@@ -1377,5 +1371,35 @@
     "x": 540,
     "y": 2040,
     "wires": []
+  },
+  {
+    "id": "s360v5_alarm_prep_audit",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep audit params",
+    "func": "msg.params = msg.auditParams;\nreturn msg;",
+    "outputs": 1,
+    "x": 1400,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_audit"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_prep_state",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Prep state params",
+    "func": "msg.params = msg.stateParams;\nreturn msg;",
+    "outputs": 1,
+    "x": 1800,
+    "y": 1720,
+    "wires": [
+      [
+        "s360v5_alarm_state_upsert"
+      ]
+    ]
   }
 ]

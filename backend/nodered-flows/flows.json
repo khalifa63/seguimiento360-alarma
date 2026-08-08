@@ -1133,7 +1133,6 @@
     "y": 1720,
     "wires": [
       [
-        "s360v5_alarm_publish",
         "s360v5_alarm_log"
       ]
     ]
@@ -1233,7 +1232,8 @@
     "y": 1720,
     "wires": [
       [
-        "s360v2_http_ok"
+        "s360v2_http_ok",
+        "s360v5_alarm_trigger"
       ]
     ]
   },
@@ -1399,6 +1399,21 @@
     "wires": [
       [
         "s360v5_alarm_state_upsert"
+      ]
+    ]
+  },
+  {
+    "id": "s360v5_alarm_trigger",
+    "type": "function",
+    "z": "s360_panel_001",
+    "name": "Preparar publish MQTT",
+    "func": "// Guardamos los datos del comando en flow context\n// para publicarlos después de responder al cliente\nflow.set('pending_mqtt_' + Date.now(), {\n  topic: msg.topic,\n  payload: msg.payload,\n  qos: 1,\n  retain: true\n});\n\n// Disparamos el publish de forma asíncrona con setTimeout\nsetTimeout(() => {\n  node.send({\n    topic: msg.topic,\n    payload: msg.payload,\n    qos: 1,\n    retain: true\n  });\n}, 100);\n\nreturn null;",
+    "outputs": 1,
+    "x": 2000,
+    "y": 1600,
+    "wires": [
+      [
+        "s360v5_alarm_publish"
       ]
     ]
   }

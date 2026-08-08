@@ -9,7 +9,7 @@ const routes = {
   '/login': renderLogin,
   '/register': renderRegister,
   '/dashboard': renderDashboard,
-  '/devices': renderDevices
+  '/devices': renderDevices,
 
   '/alarm-control': renderAlarmControl,};
 

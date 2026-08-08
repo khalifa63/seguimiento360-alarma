@@ -1,46 +1,36 @@
-import { Api } from '../api.js?v=__V__';
 import { Auth } from '../auth.js?v=__V__';
-import { escapeHtml, formatDate } from '../utils.js?v=__V__';
+import { escapeHtml } from '../utils.js?v=__V__';
 
-export function renderDashboard(container) {
-  container.innerHTML = '<div class="card" style="text-align:center;"><p>Cargando perfil...</p></div>';
+export async function renderDashboard(container) {
+  const user = Auth.getUser();
+  const userName = user ? (user.full_name || user.email) : 'Usuario';
 
-  Api.profile().then((data) => {
-    const u = data.user;
-    const exp = Auth.tokenExpiry();
-    const expTxt = exp ? new Date(exp).toLocaleString('es-MX') : '—';
+  let html = '<div class="card">';
+  html += '<h2 style="margin-bottom:0.5rem;">Bienvenido, ' + escapeHtml(userName) + '</h2>';
+  html += '<p style="color:var(--text-secondary);">Rol: ' + escapeHtml(user?.role || 'customer') + '</p>';
+  html += '</div>';
 
-    container.innerHTML = `
-      <div class="card">
-        <h2 style="margin-bottom:0.25rem;">Hola, ${escapeHtml(u.full_name || 'cliente')}</h2>
-        <p style="color:var(--text-secondary); font-size:0.9rem;">${escapeHtml(u.email)}</p>
-      </div>
+  html += '<div style="display:grid; gap:1rem; margin-top:1.5rem;">';
 
-      <div class="card">
-        <h3 style="margin-bottom:1rem; font-size:1rem; color:var(--accent);">Datos de la cuenta</h3>
-        <p style="margin-bottom:0.5rem;"><strong>Inquilino:</strong> ${escapeHtml(u.tenant_name || '—')}</p>
-        <p style="margin-bottom:0.5rem;"><strong>Rol:</strong> ${escapeHtml(u.role)}</p>
-        <p style="margin-bottom:0.5rem;"><strong>Teléfono:</strong> ${escapeHtml(u.phone || '—')}</p>
-        <p style="margin-bottom:0.5rem;"><strong>Cliente desde:</strong> ${formatDate(u.created_at)}</p>
-        <p style="margin-bottom:0.5rem;"><strong>Estado:</strong> ${u.is_active ? 'Activa' : 'Inactiva'}</p>
-        <p style="color:var(--text-secondary); font-size:0.8rem;">Sesión expira: ${escapeHtml(expTxt)}</p>
-      </div>
+  // Botón de alarma (destacado)
+  html += '<a href="#/alarm-control" class="card" style="text-decoration:none; border-left:4px solid var(--error, #ef4444); cursor:pointer;">';
+  html += '<h3 style="margin:0 0 0.25rem 0;">🚨 Control de Alarma</h3>';
+  html += '<p style="margin:0; color:var(--text-secondary);">Armar o desarmar tus sitios</p>';
+  html += '</a>';
 
-      <div class="card">
-        <h3 style="margin-bottom:0.5rem; font-size:1rem; color:var(--accent);">Panel de Alarma</h3>
-        <p style="color:var(--text-secondary); font-size:0.9rem;">
-          El armado/desarmado y los eventos en tiempo real llegan en la Fase 3.
-        </p>
-      </div>
+  // Botón de dispositivos
+  html += '<a href="#/devices" class="card" style="text-decoration:none; cursor:pointer;">';
+  html += '<h3 style="margin:0 0 0.25rem 0;">📋 Sitios y Dispositivos</h3>';
+  html += '<p style="margin:0; color:var(--text-secondary);">Gestionar tus sitios, hubs y dispositivos</p>';
+  html += '</a>';
 
-      <button class="btn" onclick="location.hash='#/devices'" style="margin-bottom:1rem;">
-        📋 Ver Mis Sitios y Dispositivos
-      </button>
-      
-      <button class="btn btn-secondary" id="logout-btn">Cerrar Sesión</button>
-    `;
-    document.getElementById('logout-btn').addEventListener('click', () => Auth.logout());
-  }).catch((err) => {
-    container.innerHTML = '<div class="alert alert-error">' + escapeHtml(err.message) + '</div>';
+  html += '</div>';
+
+  html += '<button class="btn btn-secondary" onclick="location.hash=\'#/login\'" style="margin-top:2rem;" id="logout-btn">Cerrar sesión</button>';
+
+  container.innerHTML = html;
+
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    Auth.logout();
   });
 }

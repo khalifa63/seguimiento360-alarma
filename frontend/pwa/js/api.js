@@ -48,11 +48,19 @@ export const Api = {
   createSite: (payload) => request('/api/sites',         { auth: true, method: 'POST', body: payload }),
   updateSite: (id, payload) => request('/api/sites/' + id, { auth: true, method: 'PUT', body: payload }),
 
+  // Hubs (Fase 3.2.3)
+  hubs:       (siteId)  => request('/api/hubs?site_id=' + siteId, { auth: true }),
+  createHub:  (payload) => request('/api/hubs',          { auth: true, method: 'POST', body: payload }),
+
   // Dispositivos (Fase 3.1 + 3.2.2)
   devices:    ()        => request('/api/devices',       { auth: true }),
   claimDevice:(payload) => request('/api/claim',         { auth: true, method: 'POST', body: payload }),
 
-  // Admin (Fase 3.2.2b)
+  // Alarma (Fase 3.2.3)
+  alarmControl: (payload) => request('/api/alarm/control', { auth: true, method: 'POST', body: payload }),
+  alarmState:   (siteId)  => request('/api/alarm/state?site_id=' + siteId, { auth: true }),
+
+  // Admin
   generateCodes: (payload) => request('/api/admin/generate-codes', { auth: true, method: 'POST', body: payload }),
   claimCodes:    ()        => request('/api/admin/claim-codes',    { auth: true })
 };

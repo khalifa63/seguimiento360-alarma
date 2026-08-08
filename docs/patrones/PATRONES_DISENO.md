@@ -118,3 +118,14 @@ El proyecto exporta objetos/funciones especificos:
 - Crear routers paralelos sin revisar el entry point de index.html
   (caso: router.js huerfano vs app.js real)
 - Asumir cache como causa sin probar primero en incognito
+
+## P11: Nunca bypasear el router con preventDefault
+
+Un enlace con e.preventDefault() que renderiza la vista directamente
+deja el hash sin cambiar. Consecuencia: al asignar de nuevo el mismo
+hash (location.hash = '#/dashboard') NO se dispara hashchange y el
+boton volver parece muerto.
+
+Regla: si la ruta existe en el router real (app.js), usar navegacion
+por hash normal (a href="#/ruta"). El bypass solo es aceptable como
+parche temporal y debe eliminarse al registrar la ruta oficial.

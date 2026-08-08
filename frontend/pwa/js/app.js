@@ -3,13 +3,15 @@ import { renderLogin } from './views/login.js?v=__V__';
 import { renderRegister } from './views/register.js?v=__V__';
 import { renderDashboard } from './views/dashboard.js?v=__V__';
 import { renderDevices } from './views/devices.js?v=__V__';
+import { renderAlarmControl } from './views/alarm-control.js?v=__V__';
 
 const routes = {
   '/login': renderLogin,
   '/register': renderRegister,
   '/dashboard': renderDashboard,
   '/devices': renderDevices
-};
+
+  '/alarm-control': renderAlarmControl,};
 
 function router() {
   const container = document.getElementById('app-container');

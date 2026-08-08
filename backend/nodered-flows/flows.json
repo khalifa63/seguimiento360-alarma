@@ -1333,7 +1333,7 @@
     "type": "mqtt in",
     "z": "s360_panel_001",
     "name": "Sub hub hello",
-    "topic": "seguimiento360/+/+/+/+/hello",
+    "topic": "seguimiento360/+/+/+/+/+/+/hello",
     "qos": "1",
     "datatype": "json",
     "broker": "s360_mqtt_broker",

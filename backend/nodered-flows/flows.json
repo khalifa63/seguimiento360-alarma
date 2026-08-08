@@ -879,8 +879,8 @@
     "willRetain": "false",
     "willPayload": "{\"status\":\"offline\"}",
     "sessionExpiry": "",
-    "user": "nodered",
-    "password": "s360_nodered_2026"
+    "user": "",
+    "password": ""
   },
   {
     "id": "s360v5_hub_in",

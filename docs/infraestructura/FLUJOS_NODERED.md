@@ -169,3 +169,26 @@ Mosquitto tiene listeners diferenciados:
 - user: nodered
 - password: s360_nodered_2026
 - broker: mosquitto:1883
+
+## Arquitectura MQTT con listeners diferenciados (solución final)
+
+### Configuración de puertos
+- **Puerto 1883** (TCP): Red Docker interna, `allow_anonymous true`, SIN password_file ni acl_file
+  - Usado por: Node-RED, scripts internos
+  - Seguridad: Red Docker es zona confiable (defense in depth)
+- **Puerto 8083** (WebSocket): Acceso externo vía Cloudflare, `allow_anonymous false`, con password_file + acl_file
+  - Usado por: ESP32 remotos
+  - Seguridad: Autenticación fuerte + ACL restrictivo
+- **Puerto 9001** (WebSocket): Alternativo, misma configuración que 8083
+- **Puerto 8883** (TLS): Pendiente configuración SSL
+
+### Por qué esta arquitectura
+1. **Simplicidad**: Node-RED no necesita manejar credenciales encriptadas
+2. **Seguridad por capas**: Red Docker interna es confiable, acceso externo tiene auth fuerte
+3. **Alineación con documentación**: Respetando el principio de mínimo privilegio
+4. **Escalabilidad**: Agregar servicios internos es trivial (solo conectan a 1883)
+
+### Tópicos MQTT
+- Downlink: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/command` (retained)
+- Uplink hello: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/hello`
+- Uplink response: `seguimiento360/tenant/{tid}/site/{sid}/hub/{hid}/response`

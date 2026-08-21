@@ -1,109 +1,93 @@
-# HUB-S3 Firmware — Hito M1: Fundación BSP y NVS
+# HUB-S3 Firmware — Hito M2: ESP-NOW + MQTT WSS
 
-Firmware base del Hub ESP32-S3 del proyecto **Seguimiento 360**.
+Estado: M2 listo para validación en hardware.
+Specs: A1 v0.2, A2 v0.2, A5 v0.3, A6 v0.2 (R1/R2), INFRA-REAL v1.0.
+Base: M1 (commit be38fb3).
 
-**Estado:** M1 completado (AT-05 cubierta).
-**Specs aplicables:** A1 v0.2, A2 v0.2, A3 v0.1, A4 v0.2, M1-SPEC-IMPL v0.2.
-
-## Estructura
+## Arquitectura M2
 
 ~~text
-firmware/hub/
-├── CMakeLists.txt              # Raíz del proyecto
-├── partitions.csv              # 7 particiones (3 NVS segregadas)
-├── sdkconfig.defaults          # Config ESP32-S3 + PSRAM + WDT
-├── README.md                   # Este archivo
-├── main/
-│   ├── CMakeLists.txt
-│   └── main.c                  # app_main + tarea monitor M1
-└── components/hub_core/
-    ├── CMakeLists.txt
-    ├── include/
-    │   ├── bsp.h               # GPIO, ADC, ISR tamper, contratos §6
-    │   └── nvs_manager.h       # 3 particiones NVS
-    └── src/
-        ├── bsp.c
-        └── nvs_manager.c
+[Nodo ESP32] --ESP-NOW--> espnow_link (CRC16, anti-replay, ACK inline <50ms)
+                                 |--> xQ_EspnowLogic --> t_espnow_rx --> JSON
+                                                                          |
+                                                                   xQ_MqttOut
+                                                                          v
+[WiFi STA] <-- sm_conn (FSM + backoff + jitter) --> mqtt_link (WSS) --> broker
+                                                                          |
+                                        t_wifi_mqtt <-- xQ_MqttCmd <-- command
 ~~
 
-## Requisitos
+Tareas: t_sys_mon (C0,P1) | t_espnow_rx (C0,P24) | t_wifi_mqtt (C1,P15) |
+sm_conn (C1,P10).
 
-- ESP-IDF v5.x (probado con v5.2+)
-- Placa ESP32-S3-DevKitC-1 (o PCB HUB-S3 v1)
-- Herramientas: idf.py, python3
+## Config dev (temporal, M4 lo elimina)
 
-## Build + Flash
+Editar en main/main.c: DEV_WIFI_SSID / DEV_WIFI_PASS.
+M2_FIXED_CHANNEL=0 (auto). Producción: canal fijo del AP [R1 A6].
+
+## Build & Flash
 
 ~~bash
-cd firmware/hub
-
-# 1. Activar entorno ESP-IDF
 . $IDF_PATH/export.sh
-
-# 2. Configurar target (solo primera vez)
-idf.py set-target esp32s3
-
-# 3. Compilar
+cd firmware/hub
+rm -f sdkconfig && rm -rf build
 idf.py build
-
-# 4. Flashear (ajusta puerto)
-idf.py -p /dev/ttyUSB0 flash
-
-# 5. Monitor
-idf.py -p /dev/ttyUSB0 monitor
+idf.py -p /dev/ttyACM0 flash monitor
 ~~
 
-## Validación de Aceptación — AT-05
+## Validación
 
-### AT-05.1 — Integridad NVS (3 particiones)
-**Esperado en el log:**
-~~text
-I (xxx) NVS_MGR: Partición 'nvs' inicializada
-I (xxx) NVS_MGR: Partición 'nvs_state' inicializada
-I (xxx) NVS_MGR: Partición 'nvs_nodes' inicializada
-I (xxx) MAIN: [M1] Device ID persistente: 'HUB-S3-0001'
-I (xxx) MAIN: [M1] Estado alarma persistente: 0 (0=disarmed)
+### AT-01 — boot -> online <= 10s
+Monitor: medir desde "=== HUB-S3 M2 boot ===" hasta "[AT-01] MQTT online".
+En el servidor (broker interno Docker):
+~~bash
+docker exec mosquitto mosquitto_sub -h mosquitto -t "seguimiento360/#" -v
 ~~
-**Prueba de persistencia:** reinicia con el botón EN; los valores deben mantenerse.
+Esperado: .../status con {"state":"online","fw":"0.2.0",...} (retained).
 
-### AT-05.2 — Power Loss (ADC)
-Baja el voltaje de alimentación por debajo del umbral (POWER_LOSS_ADC_THRESHOLD en bsp.c).
-~~text
-W (xxx) BSP: Power loss! ADC raw=NNNN (< 2500)
-E (xxx) MAIN: [M1] POWER LOSS inminente! Commit NVS de emergencia...
-W (xxx) NVS_MGR: Emergency commit completado
-~~
+### AT-07 — WiFi -> MQTT < 10s
+Logs: "got ip: ..." -> "MQTT connected" en < 10s (típico 1-3s con TLS).
 
-### AT-05.3 — Tamper físico (ISR)
-Conecta momentáneamente GPIO2 a GND (simula apertura de carcasa).
-~~text
-W (xxx) MAIN: [M1] TAMPER EVENTO! type=0 ts=NNNN ms
-~~
+### AT-02 — ACK ESP-NOW < 50ms
+PENDIENTE: simulador de nodo ESP-NOW (se entrega en M2bis).
 
-### AT-05.4 — Watchdog activo
-La tarea t_m1_mon alimenta el WDT cada 500ms. Si se comentara
-esp_task_wdt_reset(), el sistema debe resetearse por WDT en ~10s
-(CONFIG_ESP_TASK_WDT_TIMEOUT_S=10).
+### Regresión M1
+- GPIO2 -> GND: log "TAMPER type=0 (M3: SM_ALARM)"
+- LED heartbeat cada 5s
+- Device ID persiste tras reset (botón EN)
 
-### AT-05.5 — LED heartbeat
-- 3 parpadeos rápidos (200ms) al inicio = boot OK
-- 1 pulso cada 5s = tarea monitor viva
+## Topics (contratos §6)
 
-## Trazabilidad de requisitos (M1)
+Base: seguimiento360/tenant/{tid}/site/{sid}/hub/{mac}/
 
-| ID | Requisito | Ubicación en código |
-|---|---|---|
-| HUB-F-010 | NVS persistente | nvs_manager.c |
-| HUB-F-015 | Tamper físico | bsp.c (ISR) |
-| HUB-F-020 | Factory reset | nvs_manager.c::factory_reset |
-| HUB-F-030 | Watchdog | main.c::task_m1_monitor |
-| HUB-NF-003 | Sin reset manual 30d | WDT + emergency commit |
+| Sub      | Dir | QoS | Retain |
+|----------|-----|-----|--------|
+| status   | pub | 1   | 1      |
+| event    | pub | 1   | 0      |
+| response | pub | 1   | 0      |
+| hello    | pub | 1   | 0      |
+| command  | sub | 1   | 1      |
 
-## Siguiente hito
+LWT: status con {"state":"offline","reason":"lwt"} retain=1.
 
-**M2 — ESP-NOW + MQTT:** componentes espnow_link y mqtt_link, tareas
-t_espnow_rx (Core 0, Pri 24) y t_wifi_mqtt (Core 1, Pri 15).
-Cierra AT-02 y AT-07.
+## Troubleshooting
 
----
-*Generado desde M1-SPEC-IMPL v0.2 · Proyecto Seguimiento 360*
+- TLS handshake fail: verificar CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y y
+  acceso DNS a mqtt.seguimiento360.com.
+- WiFi no asocia: revisar DEV_WIFI_SSID/PASS; authmode WPA2.
+- Puerto ocupado: pkill -f idf_monitor | salir del monitor con Ctrl+].
+
+## Trazabilidad
+
+| ID | Descripción | Archivo |
+|----|-------------|---------|
+| HUB-F-006 | RX + ACK <50ms | espnow_link.c |
+| HUB-F-007 | CRC16 + anti-replay | espnow_link.c |
+| HUB-F-010 | Publish QoS1 | mqtt_link.c |
+| HUB-F-011 | Sub command retained | mqtt_link.c |
+| HUB-F-012 | LWT offline | mqtt_link.c |
+| HUB-F-013 | Auth NVS/anónimo | mqtt_link.c |
+| HUB-F-020 | FSM conectividad | sm_conn.c |
+| HUB-NF-003 | Canal fijo | sm_conn.c |
+| HUB-NF-004 | Backoff + jitter | sm_conn.c |
+| AT-01/07 | Conectividad | main.c |

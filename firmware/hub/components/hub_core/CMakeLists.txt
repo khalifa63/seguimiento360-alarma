@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "src/bsp.c"
+        "src/nvs_manager.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        nvs_flash
+        driver
+        esp_adc
+        esp_timer
+)

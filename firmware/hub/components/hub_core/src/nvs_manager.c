@@ -148,3 +148,143 @@ esp_err_t nvs_manager_factory_reset(void)
     }
     return ESP_OK;
 }
+
+/* =========================================================
+ * M4: Provisioning — credenciales WiFi / Site / MQTT auth
+ * [HUB-F-030] Namespace 'hub_cfg' en partición 'nvs' (config)
+ * ========================================================= */
+#define NVS_NS_HUB_CFG   "hub_cfg"
+#define K_WIFI_SSID  "wifi_ssid"
+#define K_WIFI_PASS  "wifi_pass"
+#define K_SITE_TID   "site_tid"
+#define K_SITE_SID   "site_sid"
+#define K_MQTT_USER  "mqtt_user"
+#define K_MQTT_PASS  "mqtt_pass"
+
+esp_err_t nvs_manager_set_wifi(const char *ssid, const char *pass)
+{
+    if (!ssid) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(h, K_WIFI_SSID, ssid);
+    if (err == ESP_OK && pass && strlen(pass) > 0) {
+        err = nvs_set_str(h, K_WIFI_PASS, pass);
+    }
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t nvs_manager_get_wifi(char *ssid, size_t ssid_len,
+                               char *pass, size_t pass_len)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    size_t l = ssid_len;
+    err = nvs_get_str(h, K_WIFI_SSID, ssid, &l);
+    if (err != ESP_OK) { nvs_close(h); return err; }
+    if (pass) {
+        l = pass_len;
+        esp_err_t e2 = nvs_get_str(h, K_WIFI_PASS, pass, &l);
+        if (e2 == ESP_ERR_NVS_NOT_FOUND && pass_len > 0) pass[0] = '\0';
+        else if (e2 != ESP_OK) err = e2;
+    }
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t nvs_manager_set_site(const char *tid, const char *sid)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    if (tid) err = nvs_set_str(h, K_SITE_TID, tid);
+    if (err == ESP_OK && sid) err = nvs_set_str(h, K_SITE_SID, sid);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t nvs_manager_get_site(char *tid, size_t tid_len,
+                               char *sid, size_t sid_len)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    if (tid) {
+        size_t l = tid_len;
+        esp_err_t e = nvs_get_str(h, K_SITE_TID, tid, &l);
+        if (e == ESP_ERR_NVS_NOT_FOUND && tid_len > 0) tid[0] = '\0';
+        else if (e != ESP_OK) err = e;
+    }
+    if (sid) {
+        size_t l = sid_len;
+        esp_err_t e = nvs_get_str(h, K_SITE_SID, sid, &l);
+        if (e == ESP_ERR_NVS_NOT_FOUND && sid_len > 0) sid[0] = '\0';
+        else if (e != ESP_OK && err == ESP_OK) err = e;
+    }
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t nvs_manager_set_mqtt_auth(const char *user, const char *pass)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    if (user) err = nvs_set_str(h, K_MQTT_USER, user);
+    if (err == ESP_OK && pass) err = nvs_set_str(h, K_MQTT_PASS, pass);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t nvs_manager_get_mqtt_auth(char *user, size_t u_len,
+                                    char *pass, size_t p_len)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    if (user) {
+        size_t l = u_len;
+        esp_err_t e = nvs_get_str(h, K_MQTT_USER, user, &l);
+        if (e == ESP_ERR_NVS_NOT_FOUND && u_len > 0) user[0] = '\0';
+        else if (e != ESP_OK) err = e;
+    }
+    if (pass) {
+        size_t l = p_len;
+        esp_err_t e = nvs_get_str(h, K_MQTT_PASS, pass, &l);
+        if (e == ESP_ERR_NVS_NOT_FOUND && p_len > 0) pass[0] = '\0';
+        else if (e != ESP_OK && err == ESP_OK) err = e;
+    }
+    nvs_close(h);
+    return err;
+}
+
+bool nvs_manager_has_credentials(void)
+{
+    char ssid[33] = {0};
+    esp_err_t err = nvs_manager_get_wifi(ssid, sizeof(ssid), NULL, 0);
+    return (err == ESP_OK && ssid[0] != '\0');
+}
+
+esp_err_t nvs_manager_factory_reset_credentials(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_HUB_CFG,
+                                            NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_erase_all(h);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGW(TAG, "Factory reset de credenciales: %s", esp_err_to_name(err));
+    return err;
+}

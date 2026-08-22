@@ -100,3 +100,19 @@ esp_err_t nvs_manager_factory_reset(void);
 #ifdef __cplusplus
 }
 #endif
+
+/* =========================================================
+ * M4: Provisioning — credenciales WiFi / Site / MQTT auth
+ * [HUB-F-030] [AT-05] [AT-06]
+ * ========================================================= */
+esp_err_t nvs_manager_set_wifi(const char *ssid, const char *pass);
+esp_err_t nvs_manager_get_wifi(char *ssid, size_t ssid_len,
+                               char *pass, size_t pass_len);
+esp_err_t nvs_manager_set_site(const char *tenant_id, const char *site_id);
+esp_err_t nvs_manager_get_site(char *tid, size_t tid_len,
+                               char *sid, size_t sid_len);
+esp_err_t nvs_manager_set_mqtt_auth(const char *user, const char *pass);
+esp_err_t nvs_manager_get_mqtt_auth(char *user, size_t u_len,
+                                    char *pass, size_t p_len);
+bool      nvs_manager_has_credentials(void);
+esp_err_t nvs_manager_factory_reset_credentials(void);  /* borra solo hub_cfg */

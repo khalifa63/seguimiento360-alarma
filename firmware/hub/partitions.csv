@@ -1,9 +1,8 @@
-# Name,       Type, SubType, Offset,   Size,   Flags
-# 3 particiones NVS segregadas (A3 v0.1) + OTA A/B
-nvs,          data, nvs,     ,         24K,
-nvs_state,    data, nvs,     ,         16K,
-nvs_nodes,    data, nvs,     ,         32K,
-otadata,      data, ota,     ,         8K,
-phy_init,     data, phy,     ,         4K,
-ota_0,        app,  ota_0,   ,         1536K,
-ota_1,        app,  ota_1,   ,         1536K,
+# Name,   Type, SubType, Offset,   Size,    Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+nvs_state,data, nvs,     0xf000,   0x4000,
+nvs_nodes,data, nvs,     0x13000,  0x8000,
+otadata,  data, ota,     0x1b000,  0x2000,
+phy_init, data, phy,     0x1d000,  0x1000,
+ota_0,    app,  ota_0,   0x20000,  0x180000,
+ota_1,    app,  ota_1,   0x1a0000, 0x180000,

@@ -33,6 +33,7 @@
 #include "espnow_link.h"
 #include "mqtt_link.h"
 #include "sm_conn.h"
+#include "sm_alarm.h"
 
 static const char *TAG = "MAIN";
 
@@ -50,6 +51,7 @@ static QueueHandle_t xQ_EspnowLogic = NULL;
 static QueueHandle_t xQ_MqttOut     = NULL;
 static QueueHandle_t xQ_MqttCmd     = NULL;
 static QueueHandle_t xQ_Tamper      = NULL;
+static QueueHandle_t xQ_TamperAlarm = NULL;
 
 typedef struct {
     uint8_t sub;      /* mqtt_link_sub_t */
@@ -153,6 +155,8 @@ static void mqtt_cmd_cb(const char *cmd_json, size_t len, void *ctx)
 }
 
 /* ---------- t_sys_mon (M1): WDT + tamper + heartbeat ---------- */
+static void t_alarm_task(void *arg);
+
 static void t_sys_mon_task(void *arg)
 {
     (void)arg;
@@ -166,7 +170,11 @@ static void t_sys_mon_task(void *arg)
 
         if (xQueueReceive(xQ_Tamper, &evt, 0) == pdTRUE) {
             /* M3: transicionar SM_ALARM. Hoy: log + reenvío futuro. */
-            ESP_LOGW(TAG, "TAMPER type=%d ts=%lu (M3: SM_ALARM)",
+            /* [CR-M3-002] Reenviar tamper a t_alarm */
+            if (xQueueSend(xQ_TamperAlarm, &evt, 0) != pdTRUE) {
+                ESP_LOGW(TAG, "xQ_TamperAlarm full");
+            }
+            ESP_LOGI(TAG, "TAMPER type=%d ts=%lu -> t_alarm",
                      evt.type, (unsigned long)evt.timestamp_ms);
         }
 
@@ -254,6 +262,54 @@ static void t_wifi_mqtt_task(void *arg)
 }
 
 /* ---------- app_main ---------- */
+/* ---------- [HUB-F-005] Callback SM_ALARM -> MQTT ---------- */
+static void alarm_publish_cb(const char *json_payload)
+{
+    mqtt_link_publish(MQTT_LINK_SUB_EVENT, json_payload, false);
+}
+
+/* ---------- [HUB-F-005] t_alarm: Core 0, Pri 5, 4096 ---------- */
+static void t_alarm_task(void *arg)
+{
+    (void)arg;
+    tamper_event_t te;
+    char *cmd = NULL;
+
+    ESP_LOGI(TAG, "[M3] t_alarm iniciada (estado=%s)",
+             sm_alarm_state_str(sm_alarm_get_state()));
+
+    while (1) {
+        /* Comandos MQTT desde xQ_MqttCmd (M2 encola char* heap) */
+        if (xQueueReceive(xQ_MqttCmd, &cmd, 0) == pdTRUE) {
+            /* Parse JSON {"cmd":"arm|disarm"} */
+            cJSON *j = cJSON_Parse(cmd);
+            if (j) {
+                cJSON *jc = cJSON_GetObjectItem(j, "cmd");
+                if (jc && cJSON_IsString(jc)) {
+                    if (strcmp(jc->valuestring, "arm") == 0) {
+                        ESP_LOGI(TAG, "CMD arm");
+                        sm_alarm_process_cmd(SM_ALARM_CMD_ARM);
+                    } else if (strcmp(jc->valuestring, "disarm") == 0) {
+                        ESP_LOGI(TAG, "CMD disarm");
+                        sm_alarm_process_cmd(SM_ALARM_CMD_DISARM);
+                    }
+                }
+                cJSON_Delete(j);
+            }
+            free(cmd);
+        }
+
+        /* Eventos tamper desde xQ_TamperAlarm */
+        if (xQueueReceive(xQ_TamperAlarm, &te, 0) == pdTRUE) {
+            sm_alarm_notify_event(SM_ALARM_EVT_TAMPER);
+        }
+
+        sm_alarm_tick();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "=== HUB-S3 M2 boot === fw=%s", FW_VERSION);
@@ -268,7 +324,8 @@ void app_main(void)
     xQ_MqttOut     = xQueueCreate(10, sizeof(mqtt_out_msg_t));
     xQ_MqttCmd     = xQueueCreate(5, sizeof(char *));
     xQ_Tamper      = xQueueCreate(5, sizeof(tamper_event_t));
-    if (!xQ_EspnowLogic || !xQ_MqttOut || !xQ_MqttCmd || !xQ_Tamper) {
+    xQ_TamperAlarm = xQueueCreate(5, sizeof(tamper_event_t));
+    if (!xQ_EspnowLogic || !xQ_MqttOut || !xQ_MqttCmd || !xQ_Tamper || !xQ_TamperAlarm) {
         ESP_LOGE(TAG, "FATAL: colas");
         abort();
     }
@@ -351,9 +408,13 @@ void app_main(void)
 
     ESP_ERROR_CHECK(sm_conn_start());
 
+    /* [HUB-F-005] Inicializar SM_ALARM con estado persistente de NVS */
+    ESP_ERROR_CHECK(sm_alarm_init(alarm_publish_cb));
+
     /* Tareas M2 */
     xTaskCreatePinnedToCore(t_espnow_rx_task, "t_espnow_rx", 4096, NULL, 24, NULL, 0);
     xTaskCreatePinnedToCore(t_wifi_mqtt_task, "t_wifi_mqtt", 8192, NULL, 15, NULL, 1);
+    xTaskCreatePinnedToCore(t_alarm_task, "t_alarm", 4096, NULL, 5, NULL, 0);
 
     ESP_LOGI(TAG, "M2 up: ESP-NOW + MQTT WSS (SM_ALARM stub M3)");
 }

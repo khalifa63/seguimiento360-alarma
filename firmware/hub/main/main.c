@@ -1,14 +1,19 @@
 /*
- * main.c — HUB-S3 M2 (ESP-NOW + MQTT WSS)
- * Integra M1 (BSP + NVS 3 particiones) con M2 (espnow_link, mqtt_link, sm_conn).
+ * main.c — HUB-S3 M4 (Provisioning + ESP-NOW + MQTT WSS + SM_ALARM)
+ * Orquesta: NVS -> [Provisioning si no hay creds] -> BSP -> SM_CONN -> MQTT.
+ *
+ * [HUB-F-030] M4: Provisioning SoftAP al inicio si no hay credenciales.
  * [HUB-F-001] arranque ordenado  [AT-01] boot->online <=10s
  *
- * Colas: xQ_EspnowLogic(10), xQ_MqttOut(10), xQ_MqttCmd(5), xQ_Tamper(5)
+ * Colas: xQ_EspnowLogic(10), xQ_MqttOut(10), xQ_MqttCmd(5),
+ *        xQ_Tamper(5), xQ_TamperAlarm(5)
  * Tareas:
- *   t_sys_mon    Core 0, Pri 1  (WDT, tamper, heartbeat LED)   [M1]
- *   t_espnow_rx  Core 0, Pri 24 (lógica ESP-NOW -> JSON)       [A1 v0.2]
- *   t_wifi_mqtt  Core 1, Pri 15 (publicador + comandos)        [A1 v0.2]
- *   sm_conn      Core 1, Pri 10 (FSM WiFi, creada por sm_conn_start)
+ *   factory        -       (M4: botón BOOT 10s)
+ *   t_sys_mon      Core 0, Pri 1  (WDT, tamper, heartbeat LED)   [M1]
+ *   t_espnow_rx    Core 0, Pri 24 (lógica ESP-NOW -> JSON)       [M2]
+ *   t_wifi_mqtt    Core 1, Pri 15 (publicador + comandos)        [M2]
+ *   t_alarm        Core 0, Pri 5  (SM_ALARM FSM)                 [M3]
+ *   sm_conn        Core 1, Pri 10 (FSM WiFi)                     [M2]
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,14 +24,15 @@
 #include "freertos/queue.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "esp_task_wdt.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "cJSON.h"
+#include "driver/gpio.h"
 
 #include "bsp.h"
 #include "nvs_manager.h"
@@ -34,16 +40,17 @@
 #include "mqtt_link.h"
 #include "sm_conn.h"
 #include "sm_alarm.h"
+#include "sm_prov.h"
 
 static const char *TAG = "MAIN";
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.4.0"
 
-/* === SOLO DESARROLLO (M4 lo elimina: SoftAP provisioning) === */
-#define M2_DEV_FALLBACK  1
-#define DEV_WIFI_SSID    "KHALIFA_R"     /* <- TU RED WiFi */
-#define DEV_WIFI_PASS    "vito4303"     /* <- TU PASSWORD */
-/* 0 = auto-scan (dev). Producción: canal fijo del AP [R1 A6] */
+/* [M4] Botón BOOT para factory reset */
+#define BOOT_BTN_GPIO  GPIO_NUM_0
+#define FACTORY_MS     10000
+
+/* [M2] Canal fijo: 0 = auto-scan. Producción: canal del AP [R1 A6] */
 #define M2_FIXED_CHANNEL 0
 
 /* ---------- Colas ---------- */
@@ -59,29 +66,43 @@ typedef struct {
     bool    retain;
 } mqtt_out_msg_t;
 
-/* ---------- Config desde NVS (particion 'nvs', ns 'hub_cfg') ---------- */
-static esp_err_t cfg_get_str(const char *key, char **out)
+/* =========================================================
+ * [M4] Factory reset: BOOT 10s
+ * ========================================================= */
+static void factory_reset_task(void *arg)
 {
-    nvs_handle_t h;
-    esp_err_t err = nvs_open_from_partition(NVS_PART_CONFIG, NVS_NS_CONFIG,
-                                            NVS_READONLY, &h);
-    if (err != ESP_OK) return err;
+    gpio_reset_pin(BOOT_BTN_GPIO);
+    gpio_set_direction(BOOT_BTN_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BOOT_BTN_GPIO, GPIO_PULLUP_ONLY);
 
-    size_t sz = 0;
-    err = nvs_get_str(h, key, NULL, &sz);
-    if (err == ESP_OK) {
-        *out = calloc(1, sz);
-        if (*out) {
-            err = nvs_get_str(h, key, *out, &sz);
+    TickType_t pressed_since = 0;
+    bool pressing = false;
+    while (1) {
+        int level = gpio_get_level(BOOT_BTN_GPIO);
+        if (level == 0) {  /* BOOT pulsado (pull-up) */
+            if (!pressing) {
+                pressing = true;
+                pressed_since = xTaskGetTickCount();
+            } else {
+                uint32_t ms = (xTaskGetTickCount() - pressed_since)
+                              * portTICK_PERIOD_MS;
+                if (ms >= FACTORY_MS) {
+                    ESP_LOGW(TAG, "[M4] Factory reset activado (BOOT 10s)");
+                    nvs_manager_factory_reset_credentials();
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    esp_restart();
+                }
+            }
         } else {
-            err = ESP_ERR_NO_MEM;
+            pressing = false;
         }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    nvs_close(h);
-    return err;
 }
 
-/* ---------- Callback ESP-NOW: encolar hacia t_espnow_rx ---------- */
+/* =========================================================
+ * Callbacks ESP-NOW y MQTT (M2)
+ * ========================================================= */
 static void espnow_rx_cb(const espnow_rx_msg_t *msg, void *ctx)
 {
     (void)ctx;
@@ -119,19 +140,18 @@ static void publish_status(void)
     char *js = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     if (js) {
-        mqtt_link_publish(MQTT_LINK_SUB_STATUS, js, true);  /* retained */
+        mqtt_link_publish(MQTT_LINK_SUB_STATUS, js, true);
         free(js);
     }
 }
 
-/* ---------- Callbacks MQTT ---------- */
 static void mqtt_evt_cb(mqtt_link_evt_t evt, void *ctx)
 {
     (void)ctx;
     switch (evt) {
     case MQTT_LINK_EVT_CONNECTED:
         ESP_LOGI(TAG, "[AT-01] MQTT online");
-        publish_status();   /* online inmediato */
+        publish_status();
         break;
     case MQTT_LINK_EVT_DISCONNECTED:
         ESP_LOGW(TAG, "MQTT offline");
@@ -154,9 +174,17 @@ static void mqtt_cmd_cb(const char *cmd_json, size_t len, void *ctx)
     }
 }
 
-/* ---------- t_sys_mon (M1): WDT + tamper + heartbeat ---------- */
-static void t_alarm_task(void *arg);
+/* =========================================================
+ * [M3] Callback SM_ALARM -> MQTT
+ * ========================================================= */
+static void alarm_publish_cb(const char *json_payload)
+{
+    mqtt_link_publish(MQTT_LINK_SUB_EVENT, json_payload, false);
+}
 
+/* =========================================================
+ * t_sys_mon (M1): WDT + tamper + heartbeat
+ * ========================================================= */
 static void t_sys_mon_task(void *arg)
 {
     (void)arg;
@@ -169,7 +197,6 @@ static void t_sys_mon_task(void *arg)
         esp_task_wdt_reset();
 
         if (xQueueReceive(xQ_Tamper, &evt, 0) == pdTRUE) {
-            /* M3: transicionar SM_ALARM. Hoy: log + reenvío futuro. */
             /* [CR-M3-002] Reenviar tamper a t_alarm */
             if (xQueueSend(xQ_TamperAlarm, &evt, 0) != pdTRUE) {
                 ESP_LOGW(TAG, "xQ_TamperAlarm full");
@@ -193,7 +220,9 @@ static void t_sys_mon_task(void *arg)
     }
 }
 
-/* ---------- t_espnow_rx: frame -> JSON -> xQ_MqttOut ---------- */
+/* =========================================================
+ * t_espnow_rx (M2): frame -> JSON -> xQ_MqttOut
+ * ========================================================= */
 static void t_espnow_rx_task(void *arg)
 {
     (void)arg;
@@ -233,7 +262,9 @@ static void t_espnow_rx_task(void *arg)
     }
 }
 
-/* ---------- t_wifi_mqtt: publicador + comandos (stub M3) ---------- */
+/* =========================================================
+ * t_wifi_mqtt (M2): publicador + comandos -> SM_ALARM (M3)
+ * ========================================================= */
 static void t_wifi_mqtt_task(void *arg)
 {
     (void)arg;
@@ -249,7 +280,7 @@ static void t_wifi_mqtt_task(void *arg)
             free(om.json);
         }
         if (xQueueReceive(xQ_MqttCmd, &cmd, 0) == pdTRUE) {
-            ESP_LOGI(TAG, "CMD RX (M3->SM_ALARM): %s", cmd);
+            ESP_LOGI(TAG, "CMD RX: %s", cmd);
             free(cmd);
         }
         int64_t now = esp_timer_get_time();
@@ -261,14 +292,9 @@ static void t_wifi_mqtt_task(void *arg)
     }
 }
 
-/* ---------- app_main ---------- */
-/* ---------- [HUB-F-005] Callback SM_ALARM -> MQTT ---------- */
-static void alarm_publish_cb(const char *json_payload)
-{
-    mqtt_link_publish(MQTT_LINK_SUB_EVENT, json_payload, false);
-}
-
-/* ---------- [HUB-F-005] t_alarm: Core 0, Pri 5, 4096 ---------- */
+/* =========================================================
+ * [M3] t_alarm: Core 0, Pri 5, 4096
+ * ========================================================= */
 static void t_alarm_task(void *arg)
 {
     (void)arg;
@@ -281,7 +307,6 @@ static void t_alarm_task(void *arg)
     while (1) {
         /* Comandos MQTT desde xQ_MqttCmd (M2 encola char* heap) */
         if (xQueueReceive(xQ_MqttCmd, &cmd, 0) == pdTRUE) {
-            /* Parse JSON {"cmd":"arm|disarm"} */
             cJSON *j = cJSON_Parse(cmd);
             if (j) {
                 cJSON *jc = cJSON_GetObjectItem(j, "cmd");
@@ -309,71 +334,79 @@ static void t_alarm_task(void *arg)
     }
 }
 
-
+/* =========================================================
+ * app_main
+ * ========================================================= */
 void app_main(void)
 {
-    ESP_LOGI(TAG, "=== HUB-S3 M2 boot === fw=%s", FW_VERSION);
+    ESP_LOGI(TAG, "=== HUB-S3 M4 boot === fw=%s", FW_VERSION);
 
     /* NVS 3 particiones (M1) */
     ESP_ERROR_CHECK(nvs_manager_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    /* Colas */
+    /* [M4] Factory reset task (botón BOOT) */
+    xTaskCreate(factory_reset_task, "factory", 3072, NULL, 3, NULL);
+
+    /* Crear cola de tamper y inicializar BSP (necesario para LED en ambos caminos) */
+    xQ_Tamper = xQueueCreate(5, sizeof(tamper_event_t));
+    ESP_ERROR_CHECK(bsp_init(xQ_Tamper));
+
+    /* =========================================================
+     * [M4] ¿Hay credenciales? → provisioning o flujo normal
+     * ========================================================= */
+    if (!sm_prov_check_credentials()) {
+        ESP_LOGI(TAG, "[M4] Sin credenciales. Entrando en modo provisioning...");
+        esp_err_t err = sm_prov_start();   /* bloqueante, hace esp_restart() */
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "[M4] Provisioning falló. Reiniciando...");
+            esp_restart();
+        }
+        return;  /* no se alcanza */
+    }
+
+    ESP_LOGI(TAG, "[M4] Credenciales presentes. Arrancando flujo M2/M3...");
+
+    /* Resto de colas (M2 + M3) */
     xQ_EspnowLogic = xQueueCreate(10, sizeof(espnow_rx_msg_t));
     xQ_MqttOut     = xQueueCreate(10, sizeof(mqtt_out_msg_t));
     xQ_MqttCmd     = xQueueCreate(5, sizeof(char *));
-    xQ_Tamper      = xQueueCreate(5, sizeof(tamper_event_t));
     xQ_TamperAlarm = xQueueCreate(5, sizeof(tamper_event_t));
-    if (!xQ_EspnowLogic || !xQ_MqttOut || !xQ_MqttCmd || !xQ_Tamper || !xQ_TamperAlarm) {
+    if (!xQ_EspnowLogic || !xQ_MqttOut || !xQ_MqttCmd || !xQ_TamperAlarm) {
         ESP_LOGE(TAG, "FATAL: colas");
         abort();
     }
 
-    /* BSP M1 (LED, tamper ISR, ADC) */
-    ESP_ERROR_CHECK(bsp_init(xQ_Tamper));
-
     /* t_sys_mon (WDT + heartbeat) */
     xTaskCreatePinnedToCore(t_sys_mon_task, "t_sys_mon", 4096, NULL, 1, NULL, 0);
 
-    /* ---- Config desde NVS, fallback dev ---- */
-    char *ssid = NULL, *pass = NULL, *site = NULL, *muser = NULL, *mpass = NULL;
-    cfg_get_str("wifi_ssid", &ssid);
-    cfg_get_str("wifi_pass", &pass);
-    cfg_get_str("site_id", &site);
-    cfg_get_str("mqtt_user", &muser);
-    cfg_get_str("mqtt_pass", &mpass);
+    /* =========================================================
+     * [M4] Config desde NVS vía nvs_manager (sin fallback dev)
+     * ========================================================= */
+    static char ssid[33] = {0}, pass[65] = {0};
+    static char tid_str[33] = {0}, sid[33] = {0};
+    static char muser[65] = {0}, mpass[65] = {0};
 
-#if M2_DEV_FALLBACK
-    if (!ssid) ssid = strdup("KHALIFA_R");      // ya editado
-    if (!pass) pass = strdup("vito4303");      // ya editado
-    if (!muser) muser = strdup("hub_s3");
-    if (!mpass) mpass = strdup("Hub2026Secure!");
-#endif
+    ESP_ERROR_CHECK(nvs_manager_get_wifi(ssid, sizeof(ssid), pass, sizeof(pass)));
+    nvs_manager_get_site(tid_str, sizeof(tid_str), sid, sizeof(sid));
+    nvs_manager_get_mqtt_auth(muser, sizeof(muser), mpass, sizeof(mpass));
 
+    /* Defaults si no están configurados */
+    if (tid_str[0] == '\0') strcpy(tid_str, "0");
+    if (sid[0] == '\0') strcpy(sid, "site0");
 
+    ESP_LOGI(TAG, "[M4] Config: SSID='%s' tenant='%s' site='%s' mqtt_user='%s'",
+             ssid, tid_str, sid, muser);
 
-
-
-
-    if (!ssid || !strlen(ssid)) {
-        ESP_LOGE(TAG, "Sin wifi_ssid en NVS. Edita DEV_WIFI_SSID o espera M4.");
-        abort();
-    }
-    if (!site) site = strdup("site0");
-
-    uint32_t tid = 0;
-    if (nvs_manager_get_tenant_id(&tid) != ESP_OK) tid = 0;
-    char tid_str[12];
-    snprintf(tid_str, sizeof(tid_str), "%lu", (unsigned long)tid);
-
+    /* MAC del HUB como string */
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char mac_str[13];
     snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    /* ---- SM_CONN (WiFi STA) antes que ESP-NOW ---- */
+    /* ---- SM_CONN (WiFi STA) con credenciales de NVS ---- */
     sm_conn_cfg_t scfg = {
         .wifi_ssid = ssid,
         .wifi_pass = pass,
@@ -381,7 +414,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(sm_conn_init(&scfg));
 #if M2_FIXED_CHANNEL > 0
-    esp_wifi_set_channel(M2_FIXED_CHANNEL, 0);  /* ESP-NOW activo pre-asoc */
+    esp_wifi_set_channel(M2_FIXED_CHANNEL, 0);
 #endif
 
     /* ---- ESP-NOW link ---- */
@@ -396,7 +429,7 @@ void app_main(void)
     mqtt_link_cfg_t mcfg = {
         .broker_uri  = "wss://mqtt.seguimiento360.com:443/mqtt",
         .tenant_id   = tid_str,
-        .site_id     = site,
+        .site_id     = sid,
         .hub_mac_str = mac_str,
         .fw_version  = FW_VERSION,
         .mqtt_user   = muser,
@@ -406,15 +439,15 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(mqtt_link_init(&mcfg));
 
-    ESP_ERROR_CHECK(sm_conn_start());
-
-    /* [HUB-F-005] Inicializar SM_ALARM con estado persistente de NVS */
+    /* ---- [M3] SM_ALARM con callback de publicación ---- */
     ESP_ERROR_CHECK(sm_alarm_init(alarm_publish_cb));
 
-    /* Tareas M2 */
+    ESP_ERROR_CHECK(sm_conn_start());
+
+    /* Tareas M2 + M3 */
     xTaskCreatePinnedToCore(t_espnow_rx_task, "t_espnow_rx", 4096, NULL, 24, NULL, 0);
     xTaskCreatePinnedToCore(t_wifi_mqtt_task, "t_wifi_mqtt", 8192, NULL, 15, NULL, 1);
     xTaskCreatePinnedToCore(t_alarm_task, "t_alarm", 4096, NULL, 5, NULL, 0);
 
-    ESP_LOGI(TAG, "M2 up: ESP-NOW + MQTT WSS (SM_ALARM stub M3)");
+    ESP_LOGI(TAG, "[M4] HUB-S3 operativo. ESP-NOW + MQTT + SM_ALARM + Provisioning.");
 }

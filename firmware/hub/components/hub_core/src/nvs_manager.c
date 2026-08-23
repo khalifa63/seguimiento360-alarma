@@ -1,4 +1,5 @@
 #include "nvs_manager.h"
+#include <stdbool.h>
 #include "nvs_flash.h"
 #include "esp_partition.h"
 #include "esp_log.h"

@@ -164,6 +164,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, j, strlen(j));
         free(j); cJSON_Delete(resp);
+        ESP_LOGI(TAG, "Creds: ssid='%s'(len=%d) pass_len=%d mqtt_user='%s'", ssid, (int)strlen(ssid), (int)strlen(pass), muser);
         ESP_LOGI(TAG, "Credenciales guardadas. Programando validacion...");
         /* Notificar a la FSM para que avance a VALIDATE */
         sm_prov_on_credentials_received();

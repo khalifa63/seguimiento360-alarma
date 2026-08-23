@@ -1,12 +1,13 @@
 /*
- * sm_prov.c — FSM de Provisioning HUB-S3 (v2 — fix event handler race)
+ * sm_prov.c — FSM de Provisioning HUB-S3 (v3 FIX)
  * [HUB-F-030] [AT-05] [AT-06]
  *
- * FIX v2:
- *   - start_softap() usa WIFI_MODE_AP (no APSTA). No arranca STA.
- *   - El event handler STA se registra SOLO durante validate_wifi_credentials().
- *   - s_wifi_evgrp se crea ANTES de conectar y se destruye DESPUES.
- *   - Handler con guarda defensiva contra NULL (por si llega evento tardio).
+ * FIX v3:
+ *   - start_softap() usa SOLO WIFI_MODE_AP (no APSTA)
+ *   - NO se registran event handlers en start_softap()
+ *   - validate_wifi_credentials() crea EventGroup + handlers SOLO durante validacion
+ *   - Handler con guarda defensiva contra NULL
+ *   - Cleanup completo tras validacion
  */
 #include "sm_prov.h"
 #include "nvs_manager.h"
@@ -29,7 +30,7 @@ static const char *TAG = "sm_prov";
 #define SOFTAP_CHANNEL     1
 #define SOFTAP_PASS        "s360setup"
 #define PROV_TIMEOUT_MS    (5 * 60 * 1000)
-#define PROV_VALIDATE_MS   15000
+#define PROV_VALIDATE_MS   20000
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
@@ -41,8 +42,8 @@ static volatile bool s_credentials_received = false;
 static esp_netif_t *s_sta_netif = NULL;
 static esp_netif_t *s_ap_netif = NULL;
 static TaskHandle_t s_led_task = NULL;
-static esp_event_handler_instance_t s_wifi_handler_instance = NULL;
-static esp_event_handler_instance_t s_ip_handler_instance = NULL;
+static esp_event_handler_instance_t s_wifi_handler_inst = NULL;
+static esp_event_handler_instance_t s_ip_handler_inst = NULL;
 
 extern esp_err_t web_config_start(void);
 extern esp_err_t web_config_stop(void);
@@ -86,7 +87,7 @@ void sm_prov_on_credentials_received(void)
 }
 
 /* =========================================================
- * LED parpadeante (BSP)
+ * LED parpadeante (BSP de M1)
  * ========================================================= */
 static void led_task(void *arg)
 {
@@ -125,12 +126,12 @@ static void build_ap_ssid(char *out, size_t sz)
 }
 
 /* =========================================================
- * Event handler WiFi (SOLO activo durante validate)
+ * Event handler SOLO activo durante validacion
  * ========================================================= */
 static void wifi_validate_handler(void *arg, esp_event_base_t base,
                                    int32_t id, void *data)
 {
-    /* Guarda defensiva: si el handler se dispara fuera de validacion, ignorar */
+    /* Guarda defensiva: si se dispara fuera de validacion, ignorar */
     if (!s_wifi_evgrp) return;
 
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -143,7 +144,7 @@ static void wifi_validate_handler(void *arg, esp_event_base_t base,
 }
 
 /* =========================================================
- * Arrancar SOLO SoftAP (sin STA)
+ * Arrancar SOLO SoftAP (sin STA, sin event handlers)
  * ========================================================= */
 static esp_err_t start_softap(void)
 {
@@ -152,29 +153,24 @@ static esp_err_t start_softap(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&cfg);
-    if (err != ESP_OK && err != ESP_ERR_WIFI_IF) {
+    if (err != ESP_OK && err != ESP_ERR_WIFI_IF && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_init: %s", esp_err_to_name(err));
         return err;
     }
 
-    /* NO registramos handler STA aqui: solo durante validacion */
-
     char ssid[33];
     build_ap_ssid(ssid, sizeof(ssid));
 
-    wifi_config_t ap_cfg = {
-        .ap = {
-            .channel = SOFTAP_CHANNEL,
-            .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA2_PSK,
-            .pmf_cfg = { .required = true },
-        },
-    };
+    wifi_config_t ap_cfg = {0};
+    ap_cfg.ap.channel = SOFTAP_CHANNEL;
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    ap_cfg.ap.pmf_cfg.required = true;
     strncpy((char *)ap_cfg.ap.ssid, ssid, sizeof(ap_cfg.ap.ssid) - 1);
     ap_cfg.ap.ssid_len = strlen(ssid);
     strncpy((char *)ap_cfg.ap.password, SOFTAP_PASS, sizeof(ap_cfg.ap.password) - 1);
 
-    /* SOLO AP, no APSTA (el STA se arranca solo en validate) */
+    /* MODO AP PURO: no arranca STA, no se conecta a nada */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -184,35 +180,26 @@ static esp_err_t start_softap(void)
     return ESP_OK;
 }
 
-static void stop_softap(void)
+static void stop_wifi(void)
 {
     esp_wifi_stop();
-    if (s_ap_netif) {
-        esp_netif_destroy_default_wifi(s_ap_netif);
-        s_ap_netif = NULL;
-    }
-    if (s_sta_netif) {
-        esp_netif_destroy_default_wifi(s_sta_netif);
-        s_sta_netif = NULL;
-    }
     esp_wifi_deinit();
 }
 
 /* =========================================================
- * Validacion STA (con manejo seguro del event handler)
+ * Validacion STA (EventGroup + handlers SOLO aqui)
  * ========================================================= */
 static bool validate_wifi_credentials(void)
 {
     char ssid[33] = {0}, pass[65] = {0};
     if (nvs_manager_get_wifi(ssid, sizeof(ssid), pass, sizeof(pass)) != ESP_OK) {
-        ESP_LOGE(TAG, "No se pudieron leer credenciales");
+        ESP_LOGE(TAG, "No se pudieron leer credenciales para validar");
         return false;
     }
 
-    /* Crear event group ANTES de conectar */
-    if (s_wifi_evgrp) {
-        vEventGroupDelete(s_wifi_evgrp);
-    }
+    ESP_LOGI(TAG, "Validando WiFi STA SSID='%s'...", ssid);
+
+    /* Crear EventGroup ANTES de conectar */
     s_wifi_evgrp = xEventGroupCreate();
     if (!s_wifi_evgrp) {
         ESP_LOGE(TAG, "No se pudo crear EventGroup");
@@ -222,26 +209,25 @@ static bool validate_wifi_credentials(void)
     /* Registrar handlers SOLO durante validacion */
     esp_event_handler_instance_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
                                         &wifi_validate_handler, NULL,
-                                        &s_wifi_handler_instance);
+                                        &s_wifi_handler_inst);
     esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                         &wifi_validate_handler, NULL,
-                                        &s_ip_handler_instance);
+                                        &s_ip_handler_inst);
 
-    /* Cambiar a modo APSTA temporalmente (AP sigue activo para el portal) */
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    /* Cambiar a APSTA temporalmente (AP sigue activo para el portal) */
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
 
-    /* Configurar STA con las credenciales recibidas */
+    /* Configurar STA */
     wifi_config_t sta_cfg = {0};
     strncpy((char *)sta_cfg.sta.ssid, ssid, sizeof(sta_cfg.sta.ssid) - 1);
     strncpy((char *)sta_cfg.sta.password, pass, sizeof(sta_cfg.sta.password) - 1);
-    sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    sta_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
-
-    ESP_LOGI(TAG, "Validando WiFi STA SSID='%s'...", ssid);
+    /* Conectar */
     esp_wifi_connect();
 
-    /* Esperar evento o timeout */
+    /* Esperar resultado */
     EventBits_t bits = xEventGroupWaitBits(s_wifi_evgrp,
         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
         pdTRUE, pdFALSE, pdMS_TO_TICKS(PROV_VALIDATE_MS));
@@ -249,30 +235,28 @@ static bool validate_wifi_credentials(void)
     bool ok = (bits & WIFI_CONNECTED_BIT) != 0;
     ESP_LOGI(TAG, "Validacion WiFi: %s", ok ? "OK" : "FALLO");
 
-    /* Limpiar: desconectar STA, desregistrar handlers, destruir EventGroup */
+    /* Limpiar: desconectar, desregistrar, destruir */
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(200));
 
-    if (s_wifi_handler_instance) {
+    if (s_wifi_handler_inst) {
         esp_event_handler_instance_unregister(WIFI_EVENT,
-                                              WIFI_EVENT_STA_DISCONNECTED,
-                                              s_wifi_handler_instance);
-        s_wifi_handler_instance = NULL;
+            WIFI_EVENT_STA_DISCONNECTED, s_wifi_handler_inst);
+        s_wifi_handler_inst = NULL;
     }
-    if (s_ip_handler_instance) {
+    if (s_ip_handler_inst) {
         esp_event_handler_instance_unregister(IP_EVENT,
-                                              IP_EVENT_STA_GOT_IP,
-                                              s_ip_handler_instance);
-        s_ip_handler_instance = NULL;
+            IP_EVENT_STA_GOT_IP, s_ip_handler_inst);
+        s_ip_handler_inst = NULL;
     }
 
-    /* Volver a modo solo AP */
+    /* Volver a modo AP puro */
     esp_wifi_set_mode(WIFI_MODE_AP);
 
-    if (s_wifi_evgrp) {
-        vEventGroupDelete(s_wifi_evgrp);
-        s_wifi_evgrp = NULL;
-    }
+    /* IMPORTANTE: poner a NULL ANTES de destruir */
+    EventGroupHandle_t tmp = s_wifi_evgrp;
+    s_wifi_evgrp = NULL;
+    if (tmp) vEventGroupDelete(tmp);
 
     return ok;
 }
@@ -289,6 +273,7 @@ esp_err_t sm_prov_start(void)
 
     led_start();
 
+    s_state = SM_PROV_SOFTAP_START;
     if (start_softap() != ESP_OK) {
         s_state = SM_PROV_ERROR;
         led_stop();
@@ -308,9 +293,10 @@ esp_err_t sm_prov_start(void)
             vTaskDelay(pdMS_TO_TICKS(500));
             uint32_t elapsed = (xTaskGetTickCount() - start) * portTICK_PERIOD_MS;
             if (elapsed >= PROV_TIMEOUT_MS) {
-                ESP_LOGW(TAG, "Timeout. Reiniciando SoftAP.");
+                ESP_LOGW(TAG, "Timeout provisioning (%d s). Reiniciando SoftAP.",
+                         PROV_TIMEOUT_MS / 1000);
                 web_config_stop();
-                stop_softap();
+                stop_wifi();
                 vTaskDelay(pdMS_TO_TICKS(500));
                 start_softap();
                 web_config_start();
@@ -325,25 +311,25 @@ esp_err_t sm_prov_start(void)
 
         /* VALIDATE */
         s_state = SM_PROV_VALIDATE;
-        ESP_LOGI(TAG, "Validando credenciales WiFi...");
         bool valid = validate_wifi_credentials();
 
         if (valid) {
             s_state = SM_PROV_SAVE;
-            ESP_LOGI(TAG, "Credenciales validadas y persistidas.");
+            ESP_LOGI(TAG, "Credenciales validadas y persistidas en NVS.");
             vTaskDelay(pdMS_TO_TICKS(2000));
             break;
         }
 
         /* Invalido: volver a WAIT_CONFIG */
-        ESP_LOGW(TAG, "Credenciales invalidas. Reintentando...");
+        ESP_LOGW(TAG, "Credenciales WiFi invalidas. Volviendo a formulario.");
+        s_state = SM_PROV_WAIT_CONFIG;
     }
 
     /* REBOOT */
     s_state = SM_PROV_REBOOT;
     web_config_stop();
     led_stop();
-    stop_softap();
+    stop_wifi();
     ESP_LOGI(TAG, "Provisioning completado. Reiniciando en modo normal...");
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();

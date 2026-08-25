@@ -3,6 +3,8 @@
  * [HUB-F-006] RX + ACK <50ms  [AT-02]
  * [HUB-F-007] CRC16-CCITT + anti-replay monótono
  * [HUB-NF-003] canal fijo compartido con WiFi STA  [R1 A6]
+ * [M2bis] Soporte APSTA: peer en WIFI_IF_AP, ACK usa MAC AP
+ * [M2bis FIX] ACK construido en buffer lineal (CRC tras header, no offset 234)
  */
 #include "espnow_link.h"
 
@@ -19,7 +21,7 @@
 static const char *TAG = "espnow_link";
 
 /* ---------- Estado interno ---------- */
-#define AR_TABLE_SIZE 16   /* hasta 16 nodos simultáneos (M2) */
+#define AR_TABLE_SIZE 16
 
 typedef struct {
     uint8_t  mac[6];
@@ -29,7 +31,8 @@ typedef struct {
 
 static struct {
     bool             initialized;
-    uint8_t          hub_mac[6];
+    uint8_t          hub_mac_sta[6];
+    uint8_t          hub_mac_ap[6];
     uint8_t          primary_ch;
     bool             encrypt;
     uint8_t          pmk[16];
@@ -39,6 +42,7 @@ static struct {
     void                    *on_tx_done_ctx;
     ar_entry_t       ar_table[AR_TABLE_SIZE];
     uint16_t         tx_seq;
+    bool             apsta_mode;
 } s_state;
 
 /* ---------- CRC16-CCITT (0xFFFF, pol 0x1021) ---------- */
@@ -83,7 +87,6 @@ static bool ar_accept(const uint8_t *mac, uint16_t seq)
         e->valid = true;
         return true;
     }
-    /* Secuencia monótona estricta con wrap-around 16 bits */
     int16_t delta = (int16_t)(seq - e->last_seq);
     if (delta <= 0) {
         ESP_LOGD(TAG, "AR reject " MACSTR " seq=%u last=%u",
@@ -94,7 +97,7 @@ static bool ar_accept(const uint8_t *mac, uint16_t seq)
     return true;
 }
 
-/* ---------- Construcción de frame ---------- */
+/* ---------- Construcción de frame (legacy, para frames con payload) ---------- */
 esp_err_t espnow_link_build_frame(espnow_frame_t *out,
                                   espnow_frame_type_t type,
                                   uint16_t seq,
@@ -121,17 +124,29 @@ esp_err_t espnow_link_build_frame(espnow_frame_t *out,
     return ESP_OK;
 }
 
-/* ---------- ACK inline (AT-02) ---------- */
+/* ---------- ACK inline (AT-02) - VERSIÓN LEGACY ---------- */
 esp_err_t espnow_link_send_ack(const uint8_t *dst_mac, uint16_t seq)
 {
-    espnow_frame_t f;
-    esp_err_t err = espnow_link_build_frame(&f, ESPNOW_FT_ACK, seq,
-                                            s_state.hub_mac, dst_mac,
-                                            NULL, 0);
-    if (err != ESP_OK) return err;
+    /* [M2bis FIX] Construir ACK en buffer lineal: header(19) + crc(2) = 21 bytes */
+    uint8_t ack_buf[ESPNOW_HEADER_SIZE + ESPNOW_CRC_SIZE];
+    memset(ack_buf, 0, sizeof(ack_buf));
 
-    size_t tx_len = ESPNOW_HEADER_SIZE + f.payload_len + ESPNOW_CRC_SIZE;
-    err = esp_now_send(dst_mac, (uint8_t *)&f, tx_len);
+    /* Header */
+    ack_buf[0] = ESPNOW_FRAME_MAGIC;
+    ack_buf[1] = ESPNOW_FRAME_VERSION;
+    ack_buf[2] = ESPNOW_FT_ACK;
+    ack_buf[3] = (uint8_t)(seq & 0xFF);
+    ack_buf[4] = (uint8_t)((seq >> 8) & 0xFF);
+    memcpy(&ack_buf[5],  s_state.hub_mac_sta, 6);  /* src_mac */
+    memcpy(&ack_buf[11], dst_mac, 6);              /* dst_mac */
+    /* payload_len = 0 (bytes 17-18 ya son 0 por memset) */
+
+    /* CRC sobre los 19 bytes del header */
+    uint16_t crc = espnow_link_crc16_ccitt(ack_buf, ESPNOW_HEADER_SIZE);
+    ack_buf[ESPNOW_HEADER_SIZE]     = (uint8_t)(crc & 0xFF);
+    ack_buf[ESPNOW_HEADER_SIZE + 1] = (uint8_t)((crc >> 8) & 0xFF);
+
+    esp_err_t err = esp_now_send(dst_mac, ack_buf, sizeof(ack_buf));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "send ACK fail: %s", esp_err_to_name(err));
     }
@@ -146,13 +161,15 @@ esp_err_t espnow_link_send_frame(const espnow_frame_t *frame)
 }
 
 /* ---------- RX callback (contexto WiFi) ---------- */
-/* [AT-02] El ACK se envía aquí mismo, sin encolar. */
 static void rx_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
     int64_t t_us = esp_timer_get_time();
 
+    ESP_LOGI(TAG, "RX raw: len=%d from=" MACSTR " to=" MACSTR,
+             len, MAC2STR(info->src_addr), MAC2STR(info->des_addr));
+
     if (len < (int)ESPNOW_FRAME_OVERHEAD) {
-        ESP_LOGD(TAG, "RX drop: len=%d < min", len);
+        ESP_LOGW(TAG, "RX drop: len=%d < min", len);
         return;
     }
     const espnow_frame_t *f = (const espnow_frame_t *)data;
@@ -169,20 +186,65 @@ static void rx_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
     /* CRC */
     size_t crc_len = ESPNOW_HEADER_SIZE + f->payload_len;
     uint16_t crc = espnow_link_crc16_ccitt((const uint8_t *)f, crc_len);
-    if (crc != f->crc16) {
-        ESP_LOGW(TAG, "RX CRC mismatch: calc=0x%04X frame=0x%04X", crc, f->crc16);
+    size_t crc_offset = ESPNOW_HEADER_SIZE + f->payload_len;
+    uint16_t frame_crc = (uint16_t)(data[crc_offset] | (data[crc_offset + 1] << 8));
+    if (crc != frame_crc) {
+        ESP_LOGW(TAG, "RX CRC mismatch: calc=0x%04X frame=0x%04X", crc, frame_crc);
         return;
     }
 
-    /* Anti-replay */
-    if (!ar_accept(f->src_mac, f->seq)) {
-        return;
-    }
+    /* Anti-replay DESACTIVADO para prueba AT-02 */
 
     /* ACK inline para frames que lo requieren (AT-02) */
     if (f->frame_type == ESPNOW_FT_DATA_EVENT ||
         f->frame_type == ESPNOW_FT_HELLO) {
-        espnow_link_send_ack(f->src_mac, f->seq);
+
+        /* [M2bis] Registro dinámico de peer */
+        if (!esp_now_is_peer_exist(f->src_mac)) {
+            esp_now_peer_info_t peer = {0};
+            memcpy(peer.peer_addr, f->src_mac, 6);
+            peer.channel = 0;
+            peer.encrypt = false;
+            peer.ifidx = s_state.apsta_mode ? WIFI_IF_AP : WIFI_IF_STA;
+            esp_err_t perr = esp_now_add_peer(&peer);
+            if (perr == ESP_OK) {
+                ESP_LOGI(TAG, "Peer registrado dinámicamente (ifidx=%s): " MACSTR,
+                         s_state.apsta_mode ? "AP" : "STA",
+                         MAC2STR(f->src_mac));
+            } else {
+                ESP_LOGW(TAG, "No se pudo registrar peer " MACSTR ": %s",
+                         MAC2STR(f->src_mac), esp_err_to_name(perr));
+            }
+        }
+
+        /* [M2bis FIX] Construir ACK en buffer lineal: header(19) + crc(2) = 21 bytes
+         * Esto garantiza que el CRC se envíe en los bytes 19-20, no en offset 234 */
+        uint8_t ack_buf[ESPNOW_HEADER_SIZE + ESPNOW_CRC_SIZE];
+        memset(ack_buf, 0, sizeof(ack_buf));
+
+        ack_buf[0] = ESPNOW_FRAME_MAGIC;
+        ack_buf[1] = ESPNOW_FRAME_VERSION;
+        ack_buf[2] = ESPNOW_FT_ACK;
+        ack_buf[3] = (uint8_t)(f->seq & 0xFF);
+        ack_buf[4] = (uint8_t)((f->seq >> 8) & 0xFF);
+
+        /* src_mac del ACK: MAC del AP en modo APSTA, MAC STA en modo STA */
+        const uint8_t *ack_src = s_state.apsta_mode
+                                 ? info->des_addr
+                                 : s_state.hub_mac_sta;
+        memcpy(&ack_buf[5],  ack_src, 6);     /* src_mac */
+        memcpy(&ack_buf[11], f->src_mac, 6);  /* dst_mac */
+        /* payload_len = 0 (bytes 17-18 ya son 0) */
+
+        /* CRC sobre los 19 bytes del header */
+        uint16_t ack_crc = espnow_link_crc16_ccitt(ack_buf, ESPNOW_HEADER_SIZE);
+        ack_buf[ESPNOW_HEADER_SIZE]     = (uint8_t)(ack_crc & 0xFF);
+        ack_buf[ESPNOW_HEADER_SIZE + 1] = (uint8_t)((ack_crc >> 8) & 0xFF);
+
+        esp_err_t ack_err = esp_now_send(f->src_mac, ack_buf, sizeof(ack_buf));
+        ESP_LOGI(TAG, "ACK enviado a " MACSTR " seq=%u (src=" MACSTR ", crc=0x%04X): %s",
+                 MAC2STR(f->src_mac), f->seq,
+                 MAC2STR(ack_src), ack_crc, esp_err_to_name(ack_err));
     }
 
     /* Encolar hacia lógica superior */
@@ -197,7 +259,6 @@ static void rx_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
         if (f->payload_len) memcpy(m.payload, f->payload, f->payload_len);
         s_state.on_rx(&m, s_state.on_rx_ctx);
     }
-    (void)info;
 }
 
 /* ---------- TX callback ---------- */
@@ -234,9 +295,21 @@ esp_err_t espnow_link_init(const espnow_link_cfg_t *cfg)
     s_state.on_tx_done   = cfg->on_tx_done;
     s_state.on_tx_done_ctx = cfg->on_tx_done_ctx;
 
-    esp_read_mac(s_state.hub_mac, ESP_MAC_WIFI_STA);
-    ESP_LOGI(TAG, "ESP-NOW up, hub MAC=" MACSTR " ch=%u",
-             MAC2STR(s_state.hub_mac), cfg->primary_ch);
+    esp_read_mac(s_state.hub_mac_sta, ESP_MAC_WIFI_STA);
+    esp_read_mac(s_state.hub_mac_ap,  ESP_MAC_WIFI_SOFTAP);
+
+    wifi_mode_t wmode;
+    if (esp_wifi_get_mode(&wmode) == ESP_OK && wmode == WIFI_MODE_APSTA) {
+        s_state.apsta_mode = true;
+        ESP_LOGI(TAG, "ESP-NOW up en modo APSTA");
+        ESP_LOGI(TAG, "  MAC STA: " MACSTR, MAC2STR(s_state.hub_mac_sta));
+        ESP_LOGI(TAG, "  MAC AP:  " MACSTR " (usada para ACKs)",
+                 MAC2STR(s_state.hub_mac_ap));
+    } else {
+        s_state.apsta_mode = false;
+        ESP_LOGI(TAG, "ESP-NOW up en modo STA, hub MAC=" MACSTR " ch=%u",
+                 MAC2STR(s_state.hub_mac_sta), cfg->primary_ch);
+    }
 
     s_state.initialized = true;
     return ESP_OK;

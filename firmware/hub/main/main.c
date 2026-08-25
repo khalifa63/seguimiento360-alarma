@@ -4,6 +4,7 @@
  *
  * [HUB-F-030] M4: Provisioning SoftAP al inicio si no hay credenciales.
  * [HUB-F-001] arranque ordenado  [AT-01] boot->online <=10s
+ * [M2bis] SM_CONN configurado en modo APSTA para enlace ESP-NOW local
  *
  * Colas: xQ_EspnowLogic(10), xQ_MqttOut(10), xQ_MqttCmd(5),
  *        xQ_Tamper(5), xQ_TamperAlarm(5)
@@ -50,8 +51,8 @@ static const char *TAG = "MAIN";
 #define BOOT_BTN_GPIO  GPIO_NUM_0
 #define FACTORY_MS     10000
 
-/* [M2] Canal fijo: 0 = auto-scan. Producción: canal del AP [R1 A6] */
-#define M2_FIXED_CHANNEL 0
+/* [M2/M2bis] Canal fijo: 1 = Canal óptimo validado (Router KHALIFA_R debe estar fijo aquí). 0 = auto-scan. */
+#define M2_FIXED_CHANNEL 1
 
 /* ---------- Colas ---------- */
 static QueueHandle_t xQ_EspnowLogic = NULL;
@@ -197,7 +198,6 @@ static void t_sys_mon_task(void *arg)
         esp_task_wdt_reset();
 
         if (xQueueReceive(xQ_Tamper, &evt, 0) == pdTRUE) {
-            /* [CR-M3-002] Reenviar tamper a t_alarm */
             if (xQueueSend(xQ_TamperAlarm, &evt, 0) != pdTRUE) {
                 ESP_LOGW(TAG, "xQ_TamperAlarm full");
             }
@@ -305,7 +305,6 @@ static void t_alarm_task(void *arg)
              sm_alarm_state_str(sm_alarm_get_state()));
 
     while (1) {
-        /* Comandos MQTT desde xQ_MqttCmd (M2 encola char* heap) */
         if (xQueueReceive(xQ_MqttCmd, &cmd, 0) == pdTRUE) {
             cJSON *j = cJSON_Parse(cmd);
             if (j) {
@@ -324,7 +323,6 @@ static void t_alarm_task(void *arg)
             free(cmd);
         }
 
-        /* Eventos tamper desde xQ_TamperAlarm */
         if (xQueueReceive(xQ_TamperAlarm, &te, 0) == pdTRUE) {
             sm_alarm_notify_event(SM_ALARM_EVT_TAMPER);
         }
@@ -341,34 +339,27 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "=== HUB-S3 M4 boot === fw=%s", FW_VERSION);
 
-    /* NVS 3 particiones (M1) */
     ESP_ERROR_CHECK(nvs_manager_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    /* [M4] Factory reset task (botón BOOT) */
     xTaskCreate(factory_reset_task, "factory", 3072, NULL, 3, NULL);
 
-    /* Crear cola de tamper y inicializar BSP (necesario para LED en ambos caminos) */
     xQ_Tamper = xQueueCreate(5, sizeof(tamper_event_t));
     ESP_ERROR_CHECK(bsp_init(xQ_Tamper));
 
-    /* =========================================================
-     * [M4] ¿Hay credenciales? → provisioning o flujo normal
-     * ========================================================= */
     if (!sm_prov_check_credentials()) {
         ESP_LOGI(TAG, "[M4] Sin credenciales. Entrando en modo provisioning...");
-        esp_err_t err = sm_prov_start();   /* bloqueante, hace esp_restart() */
+        esp_err_t err = sm_prov_start();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "[M4] Provisioning falló. Reiniciando...");
             esp_restart();
         }
-        return;  /* no se alcanza */
+        return;
     }
 
     ESP_LOGI(TAG, "[M4] Credenciales presentes. Arrancando flujo M2/M3...");
 
-    /* Resto de colas (M2 + M3) */
     xQ_EspnowLogic = xQueueCreate(10, sizeof(espnow_rx_msg_t));
     xQ_MqttOut     = xQueueCreate(10, sizeof(mqtt_out_msg_t));
     xQ_MqttCmd     = xQueueCreate(5, sizeof(char *));
@@ -378,12 +369,8 @@ void app_main(void)
         abort();
     }
 
-    /* t_sys_mon (WDT + heartbeat) */
     xTaskCreatePinnedToCore(t_sys_mon_task, "t_sys_mon", 4096, NULL, 1, NULL, 0);
 
-    /* =========================================================
-     * [M4] Config desde NVS vía nvs_manager (sin fallback dev)
-     * ========================================================= */
     static char ssid[33] = {0}, pass[65] = {0};
     static char tid_str[33] = {0}, sid[33] = {0};
     static char muser[65] = {0}, mpass[65] = {0};
@@ -392,29 +379,33 @@ void app_main(void)
     nvs_manager_get_site(tid_str, sizeof(tid_str), sid, sizeof(sid));
     nvs_manager_get_mqtt_auth(muser, sizeof(muser), mpass, sizeof(mpass));
 
-    /* Defaults si no están configurados */
     if (tid_str[0] == '\0') strcpy(tid_str, "0");
     if (sid[0] == '\0') strcpy(sid, "site0");
 
     ESP_LOGI(TAG, "[M4] Config: SSID='%s' tenant='%s' site='%s' mqtt_user='%s'",
              ssid, tid_str, sid, muser);
 
-    /* MAC del HUB como string */
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char mac_str[13];
     snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    /* ---- SM_CONN (WiFi STA) con credenciales de NVS ---- */
+    /* ---- SM_CONN (WiFi APSTA) con credenciales de NVS ---- */
     sm_conn_cfg_t scfg = {
         .wifi_ssid = ssid,
         .wifi_pass = pass,
         .channel   = M2_FIXED_CHANNEL,
+        /* --- M2bis: Habilitar AP para ESP-NOW --- */
+        .enable_ap = true,
+        .ap_ssid   = "HUB_360_PROD",
+        .ap_pass   = "hub2026secure",
     };
     ESP_ERROR_CHECK(sm_conn_init(&scfg));
+    
+    /* Forzar canal global (afecta a STA y AP simultáneamente en ESP32) */
 #if M2_FIXED_CHANNEL > 0
-    esp_wifi_set_channel(M2_FIXED_CHANNEL, 0);
+    ESP_ERROR_CHECK(esp_wifi_set_channel(M2_FIXED_CHANNEL, 0));
 #endif
 
     /* ---- ESP-NOW link ---- */
@@ -444,10 +435,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(sm_conn_start());
 
-    /* Tareas M2 + M3 */
     xTaskCreatePinnedToCore(t_espnow_rx_task, "t_espnow_rx", 4096, NULL, 24, NULL, 0);
     xTaskCreatePinnedToCore(t_wifi_mqtt_task, "t_wifi_mqtt", 8192, NULL, 15, NULL, 1);
     xTaskCreatePinnedToCore(t_alarm_task, "t_alarm", 4096, NULL, 5, NULL, 0);
 
-    ESP_LOGI(TAG, "[M4] HUB-S3 operativo. ESP-NOW + MQTT + SM_ALARM + Provisioning.");
+    ESP_LOGI(TAG, "[M2bis] HUB-S3 operativo en modo APSTA. ESP-NOW + MQTT + SM_ALARM + Provisioning.");
 }

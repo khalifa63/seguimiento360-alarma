@@ -1,12 +1,14 @@
 /*
- * sm_conn.h — FSM de conectividad WiFi STA + arranque MQTT
+ * sm_conn.h — FSM de conectividad WiFi STA/APSTA + arranque MQTT
  * [HUB-F-020] estados DISCONNECTED/CONNECTING/CONNECTED/ERROR_BACKOFF
  * [HUB-NF-004] backoff 1→2→4→8→16→32→60s + jitter ±20%  [R2 A6]
  * [HUB-NF-003] canal fijo compartido con ESP-NOW  [R1 A6]
+ * [M2bis] Soporte APSTA para enlace ESP-NOW local
  */
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -26,6 +28,13 @@ typedef struct {
     const char *wifi_ssid;
     const char *wifi_pass;      /* NULL o "" => red abierta */
     uint8_t     channel;        /* [R1 A6] canal fijo compartido con ESP-NOW */
+    
+    /* --- NUEVO para M2bis (APSTA) --- */
+    bool        enable_ap;      /* true para activar modo APSTA */
+    const char *ap_ssid;        /* SSID del AP del HUB (ej: "HUB_360_PROD") */
+    const char *ap_pass;        /* Password del AP (NULL o "" => OPEN) */
+    /* ---------------------------------- */
+    
     sm_conn_state_cb_t on_state;
     void              *on_state_ctx;
 } sm_conn_cfg_t;

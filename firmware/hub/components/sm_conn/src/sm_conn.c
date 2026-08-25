@@ -1,7 +1,8 @@
 /*
- * sm_conn.c — FSM WiFi STA + arranque de MQTT
+ * sm_conn.c — FSM WiFi STA/APSTA + arranque de MQTT
  * [R1 A6] canal fijo  [R2 A6] backoff exponencial con jitter ±20%
  * [HUB-F-020] transiciones de estado
+ * [M2bis] Soporte APSTA para enlace ESP-NOW local
  */
 #include "sm_conn.h"
 
@@ -57,12 +58,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             esp_wifi_connect();
             break;
         case WIFI_EVENT_STA_CONNECTED:
-            ESP_LOGI(TAG, "WiFi associated");
+            ESP_LOGI(TAG, "WiFi STA associated");
             break;
         case WIFI_EVENT_STA_DISCONNECTED: {
             wifi_event_sta_disconnected_t *disc =
                 (wifi_event_sta_disconnected_t *)data;
-            ESP_LOGW(TAG, "WiFi disconnected reason=%d",
+            ESP_LOGW(TAG, "WiFi STA disconnected reason=%d",
                      disc ? disc->reason : -1);
             set_state(SM_CONN_STATE_DISCONNECTED);
             if (s_sm.evgrp) xEventGroupSetBits(s_sm.evgrp, BIT_FAIL);
@@ -143,6 +144,12 @@ esp_err_t sm_conn_init(const sm_conn_cfg_t *cfg)
     s_sm.sta_netif = esp_netif_create_default_wifi_sta();
     if (!s_sm.sta_netif) return ESP_FAIL;
 
+    /* --- NUEVO M2bis: Crear interfaz AP si está habilitada --- */
+    if (cfg->enable_ap) {
+        esp_netif_create_default_wifi_ap();
+        ESP_LOGI(TAG, "Interfaz WiFi AP creada");
+    }
+
     esp_event_handler_instance_t w, i;
     esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                         &wifi_event_handler, NULL, &w);
@@ -153,26 +160,50 @@ esp_err_t sm_conn_init(const sm_conn_cfg_t *cfg)
     esp_err_t err = esp_wifi_init(&c);
     if (err != ESP_OK) return err;
 
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);   /* credenciales desde NVS propio */
-    esp_wifi_set_mode(WIFI_MODE_STA);
-
-    wifi_config_t wc;
-    memset(&wc, 0, sizeof(wc));
-    strncpy((char *)wc.sta.ssid, cfg->wifi_ssid, sizeof(wc.sta.ssid) - 1);
-    if (cfg->wifi_pass && strlen(cfg->wifi_pass)) {
-        strncpy((char *)wc.sta.password, cfg->wifi_pass,
-                sizeof(wc.sta.password) - 1);
-        wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    } else {
-        wc.sta.threshold.authmode = WIFI_AUTH_OPEN;
-    }
-    wc.sta.channel = cfg->channel;   /* [R1 A6] canal fijo */
-
-    err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    
+    /* --- NUEVO M2bis: Modo APSTA o STA --- */
+    err = esp_wifi_set_mode(cfg->enable_ap ? WIFI_MODE_APSTA : WIFI_MODE_STA);
     if (err != ESP_OK) return err;
+
+    /* Configurar STA */
+    wifi_config_t sta_wc = {0};
+    strncpy((char *)sta_wc.sta.ssid, cfg->wifi_ssid, sizeof(sta_wc.sta.ssid) - 1);
+    if (cfg->wifi_pass && strlen(cfg->wifi_pass)) {
+        strncpy((char *)sta_wc.sta.password, cfg->wifi_pass, sizeof(sta_wc.sta.password) - 1);
+        sta_wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    } else {
+        sta_wc.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    }
+    sta_wc.sta.channel = cfg->channel;
+
+    err = esp_wifi_set_config(WIFI_IF_STA, &sta_wc);
+    if (err != ESP_OK) return err;
+
+    /* --- NUEVO M2bis: Configurar AP si está habilitado --- */
+    if (cfg->enable_ap && cfg->ap_ssid) {
+        wifi_config_t ap_wc = {0};
+        strncpy((char *)ap_wc.ap.ssid, cfg->ap_ssid, sizeof(ap_wc.ap.ssid) - 1);
+        ap_wc.ap.ssid_len = strlen(cfg->ap_ssid);
+        ap_wc.ap.channel = cfg->channel; /* Se heredará al canal del STA por hardware */
+        ap_wc.ap.max_connection = 4;
+        
+        if (cfg->ap_pass && strlen(cfg->ap_pass)) {
+            strncpy((char *)ap_wc.ap.password, cfg->ap_pass, sizeof(ap_wc.ap.password) - 1);
+            ap_wc.ap.authmode = WIFI_AUTH_WPA2_PSK;
+        } else {
+            ap_wc.ap.authmode = WIFI_AUTH_OPEN;
+        }
+        
+        err = esp_wifi_set_config(WIFI_IF_AP, &ap_wc);
+        if (err != ESP_OK) return err;
+        ESP_LOGI(TAG, "AP '%s' configurado en canal %d", cfg->ap_ssid, cfg->channel);
+    }
 
     err = esp_wifi_start();
     if (err != ESP_OK) return err;
+
+    esp_wifi_set_ps(WIFI_PS_NONE);  /* FIX M2bis: desactivar power save para ESP-NOW */
 
     s_sm.initialized = true;
     set_state(SM_CONN_STATE_DISCONNECTED);
@@ -183,7 +214,6 @@ esp_err_t sm_conn_start(void)
 {
     if (!s_sm.initialized) return ESP_ERR_INVALID_STATE;
     if (s_sm.task) return ESP_OK;
-    /* Pri 10, Core 1 (red) según A1 v0.2 */
     if (xTaskCreatePinnedToCore(sm_conn_task, "sm_conn", 4096, NULL, 10,
                                 &s_sm.task, 1) != pdPASS) {
         return ESP_FAIL;

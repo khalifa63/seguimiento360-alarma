@@ -1,15 +1,16 @@
 /*
- * node_sim_main.c — Nodo simulador ESP-NOW para validar AT-02 del HUB-S3
- * Target: ESP32-C3 Super Mini (RISC-V, 4MB flash)
+ * node_sim_main.c — NODO M2bis: asociado al AP del HUB + protocolo estructurado
+ * Mide entrega y RTT de ACKs ESP-NOW en modo producción APSTA
  *
- * v4: Modo AP puro (SoftAP sin clientes) + WIFI_PS_NONE.
- * Espressif recomienda modo AP para ESP-NOW confiable sin conexion a AP.
- * El radio queda fijo en canal 5 y power-save desactivado.
+ * Hardware: ESP32 DevKit V1 (D0WD-V3) en /dev/ttyUSB0
+ * Target:   esp32 (NO esp32c3)
+ * 
+ * FIX M2bis: CRC se coloca inmediatamente después del payload útil,
+ *            no al final del struct de 215 bytes.
  */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -19,33 +20,28 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_timer.h"
-#include "esp_system.h"
 #include "nvs_flash.h"
 
-static const char *TAG = "node_sim";
+static const char *TAG = "NODE_M2BIS";
 
-/* ==================== Configuracion ==================== */
-static const uint8_t HUB_MAC[6] = {0x3c, 0xdc, 0x75, 0x62, 0xc2, 0xb0};
-#define WIFI_CHANNEL       5
-#define NUM_TEST_FRAMES    100
-#define FRAME_INTERVAL_MS  100
+/* --- Configuración del AP del HUB (debe coincidir con main.c del HUB) --- */
+#define HUB_AP_SSID   "HUB_360_PROD"
+#define HUB_AP_PASS   "hub2026secure"
+#define NUM_FRAMES    50
 
-/* ==================== Protocolo ESP-NOW v1 ==================== */
-#define ESPNOW_FRAME_MAGIC    0xA5
-#define ESPNOW_FRAME_VERSION  0x01
-#define ESPNOW_MAX_PAYLOAD    215
-#define ESPNOW_HEADER_SIZE    19
-#define ESPNOW_CRC_SIZE       2
+/* --- Protocolo ESP-NOW (debe coincidir con espnow_link.h del HUB) --- */
+#define ESPNOW_MAGIC         0xA5
+#define ESPNOW_VERSION       0x01
+#define ESPNOW_MAX_PAYLOAD   215
+#define ESPNOW_HEADER_SIZE   19
+#define ESPNOW_CRC_SIZE      2
 #define ESPNOW_FRAME_OVERHEAD (ESPNOW_HEADER_SIZE + ESPNOW_CRC_SIZE)
 
-enum {
-    FT_HELLO      = 0x00,
-    FT_DATA_EVENT = 0x01,
-    FT_ACK        = 0x02,
-    FT_CMD        = 0x03,
-    FT_BEACON     = 0x04,
-};
+typedef enum {
+    FT_HELLO = 0, FT_DATA_EVENT = 1, FT_ACK = 2, FT_CMD = 3, FT_BEACON = 4
+} frame_type_t;
 
+/* Header del frame (sin payload ni CRC) */
 typedef struct __attribute__((packed)) {
     uint8_t  magic;
     uint8_t  version;
@@ -54,250 +50,239 @@ typedef struct __attribute__((packed)) {
     uint8_t  src_mac[6];
     uint8_t  dst_mac[6];
     uint16_t payload_len;
-    uint8_t  payload[ESPNOW_MAX_PAYLOAD];
-    uint16_t crc16;
-} espnow_frame_t;
+} espnow_header_t;
 
-/* ==================== Estado ==================== */
-static struct {
-    uint8_t  node_mac[6];
-    uint16_t tx_seq;
-    int64_t  t_send_us;
-    uint16_t last_sent_seq;
-    bool     waiting_ack;
-    int      frames_sent;
-    int      acks_received;
-    int64_t  rtt_us[NUM_TEST_FRAMES];
-    int      rtt_count;
-} s_state;
+/* --- Estado global --- */
+static uint8_t s_hub_mac[6];
+static volatile bool s_connected = false;
+static uint16_t s_seq = 0;
+static int s_acks = 0;
+static int64_t s_last_send_us = 0;
+static int64_t s_rtt_sum = 0, s_rtt_min = INT64_MAX, s_rtt_max = 0;
 
-/* ==================== CRC16-CCITT ==================== */
-static uint16_t crc16_ccitt(const uint8_t *data, size_t len)
+/* --- CRC16-CCITT (debe coincidir con el HUB) --- */
+static uint16_t calc_crc16_ccitt(const uint8_t *data, size_t len)
 {
     uint16_t crc = 0xFFFF;
     for (size_t i = 0; i < len; i++) {
         crc ^= (uint16_t)data[i] << 8;
         for (int j = 0; j < 8; j++) {
-            crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021)
-                                 : (uint16_t)(crc << 1);
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
         }
     }
     return crc;
 }
 
-/* ==================== Construir y enviar frame ==================== */
-static esp_err_t build_and_send(uint8_t frame_type, uint16_t seq,
-                                 const uint8_t *payload, uint16_t payload_len)
-{
-    espnow_frame_t f;
-    memset(&f, 0, sizeof(f));
-    f.magic       = ESPNOW_FRAME_MAGIC;
-    f.version     = ESPNOW_FRAME_VERSION;
-    f.frame_type  = frame_type;
-    f.seq         = seq;
-    memcpy(f.src_mac, s_state.node_mac, 6);
-    memcpy(f.dst_mac, HUB_MAC, 6);
-    f.payload_len = payload_len;
-    if (payload_len > 0 && payload != NULL) {
-        memcpy(f.payload, payload, payload_len);
-    }
-    size_t crc_len = ESPNOW_HEADER_SIZE + payload_len;
-    f.crc16 = crc16_ccitt((const uint8_t *)&f, crc_len);
-    size_t tx_len = ESPNOW_HEADER_SIZE + payload_len + ESPNOW_CRC_SIZE;
-    return esp_now_send(HUB_MAC, (const uint8_t *)&f, tx_len);
-}
-
-/* ==================== Callback RX (recibe ACKs del HUB) ==================== */
+/* --- Callback RX: recibe ACK del HUB --- */
 static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
-    (void)info;
     if (len < (int)ESPNOW_FRAME_OVERHEAD) return;
-    const espnow_frame_t *f = (const espnow_frame_t *)data;
-    if (f->magic != ESPNOW_FRAME_MAGIC || f->version != ESPNOW_FRAME_VERSION) return;
-    if (f->frame_type != FT_ACK) return;
-    if (!s_state.waiting_ack || f->seq != s_state.last_sent_seq) return;
 
-    int64_t rtt = esp_timer_get_time() - s_state.t_send_us;
-    s_state.waiting_ack = false;
-    s_state.acks_received++;
-    if (s_state.rtt_count < NUM_TEST_FRAMES) {
-        s_state.rtt_us[s_state.rtt_count] = rtt;
-        s_state.rtt_count++;
-    }
-    ESP_LOGI(TAG, "ACK seq=%u  RTT=%lld us (%.2f ms)", f->seq, rtt, rtt / 1000.0);
-}
+    /* Parsear header */
+    const espnow_header_t *hdr = (const espnow_header_t *)data;
+    if (hdr->magic != ESPNOW_MAGIC || hdr->version != ESPNOW_VERSION) return;
+    if (hdr->frame_type != FT_ACK) return;
 
-/* ==================== Callback TX ==================== */
-static void on_sent(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-    if (status == ESP_NOW_SEND_SUCCESS) {
-        ESP_LOGD(TAG, "TX OK to " MACSTR, MAC2STR(mac_addr));
-    } else {
-        ESP_LOGW(TAG, "TX fail to " MACSTR " status=%d", MAC2STR(mac_addr), status);
-        s_state.waiting_ack = false;
-    }
-}
-
-/* ==================== Comparacion para qsort ==================== */
-static int cmp_int64(const void *a, const void *b)
-{
-    int64_t va = *(const int64_t *)a;
-    int64_t vb = *(const int64_t *)b;
-    if (va < vb) return -1;
-    if (va > vb) return 1;
-    return 0;
-}
-
-/* ==================== Reporte de estadisticas ==================== */
-static void report_stats(void)
-{
-    ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, " RESULTADOS AT-02 — ACK ESP-NOW < 50 ms");
-    ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, " Frames enviados:   %d", s_state.frames_sent);
-    ESP_LOGI(TAG, " ACKs recibidos:    %d", s_state.acks_received);
-    ESP_LOGI(TAG, " ACKs perdidos:     %d",
-             s_state.frames_sent - s_state.acks_received);
-    ESP_LOGI(TAG, "----------------------------------------------");
-
-    if (s_state.rtt_count == 0) {
-        ESP_LOGE(TAG, " NO SE RECIBIERON ACKs — AT-02 FALLO");
-        ESP_LOGI(TAG, "==============================================");
+    /* Validar CRC (está inmediatamente después del payload) */
+    size_t crc_offset = ESPNOW_HEADER_SIZE + hdr->payload_len;
+    if ((size_t)len < crc_offset + ESPNOW_CRC_SIZE) return;
+    
+    uint16_t crc_calc = calc_crc16_ccitt(data, crc_offset);
+    uint16_t crc_frame = (uint16_t)(data[crc_offset] | (data[crc_offset + 1] << 8));
+    if (crc_calc != crc_frame) {
+        ESP_LOGW(TAG, "ACK CRC mismatch: calc=0x%04X frame=0x%04X", crc_calc, crc_frame);
         return;
     }
 
-    int64_t sorted[NUM_TEST_FRAMES];
-    memcpy(sorted, s_state.rtt_us, s_state.rtt_count * sizeof(int64_t));
-    qsort(sorted, s_state.rtt_count, sizeof(int64_t), cmp_int64);
-
-    int64_t min_rtt = sorted[0];
-    int64_t max_rtt = sorted[s_state.rtt_count - 1];
-    int64_t sum = 0;
-    for (int i = 0; i < s_state.rtt_count; i++) sum += sorted[i];
-    int64_t avg_rtt = sum / s_state.rtt_count;
-
-    int p95_idx = (int)(s_state.rtt_count * 0.95);
-    if (p95_idx >= s_state.rtt_count) p95_idx = s_state.rtt_count - 1;
-    int64_t p95_rtt = sorted[p95_idx];
-
-    ESP_LOGI(TAG, " RTT min:  %7lld us  (%6.2f ms)", min_rtt, min_rtt / 1000.0);
-    ESP_LOGI(TAG, " RTT avg:  %7lld us  (%6.2f ms)", avg_rtt, avg_rtt / 1000.0);
-    ESP_LOGI(TAG, " RTT max:  %7lld us  (%6.2f ms)", max_rtt, max_rtt / 1000.0);
-    ESP_LOGI(TAG, " RTT p95:  %7lld us  (%6.2f ms)", p95_rtt, p95_rtt / 1000.0);
-    ESP_LOGI(TAG, "----------------------------------------------");
-
-    if (p95_rtt < 50000) {
-        ESP_LOGI(TAG, " AT-02: PASS  (p95 = %.2f ms < 50 ms)", p95_rtt / 1000.0);
+    /* Validar que el ACK corresponda al último frame enviado */
+    uint16_t expected_seq = (s_seq == 0) ? 0xFFFF : s_seq - 1;
+    if (hdr->seq == expected_seq) {
+        int64_t rtt = esp_timer_get_time() - s_last_send_us;
+        s_acks++;
+        s_rtt_sum += rtt;
+        if (rtt < s_rtt_min) s_rtt_min = rtt;
+        if (rtt > s_rtt_max) s_rtt_max = rtt;
+        ESP_LOGI(TAG, "✓ ACK seq=%u | RTT=%"PRId64" us (%.2f ms) | total=%d/%d",
+                 hdr->seq, rtt, rtt / 1000.0, s_acks, (int)(expected_seq + 1));
     } else {
-        ESP_LOGE(TAG, " AT-02: FALLO  (p95 = %.2f ms >= 50 ms)", p95_rtt / 1000.0);
+        ESP_LOGW(TAG, "ACK seq=%u no esperado (esperaba %u)", hdr->seq, expected_seq);
     }
-    ESP_LOGI(TAG, "==============================================");
+    (void)info;
 }
 
-/* ==================== app_main ==================== */
+/* --- Callback TX: confirmación MAC layer --- */
+static void on_sent(const uint8_t *mac, esp_now_send_status_t status)
+{
+    if (status != ESP_NOW_SEND_SUCCESS) {
+        ESP_LOGW(TAG, "TX MAC FAIL to " MACSTR, MAC2STR(mac));
+    }
+}
+
+/* --- Handler eventos WiFi --- */
+static void wifi_event_handler(void *arg, esp_event_base_t base,
+                               int32_t id, void *data)
+{
+    if (base == WIFI_EVENT) {
+        if (id == WIFI_EVENT_STA_CONNECTED) {
+            wifi_event_sta_connected_t *e = (wifi_event_sta_connected_t *)data;
+            ESP_LOGI(TAG, ">>> Conectado al AP del HUB: '%s' canal=%d",
+                     e->ssid, e->channel);
+            s_connected = true;
+        } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
+            wifi_event_sta_disconnected_t *d = (wifi_event_sta_disconnected_t *)data;
+            ESP_LOGW(TAG, "Desconectado del AP, reason=%d, reintentando...",
+                     d ? d->reason : -1);
+            s_connected = false;
+            esp_wifi_connect();
+        }
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
+        ESP_LOGI(TAG, "IP obtenida: " IPSTR, IP2STR(&e->ip_info.ip));
+    }
+}
+
 void app_main(void)
 {
-    ESP_LOGI(TAG, "=== Node Simulator ESP-NOW — AT-02 (v4 AP-mode) ===");
+    ESP_LOGI(TAG, "=== NODO M2bis: Conectando al AP del HUB ===");
+    ESP_LOGI(TAG, "Target SSID: '%s'", HUB_AP_SSID);
 
-    /* NVS (requerido por WiFi) */
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(err);
-
-    esp_read_mac(s_state.node_mac, ESP_MAC_WIFI_STA);
-    ESP_LOGI(TAG, "Node MAC (STA): " MACSTR, MAC2STR(s_state.node_mac));
-
-    uint8_t ap_mac[6];
-    esp_read_mac(ap_mac, ESP_MAC_WIFI_SOFTAP);
-    ESP_LOGI(TAG, "Node MAC (AP):  " MACSTR, MAC2STR(ap_mac));
-    ESP_LOGI(TAG, "Hub  MAC:       " MACSTR, MAC2STR(HUB_MAC));
-    ESP_LOGI(TAG, "Canal fijo:     %d", WIFI_CHANNEL);
-
-    /* WiFi init */
+    ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_ap();
+    esp_netif_create_default_wifi_sta();
 
-    wifi_init_config_t wcfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&wcfg));
-
-    /* CRITICO: desactivar power-save para ESP-NOW confiable */
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
 
-    /* Configurar SoftAP minimalista (sin clientes, solo para fijar canal) */
-    char ap_ssid[20];
-    snprintf(ap_ssid, sizeof(ap_ssid), "NODE-%02X%02X%02X",
-             s_state.node_mac[3], s_state.node_mac[4], s_state.node_mac[5]);
+    wifi_config_t sta_cfg = {0};
+    strncpy((char *)sta_cfg.sta.ssid, HUB_AP_SSID, sizeof(sta_cfg.sta.ssid) - 1);
+    strncpy((char *)sta_cfg.sta.password, HUB_AP_PASS, sizeof(sta_cfg.sta.password) - 1);
+    sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
-    wifi_config_t ap_cfg = {0};
-    ap_cfg.ap.channel = WIFI_CHANNEL;
-    ap_cfg.ap.max_connection = 0;            /* no aceptar clientes */
-    ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
-    ap_cfg.ap.ssid_len = strlen(ap_ssid);
-    strncpy((char *)ap_cfg.ap.ssid, ap_ssid, sizeof(ap_cfg.ap.ssid) - 1);
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_max_tx_power(78);
+    esp_wifi_connect();
 
-    /* Confirmar canal activo */
-    uint8_t primary_ch;
-    wifi_second_chan_t second_ch;
-    esp_wifi_get_channel(&primary_ch, &second_ch);
-    ESP_LOGI(TAG, "SoftAP '%s' activo en canal %u (PS=NONE)", ap_ssid, primary_ch);
+    ESP_LOGI(TAG, "Esperando conexión al AP del HUB...");
+    int t = 0;
+    while (!s_connected && t < 300) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        t++;
+    }
+    if (!s_connected) {
+        ESP_LOGE(TAG, "❌ No se conectó al AP del HUB en 30s. Abortando.");
+        while (1) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
-    /* ESP-NOW */
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+        ESP_LOGE(TAG, "❌ Fallo al obtener info del AP");
+        while (1) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    memcpy(s_hub_mac, ap_info.bssid, 6);
+    ESP_LOGI(TAG, "📡 AP del HUB:");
+    ESP_LOGI(TAG, "   BSSID:  " MACSTR, MAC2STR(s_hub_mac));
+    ESP_LOGI(TAG, "   Canal:  %d", ap_info.primary);
+    ESP_LOGI(TAG, "   RSSI:   %d dBm", ap_info.rssi);
+
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_recv_cb(on_recv));
     ESP_ERROR_CHECK(esp_now_register_send_cb(on_sent));
 
-    /* Registrar peer: el HUB */
-    esp_now_peer_info_t peer;
-    memset(&peer, 0, sizeof(peer));
-    memcpy(peer.peer_addr, HUB_MAC, 6);
-    peer.channel = WIFI_CHANNEL;
+    esp_now_peer_info_t peer = {0};
+    memcpy(peer.peer_addr, s_hub_mac, 6);
+    peer.channel = ap_info.primary;
+    peer.ifidx = WIFI_IF_STA;
     peer.encrypt = false;
-    peer.ifidx = WIFI_IF_AP;          /* enviar por la interfaz AP */
-    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
-    ESP_LOGI(TAG, "Peer HUB registrado. Esperando 2 segundos...");
+    esp_err_t err = esp_now_add_peer(&peer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "❌ esp_now_add_peer: %s", esp_err_to_name(err));
+        while (1) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    ESP_LOGI(TAG, "✓ Peer HUB registrado en canal %d", ap_info.primary);
 
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    uint8_t my_mac[6];
+    esp_read_mac(my_mac, ESP_MAC_WIFI_STA);
+    ESP_LOGI(TAG, "📟 MAC propia: " MACSTR, MAC2STR(my_mac));
 
-    /* Bucle de envio */
-    ESP_LOGI(TAG, "Enviando %d frames DATA_EVENT (intervalo %d ms)...",
-             NUM_TEST_FRAMES, FRAME_INTERVAL_MS);
+    ESP_LOGI(TAG, ">>> Iniciando envío de %d frames (1 por segundo) <<<", NUM_FRAMES);
 
-    for (int i = 0; i < NUM_TEST_FRAMES; i++) {
-        s_state.tx_seq++;
-        s_state.last_sent_seq = s_state.tx_seq;
+    /* Buffer de transmisión: header + payload + CRC */
+    uint8_t tx_buf[ESPNOW_HEADER_SIZE + ESPNOW_MAX_PAYLOAD + ESPNOW_CRC_SIZE];
 
-        uint8_t payload[8];
-        int64_t ts = esp_timer_get_time();
-        memcpy(payload, &ts, sizeof(ts));
-
-        s_state.t_send_us = esp_timer_get_time();
-        s_state.waiting_ack = true;
-
-        esp_err_t send_err = build_and_send(FT_DATA_EVENT, s_state.tx_seq,
-                                             payload, sizeof(payload));
-        if (send_err == ESP_OK) {
-            s_state.frames_sent++;
-        } else {
-            ESP_LOGW(TAG, "Frame seq=%u send fail: %s",
-                     s_state.tx_seq, esp_err_to_name(send_err));
-            s_state.waiting_ack = false;
+    for (int i = 0; i < NUM_FRAMES; i++) {
+        if (!s_connected) {
+            ESP_LOGW(TAG, "Conexión perdida, reintentando...");
+            esp_wifi_connect();
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            continue;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(FRAME_INTERVAL_MS));
+        /* Construir header */
+        espnow_header_t hdr = {0};
+        hdr.magic = ESPNOW_MAGIC;
+        hdr.version = ESPNOW_VERSION;
+        hdr.frame_type = FT_DATA_EVENT;
+        hdr.seq = s_seq++;
+        memcpy(hdr.src_mac, my_mac, 6);
+        memcpy(hdr.dst_mac, s_hub_mac, 6);
+        hdr.payload_len = 8;  /* "ALRM" + 3 dígitos + null */
+
+        /* Copiar header al buffer */
+        memcpy(tx_buf, &hdr, ESPNOW_HEADER_SIZE);
+
+        /* Copiar payload inmediatamente después del header */
+        int payload_written = snprintf((char *)&tx_buf[ESPNOW_HEADER_SIZE], 
+                                       hdr.payload_len, "ALRM%03d", i);
+        if (payload_written < 0) payload_written = 0;
+
+        /* Calcular CRC sobre header + payload */
+        size_t crc_offset = ESPNOW_HEADER_SIZE + hdr.payload_len;
+        uint16_t crc = calc_crc16_ccitt(tx_buf, crc_offset);
+
+        /* Colocar CRC inmediatamente después del payload */
+        tx_buf[crc_offset] = (uint8_t)(crc & 0xFF);
+        tx_buf[crc_offset + 1] = (uint8_t)((crc >> 8) & 0xFF);
+
+        /* Enviar solo los bytes necesarios: header + payload + CRC */
+        size_t tx_len = crc_offset + ESPNOW_CRC_SIZE;
+        s_last_send_us = esp_timer_get_time();
+        err = esp_now_send(s_hub_mac, tx_buf, tx_len);
+
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "❌ esp_now_send: %s", esp_err_to_name(err));
+        } else {
+            ESP_LOGI(TAG, "→ Frame %d enviado (seq=%u, len=%zu, crc=0x%04X)",
+                     i, hdr.seq, tx_len, crc);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    report_stats();
+    vTaskDelay(pdMS_TO_TICKS(3000));
 
-    ESP_LOGI(TAG, "Test completado. Reiniciando en 10 segundos...");
-    vTaskDelay(pdMS_TO_TICKS(10000));
-    esp_restart();
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "  RESULTADOS M2bis (NODO → HUB APSTA)  ");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, " Frames enviados:    %d", NUM_FRAMES);
+    ESP_LOGI(TAG, " ACKs recibidos:     %d (%.1f%%)",
+             s_acks, NUM_FRAMES ? (s_acks * 100.0) / NUM_FRAMES : 0.0);
+    if (s_acks > 0) {
+        ESP_LOGI(TAG, " RTT min:            %.2f ms", s_rtt_min / 1000.0);
+        ESP_LOGI(TAG, " RTT avg:            %.2f ms", (s_rtt_sum / s_acks) / 1000.0);
+        ESP_LOGI(TAG, " RTT max:            %.2f ms", s_rtt_max / 1000.0);
+        ESP_LOGI(TAG, " Criterio AT-02:     %s (<50ms)",
+                 ((s_rtt_sum / s_acks) / 1000.0 < 50.0) ? "✅ PASS" : "❌ FAIL");
+    }
+    ESP_LOGI(TAG, "========================================");
+
+    while (1) vTaskDelay(pdMS_TO_TICKS(10000));
 }

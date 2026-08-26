@@ -4,17 +4,7 @@
  *
  * [HUB-F-030] M4: Provisioning SoftAP al inicio si no hay credenciales.
  * [HUB-F-001] arranque ordenado  [AT-01] boot->online <=10s
- * [M2bis] SM_CONN configurado en modo APSTA para enlace ESP-NOW local
- *
- * Colas: xQ_EspnowLogic(10), xQ_MqttOut(10), xQ_MqttCmd(5),
- *        xQ_Tamper(5), xQ_TamperAlarm(5)
- * Tareas:
- *   factory        -       (M4: botón BOOT 10s)
- *   t_sys_mon      Core 0, Pri 1  (WDT, tamper, heartbeat LED)   [M1]
- *   t_espnow_rx    Core 0, Pri 24 (lógica ESP-NOW -> JSON)       [M2]
- *   t_wifi_mqtt    Core 1, Pri 15 (publicador + comandos)        [M2]
- *   t_alarm        Core 0, Pri 5  (SM_ALARM FSM)                 [M3]
- *   sm_conn        Core 1, Pri 10 (FSM WiFi)                     [M2]
+ * [M2bis/FASE3] SM_CONN en modo APSTA + ESP-NOW a JSON estructurado MQTT
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,13 +35,13 @@
 
 static const char *TAG = "MAIN";
 
-#define FW_VERSION "0.4.0"
+#define FW_VERSION "0.5.0"
 
 /* [M4] Botón BOOT para factory reset */
 #define BOOT_BTN_GPIO  GPIO_NUM_0
 #define FACTORY_MS     10000
 
-/* [M2/M2bis] Canal fijo: 1 = Canal óptimo validado (Router KHALIFA_R debe estar fijo aquí). 0 = auto-scan. */
+/* [M2/M2bis] Canal fijo: 1 = Canal óptimo validado. 0 = auto-scan. */
 #define M2_FIXED_CHANNEL 1
 
 /* ---------- Colas ---------- */
@@ -80,13 +70,12 @@ static void factory_reset_task(void *arg)
     bool pressing = false;
     while (1) {
         int level = gpio_get_level(BOOT_BTN_GPIO);
-        if (level == 0) {  /* BOOT pulsado (pull-up) */
+        if (level == 0) {
             if (!pressing) {
                 pressing = true;
                 pressed_since = xTaskGetTickCount();
             } else {
-                uint32_t ms = (xTaskGetTickCount() - pressed_since)
-                              * portTICK_PERIOD_MS;
+                uint32_t ms = (xTaskGetTickCount() - pressed_since) * portTICK_PERIOD_MS;
                 if (ms >= FACTORY_MS) {
                     ESP_LOGW(TAG, "[M4] Factory reset activado (BOOT 10s)");
                     nvs_manager_factory_reset_credentials();
@@ -102,7 +91,7 @@ static void factory_reset_task(void *arg)
 }
 
 /* =========================================================
- * Callbacks ESP-NOW y MQTT (M2)
+ * Callbacks ESP-NOW y MQTT
  * ========================================================= */
 static void espnow_rx_cb(const espnow_rx_msg_t *msg, void *ctx)
 {
@@ -113,7 +102,6 @@ static void espnow_rx_cb(const espnow_rx_msg_t *msg, void *ctx)
     }
 }
 
-/* ---------- Publicación de status (AT-01) ---------- */
 static void publish_status(void)
 {
     if (!mqtt_link_is_connected()) return;
@@ -176,7 +164,7 @@ static void mqtt_cmd_cb(const char *cmd_json, size_t len, void *ctx)
 }
 
 /* =========================================================
- * [M3] Callback SM_ALARM -> MQTT
+ * [M3/FASE3] Callback SM_ALARM -> MQTT
  * ========================================================= */
 static void alarm_publish_cb(const char *json_payload)
 {
@@ -210,7 +198,7 @@ static void t_sys_mon_task(void *arg)
             nvs_manager_emergency_commit();
         }
 
-        if (++hb >= 10) {   /* pulso LED cada 5s */
+        if (++hb >= 10) {
             hb = 0;
             bsp_set_status_led(true);
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -221,7 +209,7 @@ static void t_sys_mon_task(void *arg)
 }
 
 /* =========================================================
- * t_espnow_rx (M2): frame -> JSON -> xQ_MqttOut
+ * t_espnow_rx (M2/FASE3): frame -> sm_alarm -> JSON MQTT
  * ========================================================= */
 static void t_espnow_rx_task(void *arg)
 {
@@ -230,35 +218,8 @@ static void t_espnow_rx_task(void *arg)
     while (1) {
         if (xQueueReceive(xQ_EspnowLogic, &m, portMAX_DELAY) != pdTRUE) continue;
 
-        cJSON *j = cJSON_CreateObject();
-        char mac_str[13];
-        snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
-                 m.src_mac[0], m.src_mac[1], m.src_mac[2],
-                 m.src_mac[3], m.src_mac[4], m.src_mac[5]);
-        cJSON_AddStringToObject(j, "src", mac_str);
-        cJSON_AddNumberToObject(j, "seq", m.seq);
-        cJSON_AddNumberToObject(j, "type", m.type);
-        cJSON_AddNumberToObject(j, "len", m.payload_len);
-
-        char *hex = malloc((size_t)m.payload_len * 2 + 1);
-        if (hex) {
-            for (int i = 0; i < m.payload_len; i++) {
-                sprintf(hex + i * 2, "%02X", m.payload[i]);
-            }
-            cJSON_AddStringToObject(j, "payload", hex);
-            free(hex);
-        }
-        char *js = cJSON_PrintUnformatted(j);
-        cJSON_Delete(j);
-
-        if (js) {
-            mqtt_out_msg_t om = { .sub = MQTT_LINK_SUB_EVENT,
-                                  .json = js, .retain = false };
-            if (xQueueSend(xQ_MqttOut, &om, 0) != pdTRUE) {
-                ESP_LOGW(TAG, "xQ_MqttOut full, drop");
-                free(js);
-            }
-        }
+        /* Delegar a sm_alarm para formateo JSON estructurado y publicación */
+        sm_alarm_process_espnow_data(m.src_mac, m.seq, m.payload, m.payload_len);
     }
 }
 
@@ -396,14 +357,12 @@ void app_main(void)
         .wifi_ssid = ssid,
         .wifi_pass = pass,
         .channel   = M2_FIXED_CHANNEL,
-        /* --- M2bis: Habilitar AP para ESP-NOW --- */
         .enable_ap = true,
         .ap_ssid   = "HUB_360_PROD",
         .ap_pass   = "hub2026secure",
     };
     ESP_ERROR_CHECK(sm_conn_init(&scfg));
     
-    /* Forzar canal global (afecta a STA y AP simultáneamente en ESP32) */
 #if M2_FIXED_CHANNEL > 0
     ESP_ERROR_CHECK(esp_wifi_set_channel(M2_FIXED_CHANNEL, 0));
 #endif
@@ -430,7 +389,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(mqtt_link_init(&mcfg));
 
-    /* ---- [M3] SM_ALARM con callback de publicación ---- */
+    /* ---- [M3/FASE3] SM_ALARM con callback de publicación ---- */
     ESP_ERROR_CHECK(sm_alarm_init(alarm_publish_cb));
 
     ESP_ERROR_CHECK(sm_conn_start());
@@ -439,5 +398,5 @@ void app_main(void)
     xTaskCreatePinnedToCore(t_wifi_mqtt_task, "t_wifi_mqtt", 8192, NULL, 15, NULL, 1);
     xTaskCreatePinnedToCore(t_alarm_task, "t_alarm", 4096, NULL, 5, NULL, 0);
 
-    ESP_LOGI(TAG, "[M2bis] HUB-S3 operativo en modo APSTA. ESP-NOW + MQTT + SM_ALARM + Provisioning.");
+    ESP_LOGI(TAG, "[M2bis/FASE3] HUB-S3 operativo en modo APSTA. ESP-NOW -> JSON MQTT activo.");
 }

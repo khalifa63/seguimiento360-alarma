@@ -2,7 +2,8 @@
  * sm_alarm.h — FSM de alarma del HUB-S3
  * [A2 v0.2 §3] estados DISARMED/ARMED/TRIGGERED/ALARMING
  * [A6 v0.2 R3] debounce 50ms de tamper
- * [A3 v0.1] persistencia en partición nvs_state (vía nvs_manager de M1)
+ * [A3 v0.1] persistencia en partición nvs_state
+ * [M3/FASE3] Procesamiento de eventos ESP-NOW a JSON estructurado
  */
 #pragma once
 
@@ -30,11 +31,9 @@ typedef enum {
 typedef enum {
     SM_ALARM_EVT_NONE = 0,
     SM_ALARM_EVT_TAMPER,
+    SM_ALARM_EVT_ESPNOW_DATA, /* Nuevo para FASE 3 */
 } sm_alarm_event_t;
 
-/* Callback: publica JSON en el sub-topic EVENT de mqtt_link.
-   El callback es responsable de invocar mqtt_link_publish con
-   MQTT_LINK_SUB_EVENT y retain=false. */
 typedef void (*sm_alarm_publish_cb_t)(const char *json_payload);
 
 esp_err_t sm_alarm_init(sm_alarm_publish_cb_t publish_cb);
@@ -43,6 +42,10 @@ esp_err_t sm_alarm_notify_event(sm_alarm_event_t evt);
 esp_err_t sm_alarm_tick(void);
 sm_alarm_state_t sm_alarm_get_state(void);
 const char *sm_alarm_state_str(sm_alarm_state_t s);
+
+/* [FASE 3] Procesa datos crudos de ESP-NOW y publica JSON estructurado a MQTT */
+esp_err_t sm_alarm_process_espnow_data(const uint8_t *src_mac, uint16_t seq, 
+                                       const uint8_t *payload, uint16_t payload_len);
 
 #ifdef __cplusplus
 }

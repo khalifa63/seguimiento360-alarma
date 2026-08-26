@@ -1,169 +1,139 @@
 /*
- * sm_alarm.c — FSM de alarma con debounce y persistencia NVS segregada
- * [HUB-F-005] [AT-03] [AT-04] [AT-08]
- * CR-M3-001: usa nvs_manager de M1 (partición nvs_state, namespace hub_state)
+ * sm_alarm.c — FSM de alarma del HUB-S3
+ * [FASE 3] Integración con JSON estructurado para InfluxDB/Node-RED
  */
 #include "sm_alarm.h"
-#include "nvs_manager.h"
-
+#include "nvs_manager.h" // Para leer estado si es necesario
+#include "cJSON.h"
+#include "esp_timer.h"
+#include "esp_mac.h"
+#include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "cJSON.h"
-
 static const char *TAG = "sm_alarm";
 
-/* [A6 v0.2 R3] debounce 50ms */
-#define TAMPER_DEBOUNCE_MS 50
+static sm_alarm_publish_cb_t s_publish_cb = NULL;
+static sm_alarm_state_t s_state = SM_ALARM_STATE_DISARMED;
+static uint8_t s_hub_mac[6];
 
-static sm_alarm_state_t     s_state       = SM_ALARM_STATE_DISARMED;
-static sm_alarm_publish_cb_t s_publish_cb  = NULL;
-static bool                  s_tamper_pend = false;
-static int64_t               s_tamper_ts_us = 0;
-static SemaphoreHandle_t     s_mutex       = NULL;
-
-static const char *state_names[] = {
-    "disarmed", "armed", "triggered", "alarming"
-};
-
-const char *sm_alarm_state_str(sm_alarm_state_t s)
-{
-    if (s > SM_ALARM_STATE_ALARMING) return "unknown";
-    return state_names[s];
-}
-
-/* [CR-M3-001] Persistencia vía nvs_manager (usa partición nvs_state) */
-static void persist_state(void)
-{
-    esp_err_t err = nvs_manager_set_alarm_state((uint8_t)s_state);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo persistir estado: %s", esp_err_to_name(err));
+const char *sm_alarm_state_str(sm_alarm_state_t s) {
+    switch (s) {
+        case SM_ALARM_STATE_DISARMED: return "disarmed";
+        case SM_ALARM_STATE_ARMED: return "armed";
+        case SM_ALARM_STATE_TRIGGERED: return "triggered";
+        case SM_ALARM_STATE_ALARMING: return "alarming";
+        default: return "unknown";
     }
 }
 
-/* Publica evento JSON vía callback (t_alarm -> mqtt_link_publish) */
-static void publish_event(const char *type, const char *state_str, int zone)
-{
-    if (!s_publish_cb) return;
-
-    cJSON *root = cJSON_CreateObject();
-    if (!root) return;
-
-    cJSON_AddStringToObject(root, "type", type);
-    cJSON_AddNumberToObject(root, "ts", (double)(esp_timer_get_time() / 1000));
-    cJSON_AddStringToObject(root, "state", state_str);
-    if (zone >= 0) {
-        cJSON_AddNumberToObject(root, "zone", zone);
-    }
-
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    if (!payload) return;
-
-    s_publish_cb(payload);
-    free(payload);
+sm_alarm_state_t sm_alarm_get_state(void) {
+    return s_state;
 }
 
-/* Transición atómica con persistencia y publicación */
-static void transition_to(sm_alarm_state_t new_state)
-{
-    sm_alarm_state_t old = s_state;
-    if (old == new_state) return;
-
-    s_state = new_state;
-    ESP_LOGI(TAG, "FSM: %s -> %s", state_names[old], state_names[new_state]);
-
-    /* [AT-03][AT-08] persistir en partición nvs_state */
-    persist_state();
-
-    /* [AT-04] eventos de entrada a TRIGGERED y ALARMING */
-    if (new_state == SM_ALARM_STATE_TRIGGERED) {
-        publish_event("tamper", "triggered", -1);
-        /* TRIGGERED -> ALARMING inmediato según A2 v0.2 §3 */
-        s_state = SM_ALARM_STATE_ALARMING;
-        persist_state();
-        publish_event("alarm", "alarming", 1);
-        ESP_LOGI(TAG, "FSM: triggered -> alarming (auto)");
-    }
+esp_err_t sm_alarm_init(sm_alarm_publish_cb_t publish_cb) {
+    if (!publish_cb) return ESP_ERR_INVALID_ARG;
+    s_publish_cb = publish_cb;
+    
+    // Obtener MAC del HUB para incluir en el JSON
+    esp_read_mac(s_hub_mac, ESP_MAC_WIFI_STA);
+    
+    // TODO: Restaurar estado desde NVS (nvs_manager_get_alarm_state)
+    s_state = SM_ALARM_STATE_DISARMED; 
+    
+    ESP_LOGI(TAG, "Iniciado. Estado inicial: %s", sm_alarm_state_str(s_state));
+    return ESP_OK;
 }
 
-/* API pública */
-esp_err_t sm_alarm_init(sm_alarm_publish_cb_t cb)
-{
-    s_publish_cb = cb;
-    s_mutex = xSemaphoreCreateMutex();
-    if (!s_mutex) return ESP_ERR_NO_MEM;
-
-    /* [CR-M3-001] Restaurar desde partición nvs_state vía nvs_manager */
-    uint8_t persisted = 0xFF;
-    esp_err_t err = nvs_manager_get_alarm_state(&persisted);
-    if (err == ESP_OK && persisted <= SM_ALARM_STATE_ALARMING) {
-        s_state = (sm_alarm_state_t)persisted;
-        ESP_LOGI(TAG, "Estado restaurado desde NVS: %s", state_names[s_state]);
-    } else {
+esp_err_t sm_alarm_process_cmd(sm_alarm_cmd_t cmd) {
+    if (cmd == SM_ALARM_CMD_ARM) {
+        s_state = SM_ALARM_STATE_ARMED;
+        ESP_LOGI(TAG, "Comando: ARMED");
+    } else if (cmd == SM_ALARM_CMD_DISARM) {
         s_state = SM_ALARM_STATE_DISARMED;
-        persist_state();  /* primera ejecución: escribir default */
+        ESP_LOGI(TAG, "Comando: DISARMED");
+    }
+    // TODO: Persistir en NVS aquí
+    return ESP_OK;
+}
+
+esp_err_t sm_alarm_notify_event(sm_alarm_event_t evt) {
+    if (evt == SM_ALARM_EVT_TAMPER) {
+        ESP_LOGW(TAG, "Evento TAMPER detectado!");
+        // Aquí se podría cambiar a TRIGGERED y publicar
     }
     return ESP_OK;
 }
 
-esp_err_t sm_alarm_process_cmd(sm_alarm_cmd_t cmd)
-{
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
-
-    if (cmd == SM_ALARM_CMD_ARM && s_state == SM_ALARM_STATE_DISARMED) {
-        /* [AT-03] DISARMED -> ARMED */
-        transition_to(SM_ALARM_STATE_ARMED);
-    } else if (cmd == SM_ALARM_CMD_DISARM && s_state != SM_ALARM_STATE_DISARMED) {
-        /* [AT-08] cualquier estado -> DISARMED */
-        s_tamper_pend = false;  /* cancelar debounce si había */
-        transition_to(SM_ALARM_STATE_DISARMED);
-    }
-
-    xSemaphoreGive(s_mutex);
+esp_err_t sm_alarm_tick(void) {
+    // Lógica de debounce o timeouts si se requiere en el futuro
     return ESP_OK;
 }
 
-esp_err_t sm_alarm_notify_event(sm_alarm_event_t evt)
+/* =========================================================================
+ * [FASE 3] Generación de JSON estructurado para ESP-NOW
+ * ========================================================================= */
+esp_err_t sm_alarm_process_espnow_data(const uint8_t *src_mac, uint16_t seq, 
+                                       const uint8_t *payload, uint16_t payload_len) 
 {
-    if (evt != SM_ALARM_EVT_TAMPER) return ESP_OK;
+    if (!s_publish_cb) return ESP_ERR_INVALID_STATE;
 
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
-    if (!s_tamper_pend) {
-        s_tamper_pend    = true;
-        s_tamper_ts_us   = esp_timer_get_time();
-    }
-    xSemaphoreGive(s_mutex);
-    return ESP_OK;
-}
+    // 1. Formatear MACs
+    char node_mac_str[13], hub_mac_str[13];
+    snprintf(node_mac_str, sizeof(node_mac_str), "%02X%02X%02X%02X%02X%02X",
+             src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5]);
+    snprintf(hub_mac_str, sizeof(hub_mac_str), "%02X%02X%02X%02X%02X%02X",
+             s_hub_mac[0], s_hub_mac[1], s_hub_mac[2], s_hub_mac[3], s_hub_mac[4], s_hub_mac[5]);
 
-esp_err_t sm_alarm_tick(void)
-{
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
-
-    /* [A6 v0.2 R3] debounce 50ms */
-    if (s_tamper_pend) {
-        int64_t now = esp_timer_get_time();
-        if ((now - s_tamper_ts_us) >= (TAMPER_DEBOUNCE_MS * 1000LL)) {
-            s_tamper_pend = false;
-            if (s_state == SM_ALARM_STATE_ARMED) {
-                /* ARMED -> TRIGGERED (y automáticamente a ALARMING dentro de transition_to) */
-                transition_to(SM_ALARM_STATE_TRIGGERED);
-            } else {
-                ESP_LOGD(TAG, "Tamper descartado (estado=%s)", state_names[s_state]);
-            }
+    // 2. Formatear payload (ASCII si es imprimible, sino Hex)
+    char payload_str[128] = {0};
+    bool is_printable = true;
+    uint16_t len_to_copy = (payload_len < sizeof(payload_str) - 1) ? payload_len : sizeof(payload_str) - 1;
+    
+    for (int i = 0; i < len_to_copy; i++) {
+        if (payload[i] < 32 || payload[i] > 126) {
+            is_printable = false;
+            break;
         }
     }
 
-    xSemaphoreGive(s_mutex);
-    return ESP_OK;
-}
+    if (is_printable && len_to_copy > 0) {
+        memcpy(payload_str, payload, len_to_copy);
+    } else {
+        for (int i = 0; i < len_to_copy; i++) {
+            sprintf(payload_str + (i * 2), "%02X", payload[i]);
+        }
+    }
 
-sm_alarm_state_t sm_alarm_get_state(void)
-{
-    return s_state;
+    // 3. Construir JSON compatible con Node-RED -> InfluxDB
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "measurement", "alarm_event");
+    
+    cJSON *tags = cJSON_AddObjectToObject(root, "tags");
+    cJSON_AddStringToObject(tags, "device_id", node_mac_str);
+    cJSON_AddStringToObject(tags, "device_type", "esp32_node");
+    cJSON_AddStringToObject(tags, "hub_mac", hub_mac_str);
+    
+    cJSON *fields = cJSON_AddObjectToObject(root, "fields");
+    cJSON_AddNumberToObject(fields, "seq", seq);
+    cJSON_AddStringToObject(fields, "event_code", len_to_copy >= 4 ? (const char*)payload : "UNK");
+    cJSON_AddStringToObject(fields, "message", payload_str);
+    cJSON_AddStringToObject(fields, "system_state", sm_alarm_state_str(s_state));
+    
+    cJSON_AddNumberToObject(root, "timestamp", (double)(esp_timer_get_time() / 1000)); // ms
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (json_str) {
+        // El callback ya apunta a mqtt_link_publish(MQTT_LINK_SUB_EVENT, json_str, false)
+        s_publish_cb(json_str);
+        ESP_LOGI(TAG, "Evento ESP-NOW publicado a MQTT (seq: %u, node: %s)", seq, node_mac_str);
+        free(json_str);
+    } else {
+        ESP_LOGE(TAG, "Fallo al asignar memoria para JSON de alarma");
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
 }

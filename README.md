@@ -124,3 +124,26 @@ docker compose up -d
 # Verificar estado y logs
 docker compose ps
 docker compose logs -f nodered# seguimiento360-alarma
+
+
+## 8. FASE 4: Sistema de Seguridad y Notificaciones (Gotify)
+
+Integración exitosa del ciclo de alertas para el sistema de seguridad doméstica.
+
+### Flujo de Notificación
+`Sensor (NODO) -> ESP-NOW -> HUB -> MQTT -> Node-RED -> Gotify -> Celular`
+
+### Códigos de Alarma Soportados
+El filtro de seguridad en Node-RED dispara notificaciones push para los siguientes eventos:
+* `ALRM`: Alarma general
+* `MOV`: Detección de movimiento
+* `GAS`: Fuga de gas
+* `DOOR`: Apertura de puerta/ventana
+* `SEIS`: Detección sísmica
+* `SOS` / `PANIC`: Botón de pánico
+* `HUM`: Detección de presencia humana
+
+### Validación de Extremo a Extremo
+- [x] HUB y NODO comunicándose vía ESP-NOW (RTT ~17ms).
+- [x] Datos persistidos en InfluxDB (Bucket: telemetria).
+- [x] Notificaciones push recibidas en dispositivo móvil vía app nativa de Gotify.

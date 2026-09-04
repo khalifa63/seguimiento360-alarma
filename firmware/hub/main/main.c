@@ -1,7 +1,7 @@
 // ============================================================================
 // Seguimiento 360 - HUB ESP32-S3
-// Fase 4: Multi-tenant + Portal Cautivo v2 + MQTT Integrado
-// Versión: 5.0 (Producción - 100% compatible con node_sim_main.c)
+// Fase 4: Multi-tenant + Portal Cautivo v2 + MQTT + API REST
+// Versión: 6.0 (Producción Final - Compatible con node_sim_main.c)
 // ============================================================================
 
 #include <stdio.h>
@@ -30,21 +30,23 @@ static const char *TAG = "HUB_S3_MAIN";
 // CONFIGURACIÓN Y DEFINICIONES
 // ============================================================================
 #define MAX_NODES 20
-#define PORTAL_INACTIVITY_TIMEOUT_MS 600000  // ✅ 10 minutos
-#define INDICATOR_LED_PIN 48                 // GPIO 48 del ESP32-S3
+#define PORTAL_INACTIVITY_TIMEOUT_MS 600000  // 10 minutos
+#define INDICATOR_LED_PIN 48                  // GPIO 48 del ESP32-S3
 
-// ⚠️ AJUSTA ESTA URI A TU CLOUDFLARE TUNNEL REAL
+// URI del Broker MQTT (Cloudflare Tunnel)
 #define MQTT_BROKER_URI "wss://mqtt.seguimiento360.com:443"
 
 // ============================================================================
 // ESTRUCTURAS DE DATOS
 // ============================================================================
 
+// Estructura antigua (para migración transparente desde versiones previas)
 typedef struct {
     char ssid[33];
     char password[65];
 } wifi_credentials_t;
 
+// Estructura de configuración del HUB (Multi-tenant)
 typedef struct {
     uint8_t version;
     char ssid[33];
@@ -53,17 +55,19 @@ typedef struct {
     char site_id[32];
 } hub_config_t;
 
+// Estructura de información de cada nodo
 typedef struct {
     uint8_t mac[6];
     char type[16];
 } node_info_t;
 
+// Registro unificado de nodos
 typedef struct {
     uint8_t count;
     node_info_t nodes[MAX_NODES];
 } node_registry_t;
 
-// ⚠️ CRÍTICO: Estructura EXACTA del Nodo (7 bytes)
+// ⚠️ CRÍTICO: Estructura EXACTA del Nodo (7 bytes - debe coincidir con node_sim_main.c)
 typedef struct {
     uint8_t event_code[4];    // "PAIR", "ALRM", "HEAR", "P_ACK"
     uint8_t seq;              // Contador de secuencia (0-255)
@@ -71,7 +75,9 @@ typedef struct {
     uint8_t reserved;         // Reservado
 } __attribute__((packed)) security_payload_t;
 
-_Static_assert(sizeof(security_payload_t) == 7, "¡ERROR: El tamaño del payload no coincide con el nodo (debe ser 7 bytes)!");
+// Verificación en tiempo de compilación
+_Static_assert(sizeof(security_payload_t) == 7, 
+               "¡ERROR: El tamaño del payload no coincide con el nodo (debe ser 7 bytes)!");
 
 // ============================================================================
 // VARIABLES GLOBALES
@@ -104,7 +110,8 @@ static EventGroupHandle_t wifi_event_group;
 // PROTOTIPOS DE FUNCIONES
 // ============================================================================
 static void start_mqtt_client(const char *broker_uri);
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, 
+                               int32_t event_id, void *event_data);
 static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload);
 static void format_mac(const uint8_t *mac, char *out, size_t out_size);
 static void get_mqtt_topic(char *out_buffer, size_t buffer_size, const char *suffix);
@@ -120,7 +127,8 @@ static void url_decode(char *dst, const char *src, size_t dst_size) {
         if (src[i] == '+') dst[j] = ' ';
         else if (src[i] == '%' && src[i+1] && src[i+2]) {
             a = src[i+1]; b = src[i+2];
-            dst[j] = ((a <= '9' ? a - '0' : (a & 0x7) + 9) << 4) | (b <= '9' ? b - '0' : (b & 0x7) + 9);
+            dst[j] = ((a <= '9' ? a - '0' : (a & 0x7) + 9) << 4) | 
+                     (b <= '9' ? b - '0' : (b & 0x7) + 9);
             i += 2;
         } else {
             dst[j] = src[i];
@@ -169,6 +177,7 @@ static esp_err_t load_config(void) {
     err = nvs_get_blob(nvs_handle_pairing, "hub_config", &active_config, &required_size);
     
     if (err == ESP_ERR_NVS_NOT_FOUND) {
+        // Intentar migrar desde estructura antigua "wifi_creds"
         wifi_credentials_t old_creds;
         size_t old_size = sizeof(wifi_credentials_t);
         if (nvs_get_blob(nvs_handle_pairing, "wifi_creds", &old_creds, &old_size) == ESP_OK) {
@@ -252,7 +261,8 @@ static void blink_indicator(int times, int delay_ms) {
 // MQTT: CONFIGURACIÓN, EVENTOS Y PUBLICACIÓN
 // ============================================================================
 
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, 
+                               int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = event_data;
     
     switch ((esp_mqtt_event_id_t)event_id) {
@@ -326,9 +336,11 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
     char event_str[5] = {0};
     memcpy(event_str, payload->event_code, 4);
     
+    // Construir tópico dinámico multi-tenant
     char mqtt_topic[128];
     get_mqtt_topic(mqtt_topic, sizeof(mqtt_topic), "event");
     
+    // Construir payload JSON para Node-RED
     char json_payload[256];
     snprintf(json_payload, sizeof(json_payload),
         "{"
@@ -346,6 +358,7 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
     ESP_LOGI(TAG, "📤 Publicando en MQTT -> Topic: %s", mqtt_topic);
     ESP_LOGI(TAG, "📦 Payload: %s", json_payload);
 
+    // Publicar con QoS 1 (al menos una vez)
     int msg_id = esp_mqtt_client_publish(mqtt_client, mqtt_topic, json_payload, 0, 1, 0);
     if (msg_id > 0) {
         ESP_LOGI(TAG, "✅ Evento publicado exitosamente (msg_id=%d)", msg_id);
@@ -360,7 +373,8 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
 
 static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     if (len != sizeof(security_payload_t)) {
-        ESP_LOGW(TAG, "Paquete descartado: tamaño %d != %d bytes esperados", len, sizeof(security_payload_t));
+        ESP_LOGW(TAG, "Paquete descartado: tamaño %d != %d bytes esperados", 
+                 len, sizeof(security_payload_t));
         return;
     }
     
@@ -375,6 +389,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
     ESP_LOGI(TAG, "ESP-NOW RX: Code=%s, MAC=%s, Seq=%d, Bat=%d%%", 
              event_str, mac_str, payload->seq, payload->battery_level);
 
+    // --- LÓGICA DE VINCULACIÓN (PAIRING) ---
     if (memcmp(payload->event_code, "PAIR", 4) == 0) {
         ESP_LOGI(TAG, "Solicitud de PAIRING recibida de: %s", mac_str);
 
@@ -425,6 +440,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         return;
     }
 
+    // --- LÓGICA DE EVENTOS NORMALES (ALRM, HEAR, etc.) ---
     if (is_mac_registered(sender_mac)) {
         publish_event_to_mqtt(sender_mac, payload);
     } else {
@@ -464,7 +480,9 @@ static esp_err_t provisioning_handler(httpd_req_t *req) {
     last_portal_activity = esp_timer_get_time();
     
     const char *error_banner = (current_portal_state == PORTAL_STATE_FAILED) ? 
-        "<div style='background:#f8d7da;color:#721c24;padding:10px;border-radius:4px;margin-bottom:15px;border:1px solid #f5c6cb;'>⚠️ Contraseña incorrecta o red no encontrada. Intente de nuevo.</div>" : "";
+        "<div style='background:#f8d7da;color:#721c24;padding:10px;border-radius:4px;"
+        "margin-bottom:15px;border:1px solid #f5c6cb;'>⚠️ Contraseña incorrecta o red no "
+        "encontrada. Intente de nuevo.</div>" : "";
 
     char html[4096];
     snprintf(html, sizeof(html),
@@ -473,20 +491,25 @@ static esp_err_t provisioning_handler(httpd_req_t *req) {
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         "<title>Seguimiento 360 - Config</title>"
         "<style>"
-        "body{font-family:system-ui,sans-serif;padding:20px;max-width:420px;margin:0 auto;background:#f5f7fa;color:#333;}"
+        "body{font-family:system-ui,sans-serif;padding:20px;max-width:420px;margin:0 auto;"
+        "background:#f5f7fa;color:#333;}"
         "h2{color:#004085;margin-bottom:20px;text-align:center;}"
         "label{display:block;margin-top:12px;font-weight:600;font-size:14px;color:#495057;}"
         ".input-group{position:relative;margin-bottom:4px;}"
-        "input[type='text'],input[type='password']{width:100%%;padding:10px 40px 10px 10px;border:1px solid #ced4da;border-radius:6px;box-sizing:border-box;font-size:14px;}"
+        "input[type='text'],input[type='password']{width:100%%;padding:10px 40px 10px 10px;"
+        "border:1px solid #ced4da;border-radius:6px;box-sizing:border-box;font-size:14px;}"
         "input:focus{outline:none;border-color:#007bff;box-shadow:0 0 0 3px rgba(0,123,255,0.15);}"
-        ".toggle-pass{position:absolute;right:10px;top:50%%;transform:translateY(-50%%);background:none;border:none;cursor:pointer;font-size:18px;color:#6c757d;padding:0;}"
+        ".toggle-pass{position:absolute;right:10px;top:50%%;transform:translateY(-50%%);"
+        "background:none;border:none;cursor:pointer;font-size:18px;color:#6c757d;padding:0;}"
         ".toggle-pass:hover{color:#007bff;}"
         ".help{font-size:12px;color:#6c757d;margin:4px 0 8px 0;line-height:1.4;}"
         ".help code{background:#e9ecef;padding:1px 5px;border-radius:3px;font-size:11px;}"
-        "button[type='submit']{width:100%%;padding:12px;background:#007bff;color:white;border:none;border-radius:6px;font-size:16px;font-weight:600;cursor:pointer;margin-top:18px;}"
+        "button[type='submit']{width:100%%;padding:12px;background:#007bff;color:white;"
+        "border:none;border-radius:6px;font-size:16px;font-weight:600;cursor:pointer;margin-top:18px;}"
         "button[type='submit']:hover{background:#0056b3;}"
         "hr{margin:20px 0;border:0;border-top:1px solid #dee2e6;}"
-        ".section-title{font-size:13px;color:#007bff;text-transform:uppercase;letter-spacing:0.5px;margin:15px 0 5px 0;font-weight:600;}"
+        ".section-title{font-size:13px;color:#007bff;text-transform:uppercase;"
+        "letter-spacing:0.5px;margin:15px 0 5px 0;font-weight:600;}"
         "</style></head><body>"
         "<h2>📡 Seguimiento 360</h2>%s"
         "<form action='/save' method='POST'>"
@@ -495,17 +518,21 @@ static esp_err_t provisioning_handler(httpd_req_t *req) {
         "<input type='text' name='ssid' value='%s' required placeholder='Ej: MiRedWiFi'>"
         "<label>Contraseña Wi-Fi:</label>"
         "<div class='input-group'>"
-        "<input type='password' id='password' name='password' value='%s' required placeholder='Contraseña'>"
-        "<button type='button' class='toggle-pass' onclick='togglePassword()' id='toggleBtn'>👁️</button>"
+        "<input type='password' id='password' name='password' value='%s' "
+        "required placeholder='Contraseña'>"
+        "<button type='button' class='toggle-pass' onclick='togglePassword()' "
+        "id='toggleBtn'>👁️</button>"
         "</div>"
         "<hr>"
         "<div class='section-title'>🏢 Identificación del HUB</div>"
         "<label>Tenant ID:</label>"
         "<input type='text' name='tenant_id' value='%s' placeholder='0' maxlength='15'>"
-        "<div class='help'>💡 ID del cliente/empresa. Usa <code>0</code> para uso personal. Ej: <code>abc</code>, <code>casa</code>.</div>"
+        "<div class='help'>💡 ID del cliente/empresa. Usa <code>0</code> para uso personal. "
+        "Ej: <code>abc</code>, <code>casa</code>.</div>"
         "<label>Site ID:</label>"
         "<input type='text' name='site_id' value='%s' placeholder='site0' maxlength='31'>"
-        "<div class='help'>💡 ID de ubicación/sucursal. Ej: <code>bodega_central</code>, <code>garage</code>.</div>"
+        "<div class='help'>💡 ID de ubicación/sucursal. Ej: <code>bodega_central</code>, "
+        "<code>garage</code>.</div>"
         "<button type='submit'>✅ Validar y Guardar</button>"
         "</form>"
         "<script>"
@@ -548,6 +575,7 @@ static esp_err_t save_config_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
+    // 1. Guardar configuración inmediatamente en NVS
     active_config.version = 2;
     strncpy(active_config.ssid, temp_ssid, sizeof(active_config.ssid) - 1);
     active_config.ssid[sizeof(active_config.ssid) - 1] = '\0';
@@ -561,14 +589,18 @@ static esp_err_t save_config_handler(httpd_req_t *req) {
     save_config();
     wifi_configured = true;
 
+    // 2. Enviar respuesta HTML inmediata con auto-refresco
     const char *html_template = "<!DOCTYPE html><html><head>"
         "<meta charset='UTF-8'>"
         "<meta http-equiv='refresh' content='8;url=/status'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         "<title>Conectando...</title>"
-        "<style>body{font-family:system-ui,sans-serif;padding:40px;text-align:center;background:#f5f7fa;}"
-        ".spinner{border:4px solid #f3f3f3;border-top:4px solid #007bff;border-radius:50%%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 20px;}"
-        "@keyframes spin{0%%{transform:rotate(0deg);}100%%{transform:rotate(360deg);}}</style></head>"
+        "<style>body{font-family:system-ui,sans-serif;padding:40px;text-align:center;"
+        "background:#f5f7fa;}"
+        ".spinner{border:4px solid #f3f3f3;border-top:4px solid #007bff;border-radius:50%%;"
+        "width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 20px;}"
+        "@keyframes spin{0%%{transform:rotate(0deg);}100%%{transform:rotate(360deg);}}"
+        "</style></head>"
         "<body><div class='spinner'></div>"
         "<h2>✅ Configuración Guardada</h2>"
         "<p>El Hub se está conectando a: <b>%s</b></p>"
@@ -582,8 +614,10 @@ static esp_err_t save_config_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, resp_html, strlen(resp_html));
 
+    // 3. Espera crítica para que el HTTP termine de enviar antes de tocar el Wi-Fi
     vTaskDelay(pdMS_TO_TICKS(2000));
     
+    // 4. Reconfigurar y conectar al nuevo Wi-Fi
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(500));
     
@@ -617,58 +651,81 @@ static esp_err_t status_handler(httpd_req_t *req) {
     char html[4096];
     int offset = 0;
 
+    // CSS optimizado para móviles (Oppo, Samsung, etc.)
     offset += snprintf(html + offset, sizeof(html) - offset,
         "<!DOCTYPE html><html><head>"
         "<meta charset='UTF-8'><meta http-equiv='refresh' content='10'>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>"
         "<title>Seguimiento 360 - Estado</title>"
         "<style>"
-        "body{font-family:system-ui,sans-serif;padding:20px;max-width:500px;margin:0 auto;background:#f5f7fa;}"
-        "h2{color:#004085;text-align:center;} h3{color:#004085;margin-top:0;font-size:16px;}"
+        "body{font-family:system-ui,sans-serif;padding:15px;margin:0 auto;background:#f5f7fa;color:#333;}"
+        "h2{color:#004085;text-align:center;font-size:1.2rem;margin-bottom:15px;}"
+        "h3{color:#004085;margin-top:0;font-size:1rem;}"
         ".ok{color:#28a745;font-weight:bold;} .err{color:#dc3545;font-weight:bold;}"
-        ".card{background:white;padding:15px;border-radius:8px;margin-bottom:15px;box-shadow:0 2px 4px rgba(0,0,0,0.1);}"
-        ".card p{margin:8px 0;font-size:14px;}"
-        "table{width:100%%;border-collapse:collapse;margin-top:10px;font-size:13px;}"
-        "th{background:#007bff;color:white;padding:8px;text-align:left;border-radius:4px 4px 0 0;font-size:12px;}"
-        "a.reset{display:block;text-align:center;margin-top:20px;padding:12px;background:#dc3545;color:white;text-decoration:none;border-radius:6px;font-weight:600;}"
-        "a.reset:hover{background:#c82333;}"
+        ".card{background:white;padding:12px;border-radius:8px;margin-bottom:12px;box-shadow:0 2px 4px rgba(0,0,0,0.05);}"
+        ".card p{margin:6px 0;font-size:0.9rem;}"
+        ".table-container{overflow-x:auto;-webkit-overflow-scrolling:touch;}"
+        "table{width:100%%;border-collapse:collapse;font-size:0.75rem;table-layout:fixed;}"
+        "th{background:#007bff;color:white;padding:6px 4px;text-align:center;font-size:0.7rem;}"
+        "td{padding:6px 4px;text-align:center;border-bottom:1px solid #eee;word-wrap:break-word;}"
+        "td:first-child{font-family:monospace;font-size:0.65rem;text-align:left;padding-left:6px;}"
+        "td:nth-child(2){width:25%%;}"
+        "td:nth-child(3){width:25%%;}"
+        "td:nth-child(4){width:20%%;}"
+        ".btn-delete{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:0.7rem;display:inline-block;}"
+        "a.reset{display:block;text-align:center;margin-top:15px;padding:12px;background:#dc3545;color:white;text-decoration:none;border-radius:6px;font-weight:600;font-size:0.9rem;}"
+        "a.reset:active{background:#c82333;}"
         "</style></head><body>"
         "<h2>✅ HUB Operativo</h2>"
         "<div class='card'>"
-        "<p>🌐 IP Local: <b>%s</b></p>"
+        "<p>🌐 IP: <b>%s</b></p>"
         "<p>📡 MQTT: <b class='%s'>%s</b></p>"
         "<p>🏢 Tenant: <b>%s</b> | Site: <b>%s</b></p>"
-        "<p>📶 MAC HUB: <b>%s</b></p>"
         "</div>"
         "<div class='card'>"
-        "<h3>🔗 Nodos Vinculados (%d/%d)</h3>"
-        "<table><thead><tr><th>Dirección MAC</th><th>Tipo</th><th>Estado</th></tr></thead><tbody>",
-        ip_str, mqtt_is_connected ? "ok" : "err", mqtt_is_connected ? "✅ Conectado" : "❌ Desconectado",
-        active_config.tenant_id, active_config.site_id, hub_mac_str,
+        "<h3>🔗 Nodos (%d/%d)</h3>"
+        "<div class='table-container'>"
+        "<table><thead><tr>"
+        "<th>MAC</th><th>Tipo</th><th>Estado</th><th>Acción</th>"
+        "</tr></thead><tbody>",
+        ip_str, mqtt_is_connected ? "ok" : "err", 
+        mqtt_is_connected ? "✅ Conectado" : "❌ Desconectado",
+        active_config.tenant_id, active_config.site_id,
         node_registry.count, MAX_NODES
     );
 
     if (node_registry.count == 0) {
         offset += snprintf(html + offset, sizeof(html) - offset,
-            "<tr><td colspan='3' style='padding:15px;text-align:center;color:#6c757d;'>"
-            "No hay nodos vinculados aún.<br><small>Presiona BOOT en el Nodo para vincular.</small></td></tr>");
+            "<tr><td colspan='4' style='padding:15px;text-align:center;color:#6c757d;'>"
+            "Sin nodos.<br><small>Presiona RST en el Nodo.</small></td></tr>");
     } else {
         for (int i = 0; i < node_registry.count; i++) {
             char mac_display[18];
             format_mac(node_registry.nodes[i].mac, mac_display, sizeof(mac_display));
             offset += snprintf(html + offset, sizeof(html) - offset,
                 "<tr>"
-                "<td style='padding:8px;border-bottom:1px solid #eee;font-family:monospace;font-size:12px;'>%s</td>"
-                "<td style='padding:8px;border-bottom:1px solid #eee;'><span style='background:#e9ecef;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:bold;'>%s</span></td>"
-                "<td style='padding:8px;border-bottom:1px solid #eee;color:#28a745;font-size:12px;'>🟢 Registrado</td>"
-                "</tr>", mac_display, node_registry.nodes[i].type);
+                "<td>%s</td>"
+                "<td><span style='background:#e9ecef;padding:2px 4px;border-radius:3px;font-size:0.65rem;'>%s</span></td>"
+                "<td style='color:#28a745;'>🟢</td>"
+                "<td><button class='btn-delete' onclick=\"deleteNode('%s')\">🗑️</button></td>"
+                "</tr>", mac_display, node_registry.nodes[i].type, mac_display);
         }
     }
 
     offset += snprintf(html + offset, sizeof(html) - offset,
-        "</tbody></table></div>"
-        "<a href='/factory_reset' class='reset' onclick=\"return confirm('¿Borrar toda la configuración y reiniciar?');\">⚠️ Reconfigurar de Fábrica</a>"
-        "</body></html>"
+        "</tbody></table></div></div>"
+        "<a href='/factory_reset' class='reset' "
+        "onclick=\"return confirm('¿Borrar toda la configuración y reiniciar?');"
+        "\">⚠️ Reconfigurar de Fábrica</a>"
+        "<script>"
+        "function deleteNode(mac){"
+        "  if(!confirm('¿Desvincular '+mac+'?')) return;"
+        "  fetch('/api/nodes?mac='+encodeURIComponent(mac),{method:'DELETE'})"
+        "    .then(r=>r.json())"
+        "    .then(d=>{alert(d.message); location.reload();})"
+        "    .catch(e=>alert('Error: '+e));"
+        "}"
+        "</script></body></html>"
     );
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
@@ -683,7 +740,8 @@ static esp_err_t factory_reset_handler(httpd_req_t *req) {
     const char *html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head>"
                        "<body style='font-family:sans-serif;padding:20px;text-align:center;'>"
                        "<h3>🔄 Reiniciando...</h3>"
-                       "<p>El portal estará disponible en 10 segundos como 'Seguimiento360_HUB'.</p>"
+                       "<p>El portal estará disponible en 10 segundos "
+                       "como 'Seguimiento360_HUB'.</p>"
                        "</body></html>";
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, html, strlen(html));
@@ -697,6 +755,103 @@ static esp_err_t favicon_handler(httpd_req_t *req) {
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
+
+// ============================================================================
+// API REST PARA GESTIÓN DE NODOS (Desvinculación)
+// ============================================================================
+
+// GET /api/nodes - Lista todos los nodos en formato JSON
+static esp_err_t api_nodes_list_handler(httpd_req_t *req) {
+    last_portal_activity = esp_timer_get_time();
+    char json[2048];
+    int offset = 0;
+    
+    offset += snprintf(json + offset, sizeof(json) - offset, 
+        "{\"count\":%d,\"max\":%d,\"nodes\":[", 
+        node_registry.count, MAX_NODES);
+    
+    for (int i = 0; i < node_registry.count; i++) {
+        char mac_display[18];
+        format_mac(node_registry.nodes[i].mac, mac_display, sizeof(mac_display));
+        if (i > 0) offset += snprintf(json + offset, sizeof(json) - offset, ",");
+        offset += snprintf(json + offset, sizeof(json) - offset,
+            "{\"index\":%d,\"mac\":\"%s\",\"type\":\"%s\"}",
+            i, mac_display, node_registry.nodes[i].type);
+    }
+    offset += snprintf(json + offset, sizeof(json) - offset, "]}");
+    
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    return httpd_resp_send(req, json, offset);
+}
+
+// DELETE /api/nodes?mac=XX:XX:XX:XX:XX:XX - Desvincular un nodo
+static esp_err_t api_nodes_delete_handler(httpd_req_t *req) {
+    last_portal_activity = esp_timer_get_time();
+    char mac_query[32] = {0};
+    size_t query_len = httpd_req_get_url_query_len(req);
+    
+    if (query_len > 0) {
+        char query[64];
+        httpd_req_get_url_query_str(req, query, sizeof(query));
+        get_form_param(query, "mac", mac_query, sizeof(mac_query));
+    }
+    
+    if (strlen(mac_query) == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "MAC requerida");
+        return ESP_FAIL;
+    }
+    
+    // Parsear MAC de string a bytes
+    uint8_t target_mac[6];
+    int values[6];
+    if (sscanf(mac_query, "%x:%x:%x:%x:%x:%x", 
+               &values[0], &values[1], &values[2], 
+               &values[3], &values[4], &values[5]) != 6) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "MAC inválida");
+        return ESP_FAIL;
+    }
+    for (int i = 0; i < 6; i++) target_mac[i] = (uint8_t)values[i];
+    
+    // Buscar el nodo en el registro
+    int found_idx = -1;
+    for (int i = 0; i < node_registry.count; i++) {
+        if (memcmp(node_registry.nodes[i].mac, target_mac, 6) == 0) {
+            found_idx = i;
+            break;
+        }
+    }
+    
+    if (found_idx < 0) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Nodo no encontrado");
+        return ESP_FAIL;
+    }
+    
+    // Eliminar de ESP-NOW
+    esp_now_del_peer(target_mac);
+    char mac_display[18];
+    format_mac(target_mac, mac_display, sizeof(mac_display));
+    ESP_LOGI(TAG, "🗑️ Nodo desvinculado: %s", mac_display);
+    
+    // Desplazar el array para llenar el hueco
+    for (int i = found_idx; i < node_registry.count - 1; i++) {
+        node_registry.nodes[i] = node_registry.nodes[i + 1];
+    }
+    node_registry.count--;
+    save_node_registry();
+    
+    // Respuesta JSON de éxito
+    char json[128];
+    snprintf(json, sizeof(json), 
+        "{\"success\":true,\"message\":\"Nodo %s desvinculado\",\"new_count\":%d}",
+        mac_display, node_registry.count);
+    
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    return httpd_resp_send(req, json, strlen(json));
+}
+
+// ============================================================================
+// TAREA DE VIGILANCIA DEL PORTAL
+// ============================================================================
 
 static void portal_inactivity_task(void *pvParameters) {
     while(1) {
@@ -713,9 +868,13 @@ static void portal_inactivity_task(void *pvParameters) {
     }
 }
 
+// ============================================================================
+// INICIAR PORTAL CAUTIVO
+// ============================================================================
+
 static esp_err_t start_captive_portal(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.stack_size = 16384;  // ✅ 16 KB para evitar stack overflow
+    config.stack_size = 16384;  // 16 KB para evitar stack overflow con HTML grande
     config.max_uri_handlers = 8;
     
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -724,10 +883,13 @@ static esp_err_t start_captive_portal(void) {
             {.uri = "/save", .method = HTTP_POST, .handler = save_config_handler, .user_ctx = NULL},
             {.uri = "/status", .method = HTTP_GET, .handler = status_handler, .user_ctx = NULL},
             {.uri = "/factory_reset", .method = HTTP_GET, .handler = factory_reset_handler, .user_ctx = NULL},
-            {.uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL}
+            {.uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL},
+            // API REST para gestión de nodos
+            {.uri = "/api/nodes", .method = HTTP_GET, .handler = api_nodes_list_handler, .user_ctx = NULL},
+            {.uri = "/api/nodes", .method = HTTP_DELETE, .handler = api_nodes_delete_handler, .user_ctx = NULL}
         };
         
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 7; i++) {
             httpd_register_uri_handler(server, &uri_config[i]);
         }
         
@@ -743,6 +905,7 @@ static esp_err_t start_captive_portal(void) {
 // APP MAIN
 // ============================================================================
 void app_main(void) {
+    // 1. Inicialización NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -750,19 +913,24 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
+    // 2. Cargar configuración (con migración automática si es legacy)
     load_config();
 
+    // 3. Obtener MAC del HUB
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(hub_mac_str, sizeof(hub_mac_str), "%02x%02x%02x%02x%02x%02x", 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+    // 4. Inicializar Event Group
     wifi_event_group = xEventGroupCreate();
 
+    // 5. Configurar GPIO 48 (LED RGB) como salida para indicador
     gpio_reset_pin(INDICATOR_LED_PIN);
     gpio_set_direction(INDICATOR_LED_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(INDICATOR_LED_PIN, 0);
 
+    // 6. Inicializar Red y Wi-Fi (APSTA)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     
@@ -771,13 +939,14 @@ void app_main(void) {
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    esp_wifi_set_ps(WIFI_PS_NONE);
+    esp_wifi_set_ps(WIFI_PS_NONE);  // Anti-brownout
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, 
                                                          &wifi_event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
                                                          &wifi_event_handler, NULL, NULL));
 
+    // 7. Configurar AP para Portal Cautivo
     wifi_config_t ap_config = {
         .ap = {
             .ssid = "Seguimiento360_HUB",
@@ -790,6 +959,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
     
+    // 8. Conectar STA si hay credenciales guardadas
     if (wifi_configured && strlen(active_config.ssid) > 0) {
         wifi_config_t sta_config = {0};
         strncpy((char*)sta_config.sta.ssid, active_config.ssid, sizeof(sta_config.sta.ssid) - 1);
@@ -802,9 +972,11 @@ void app_main(void) {
         current_portal_state = PORTAL_STATE_CONFIGURING;
     }
 
+    // 9. Inicializar ESP-NOW
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_recv_cb(on_data_recv));
 
+    // 10. Cargar registro de nodos y restaurar peers en ESP-NOW
     load_node_registry();
     for (int i = 0; i < node_registry.count; i++) {
         esp_now_peer_info_t peer = { 
@@ -819,19 +991,27 @@ void app_main(void) {
             ESP_LOGI(TAG, "Peer restaurado: %s (%s)", mac_display, node_registry.nodes[i].type);
         }
     }
-    ESP_LOGI(TAG, "Se restauraron %d nodos en la lista de peers de ESP-NOW.", node_registry.count);
+    ESP_LOGI(TAG, "Se restauraron %d nodos en la lista de peers de ESP-NOW.", 
+             node_registry.count);
 
-    // Iniciar MQTT si ya hay configuración Wi-Fi
+    // 11. Iniciar MQTT si ya hay configuración Wi-Fi
     if (wifi_configured) {
         start_mqtt_client(MQTT_BROKER_URI);
     }
 
+    // 12. Iniciar Portal Cautivo
     start_captive_portal();
     
+    // Feedback visual de inicio exitoso (2 parpadeos)
     blink_indicator(2, 200);
     
-    ESP_LOGI(TAG, "=== Seguimiento 360 HUB v5.0 iniciado ===");
-    ESP_LOGI(TAG, "MAC: %s | Tenant: %s | Site: %s | Nodos: %d/%d", 
-             hub_mac_str, active_config.tenant_id, active_config.site_id,
-             node_registry.count, MAX_NODES);
+    ESP_LOGI(TAG, "============================================================");
+    ESP_LOGI(TAG, "   Seguimiento 360 HUB v6.0 - PRODUCCIÓN");
+    ESP_LOGI(TAG, "============================================================");
+    ESP_LOGI(TAG, "MAC: %s", hub_mac_str);
+    ESP_LOGI(TAG, "Tenant: %s | Site: %s", active_config.tenant_id, active_config.site_id);
+    ESP_LOGI(TAG, "Nodos vinculados: %d/%d", node_registry.count, MAX_NODES);
+    ESP_LOGI(TAG, "Broker MQTT: %s", MQTT_BROKER_URI);
+    ESP_LOGI(TAG, "Portal Cautivo: http://192.168.4.1 (timeout: 10 min)");
+    ESP_LOGI(TAG, "============================================================");
 }

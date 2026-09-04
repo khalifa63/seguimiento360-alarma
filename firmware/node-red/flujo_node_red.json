@@ -1,0 +1,7053 @@
+struct Fix;
+
+// ============================================================================
+// GhostKey_GT_Productive_Firmware_v0.3_STARTUP_SAFE.ino
+//
+// DEBUG TEMPORAL
+//
+// Desactivado temporalmente:
+// - BODEGA
+// - Deep Sleep
+// - Heartbeat
+// - MPU
+//
+// Objetivo:
+//
+// BOOT
+//   ↓
+// Leer dev_code
+//   ↓
+// Cargar defaults
+//   ↓
+// Despertar A7670SA
+//   ↓
+// IMEI
+//   ↓
+// LTE / PDP
+//   ↓
+// POST /api/devices/activate
+//   ↓
+// GNSS
+//   ↓
+// Traccar
+//   ↓
+// Telemetría
+//   ↓
+// Queda encendido mostrando log
+//
+// ============================================================================
+
+#include <Arduino.h>
+#include <Preferences.h>
+#include <WiFi.h>
+
+#include "driver/gpio.h"
+#include "esp_system.h"
+
+// ============================================================================
+// VERSIÓN
+// ============================================================================
+
+#define FIRMWARE_VERSION "0.3.16.12-MODEM-FULL-RECOVERY"
+
+// ============================================================================
+// HARDWARE
+// ============================================================================
+
+#define VBAT_PIN          2
+#define BTN_PIN           4
+#define MODEM_DTR         5
+#define MODEM_RX_PIN      6
+#define MODEM_TX_PIN      7
+#define MPU_INT_PIN       10
+#define MODEM_PWRKEY      11
+#define RGB_PIN           48
+
+#define MODEM_BAUD        115200
+
+// ============================================================================
+// SERVIDORES
+// ============================================================================
+
+#define API_HOST      "seguimiento360.com"
+#define TRACCAR_HOST  "gps.seguimiento360.com"
+
+// ============================================================================
+// TIMEOUTS
+// ============================================================================
+
+#define MODEM_BOOT_TIMEOUT_MS  30000UL
+#define LTE_TIMEOUT_MS         60000UL
+#define GPS_FIX_TIMEOUT_MS     120000UL
+#define HTTP_TIMEOUT_MS        30000UL
+
+// ============================================================================
+// DEFAULTS
+// ============================================================================
+
+#define DEFAULT_MOT_THR                 15
+#define DEFAULT_MOT_DUR                 20
+#define DEFAULT_REPORT_ARMED_MOVING_M   10
+#define DEFAULT_REPORT_ARMED_STOPPED_M  5
+#define DEFAULT_COOLDOWN_S              120
+#define DEFAULT_ARMED_WATCH_H           2
+#define DEFAULT_HEARTBEAT_H             12
+#define DEFAULT_INACTIVE_CHECK_H        24
+#define DEFAULT_BATT_ALARM_PCT          25
+#define DEFAULT_BATT_CRITICAL_PCT       10
+
+// ============================================================================
+// NVS
+// ============================================================================
+
+static const char* NVS_NAMESPACE = "ghostkey";
+
+static const char* KEY_DEVICE_CODE  = "dev_code";
+static const char* KEY_ACTIVATED    = "activated";
+static const char* KEY_DEVICE_STATE = "dev_state";
+
+static const char* STATE_WAREHOUSE = "WAREHOUSE";
+static const char* STATE_DISARMED  = "DISARMED";
+static const char* STATE_ARMED     = "ARMED";
+static const char* STATE_INACTIVE  = "INACTIVE";
+
+char currentDeviceState[24] = "DISARMED";
+
+Preferences prefs;
+
+// ============================================================================
+// MODEM
+// ============================================================================
+
+HardwareSerial modem(1);
+
+char deviceCode[32] = "";
+char imei[24] = "";
+
+bool httpSessionActive = false;
+
+
+// ============================================================================
+// MODEM TRANSACTION MANAGER
+// ============================================================================
+
+enum ModemTransactionState {
+  MODEM_TX_IDLE = 0,
+  MODEM_TX_GNSS,
+  MODEM_TX_HTTP_PREPARE,
+  MODEM_TX_HTTP_ACTION,
+  MODEM_TX_HTTP_READ,
+  MODEM_TX_RECOVERY
+};
+
+volatile ModemTransactionState modemTxState =
+  MODEM_TX_IDLE;
+
+portMUX_TYPE modemTxMux =
+  portMUX_INITIALIZER_UNLOCKED;
+
+int cachedSignal =
+  -1;
+
+int cachedBattery =
+  -1;
+
+bool beginModemTransaction(
+  ModemTransactionState requested,
+  const char* owner
+) {
+
+  bool granted =
+    false;
+
+  portENTER_CRITICAL(
+    &modemTxMux
+  );
+
+  if (
+    modemTxState ==
+    MODEM_TX_IDLE
+  ) {
+
+    modemTxState =
+      requested;
+
+    granted =
+      true;
+  }
+
+  portEXIT_CRITICAL(
+    &modemTxMux
+  );
+
+  Serial.printf(
+    granted
+      ? "[MODEM TX] LOCK owner=%s state=%d\n"
+      : "[MODEM TX] BUSY owner=%s current=%d\n",
+    owner,
+    static_cast<int>(
+      granted
+        ? requested
+        : modemTxState
+    )
+  );
+
+  return granted;
+}
+
+void setModemTransactionState(
+  ModemTransactionState state
+) {
+
+  portENTER_CRITICAL(
+    &modemTxMux
+  );
+
+  modemTxState =
+    state;
+
+  portEXIT_CRITICAL(
+    &modemTxMux
+  );
+}
+
+void endModemTransaction(
+  const char* owner
+) {
+
+  portENTER_CRITICAL(
+    &modemTxMux
+  );
+
+  modemTxState =
+    MODEM_TX_IDLE;
+
+  portEXIT_CRITICAL(
+    &modemTxMux
+  );
+
+  Serial.printf(
+    "[MODEM TX] UNLOCK owner=%s\n",
+    owner
+  );
+
+  delay(
+    400
+  );
+}
+
+bool waitForModemIdle(
+  uint32_t timeoutMs
+) {
+
+  const uint32_t startedAt =
+    millis();
+
+  while (
+    modemTxState !=
+    MODEM_TX_IDLE
+  ) {
+
+    if (
+      static_cast<uint32_t>(
+        millis() - startedAt
+      ) >= timeoutMs
+    ) {
+
+      return false;
+    }
+
+    delay(
+      20
+    );
+  }
+
+  return true;
+}
+
+// Se activa cuando el A7670 aparece después de PWRKEY / arranque en frío.
+bool modemColdStartDetected = false;
+
+enum HttpActionResult {
+  HTTP_RESULT_MODEM_REBOOTED = -2,
+  HTTP_RESULT_TIMEOUT = -1
+};
+
+
+// ============================================================================
+// GNSS
+// ============================================================================
+
+struct Fix {
+  bool valid = false;
+
+  char lat[20] = "";
+  char ns = 0;
+
+  char lon[20] = "";
+  char ew = 0;
+
+  char date[12] = "";
+  char utc[16] = "";
+
+  char speed[16] = "";
+};
+
+// ============================================================================
+// CONFIG
+// ============================================================================
+
+struct DeviceConfig {
+
+  uint8_t motThr;
+  uint8_t motDur;
+
+  uint16_t reportArmedMovingM;
+  uint16_t reportArmedStoppedM;
+
+  uint32_t cooldownS;
+
+  uint16_t armedWatchH;
+  uint16_t heartbeatH;
+  uint16_t inactiveCheckH;
+
+  uint8_t battAlarmPct;
+  uint8_t battCriticalPct;
+};
+
+DeviceConfig config;
+
+// ============================================================================
+// LED
+// ============================================================================
+
+void ledColor(
+  uint8_t r,
+  uint8_t g,
+  uint8_t b
+) {
+
+  rgbLedWrite(
+    RGB_PIN,
+    r,
+    g,
+    b
+  );
+}
+
+// ----------------------------------------------------------------------------
+
+void ledOff() {
+
+  ledColor(
+    0,
+    0,
+    0
+  );
+}
+
+// ----------------------------------------------------------------------------
+
+void ledBoot() {
+
+  // Amarillo
+
+  ledColor(
+    80,
+    45,
+    0
+  );
+}
+
+// ----------------------------------------------------------------------------
+
+void ledSending() {
+
+  // Azul
+
+  ledColor(
+    0,
+    0,
+    80
+  );
+}
+
+// ----------------------------------------------------------------------------
+
+void ledSuccess() {
+
+  // Verde
+
+  ledColor(
+    0,
+    80,
+    0
+  );
+}
+
+// ----------------------------------------------------------------------------
+
+void ledError() {
+
+  // Rojo
+
+  ledColor(
+    80,
+    0,
+    0
+  );
+}
+
+// ============================================================================
+// NVS IDENTIDAD
+// ============================================================================
+
+void loadIdentity() {
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    true
+  );
+
+  String code =
+    prefs.getString(
+      KEY_DEVICE_CODE,
+      ""
+    );
+
+  prefs.end();
+
+  code.toCharArray(
+    deviceCode,
+    sizeof(deviceCode)
+  );
+}
+
+// ============================================================================
+// GUARDAR ESTADO
+// ============================================================================
+
+void saveActivationState(
+  bool activated,
+  const char* state
+) {
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    false
+  );
+
+  prefs.putBool(
+    KEY_ACTIVATED,
+    activated
+  );
+
+  prefs.putString(
+    KEY_DEVICE_STATE,
+    state
+  );
+
+  prefs.end();
+}
+
+
+// ============================================================================
+// CARGAR ESTADO DE ACTIVACIÓN / ESTADO LOCAL
+// ============================================================================
+
+bool loadActivatedState() {
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    true
+  );
+
+  const bool activated =
+    prefs.getBool(
+      KEY_ACTIVATED,
+      false
+    );
+
+  String storedState =
+    prefs.getString(
+      KEY_DEVICE_STATE,
+      STATE_DISARMED
+    );
+
+  prefs.end();
+
+  storedState.trim();
+  storedState.toUpperCase();
+
+  if (
+    storedState != STATE_WAREHOUSE &&
+    storedState != STATE_DISARMED &&
+    storedState != STATE_ARMED &&
+    storedState != STATE_INACTIVE
+  ) {
+
+    storedState =
+      STATE_DISARMED;
+  }
+
+  storedState.toCharArray(
+    currentDeviceState,
+    sizeof(currentDeviceState)
+  );
+
+  Serial.printf(
+    "[STATE] Local=%s | activated=%s\n",
+    currentDeviceState,
+    activated ? "true" : "false"
+  );
+
+  return activated;
+}
+
+// ============================================================================
+// GUARDAR SOLO ESTADO LOCAL
+// ============================================================================
+
+void saveDeviceState(
+  const String& newState
+) {
+
+  String normalized =
+    newState;
+
+  normalized.trim();
+  normalized.toUpperCase();
+
+  normalized.toCharArray(
+    currentDeviceState,
+    sizeof(currentDeviceState)
+  );
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    false
+  );
+
+  prefs.putString(
+    KEY_DEVICE_STATE,
+    normalized
+  );
+
+  prefs.end();
+}
+
+// ============================================================================
+// DEFAULT CONFIG
+// ============================================================================
+
+void ensureDefaultConfig() {
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    false
+  );
+
+  if (!prefs.isKey("mot_thr")) {
+
+    prefs.putUChar(
+      "mot_thr",
+      DEFAULT_MOT_THR
+    );
+  }
+
+  if (!prefs.isKey("mot_dur")) {
+
+    prefs.putUChar(
+      "mot_dur",
+      DEFAULT_MOT_DUR
+    );
+  }
+
+  if (!prefs.isKey("rpt_move_m")) {
+
+    prefs.putUShort(
+      "rpt_move_m",
+      DEFAULT_REPORT_ARMED_MOVING_M
+    );
+  }
+
+  if (!prefs.isKey("rpt_stop_m")) {
+
+    prefs.putUShort(
+      "rpt_stop_m",
+      DEFAULT_REPORT_ARMED_STOPPED_M
+    );
+  }
+
+  if (!prefs.isKey("cooldown_s")) {
+
+    prefs.putULong(
+      "cooldown_s",
+      DEFAULT_COOLDOWN_S
+    );
+  }
+
+  if (!prefs.isKey("watch_h")) {
+
+    prefs.putUShort(
+      "watch_h",
+      DEFAULT_ARMED_WATCH_H
+    );
+  }
+
+  if (!prefs.isKey("heartbeat_h")) {
+
+    prefs.putUShort(
+      "heartbeat_h",
+      DEFAULT_HEARTBEAT_H
+    );
+  }
+
+  if (!prefs.isKey("inactive_h")) {
+
+    prefs.putUShort(
+      "inactive_h",
+      DEFAULT_INACTIVE_CHECK_H
+    );
+  }
+
+  if (!prefs.isKey("batt_alarm")) {
+
+    prefs.putUChar(
+      "batt_alarm",
+      DEFAULT_BATT_ALARM_PCT
+    );
+  }
+
+  if (!prefs.isKey("batt_crit")) {
+
+    prefs.putUChar(
+      "batt_crit",
+      DEFAULT_BATT_CRITICAL_PCT
+    );
+  }
+
+  prefs.end();
+}
+
+// ============================================================================
+// CARGAR CONFIG
+// ============================================================================
+
+void loadConfig() {
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    true
+  );
+
+  config.motThr =
+    prefs.getUChar(
+      "mot_thr",
+      DEFAULT_MOT_THR
+    );
+
+  config.motDur =
+    prefs.getUChar(
+      "mot_dur",
+      DEFAULT_MOT_DUR
+    );
+
+  config.reportArmedMovingM =
+    prefs.getUShort(
+      "rpt_move_m",
+      DEFAULT_REPORT_ARMED_MOVING_M
+    );
+
+  config.reportArmedStoppedM =
+    prefs.getUShort(
+      "rpt_stop_m",
+      DEFAULT_REPORT_ARMED_STOPPED_M
+    );
+
+  config.cooldownS =
+    prefs.getULong(
+      "cooldown_s",
+      DEFAULT_COOLDOWN_S
+    );
+
+  config.armedWatchH =
+    prefs.getUShort(
+      "watch_h",
+      DEFAULT_ARMED_WATCH_H
+    );
+
+  config.heartbeatH =
+    prefs.getUShort(
+      "heartbeat_h",
+      DEFAULT_HEARTBEAT_H
+    );
+
+  config.inactiveCheckH =
+    prefs.getUShort(
+      "inactive_h",
+      DEFAULT_INACTIVE_CHECK_H
+    );
+
+  config.battAlarmPct =
+    prefs.getUChar(
+      "batt_alarm",
+      DEFAULT_BATT_ALARM_PCT
+    );
+
+  config.battCriticalPct =
+    prefs.getUChar(
+      "batt_crit",
+      DEFAULT_BATT_CRITICAL_PCT
+    );
+
+  prefs.end();
+
+  Serial.println();
+
+  Serial.println(
+    "[CFG] Configuración:"
+  );
+
+  Serial.printf(
+    "mot_thr=%u\n",
+    config.motThr
+  );
+
+  Serial.printf(
+    "mot_dur=%u\n",
+    config.motDur
+  );
+
+  Serial.printf(
+    "heartbeat_h=%u\n",
+    config.heartbeatH
+  );
+}
+
+
+// ============================================================================
+// COOPERATIVE SCHEDULER CONTROL
+// ============================================================================
+//
+// v0.3.16.6:
+// No se registra manualmente el task principal en esp_task_wdt.
+// No se llama esp_task_wdt_reset().
+//
+// feedTaskWDT() conserva el nombre para no alterar la capa de comunicaciones,
+// pero ahora simplemente cede tiempo al scheduler. Arduino/ESP-IDF mantiene
+// su administración normal del watchdog del sistema.
+// ============================================================================
+
+void feedTaskWDT() {
+  yield();
+}
+
+void cooperativeWait(uint32_t waitMs) {
+
+  const uint32_t start =
+    millis();
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < waitMs
+  ) {
+
+    yield();
+
+    delay(
+      10
+    );
+  }
+}
+
+// ============================================================================
+// MODEM UART
+// ============================================================================
+
+void clearModemInput(
+  uint32_t maxDrainMs = 50UL,
+  size_t maxBytes = 512
+) {
+
+  const uint32_t start =
+    millis();
+
+  size_t total =
+    0;
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < maxDrainMs &&
+    total < maxBytes
+  ) {
+
+    feedTaskWDT();
+
+    int budget =
+      64;
+
+    while (
+      modem.available() &&
+      budget-- > 0 &&
+      total < maxBytes
+    ) {
+
+      modem.read();
+
+      total++;
+    }
+
+    if (
+      !modem.available()
+    ) {
+
+      break;
+    }
+
+    yield();
+
+    delay(
+      1
+    );
+  }
+}
+
+// ============================================================================
+// READ MODEM
+// ============================================================================
+
+String readModemUntil(
+  const String& token1,
+  const String& token2,
+  uint32_t timeoutMs
+) {
+
+  String response;
+
+  response.reserve(
+    512
+  );
+
+  const uint32_t start =
+    millis();
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < timeoutMs
+  ) {
+
+    feedTaskWDT();
+
+    int budget =
+      128;
+
+    while (
+      modem.available() &&
+      budget-- > 0
+    ) {
+
+      char c =
+        static_cast<char>(
+          modem.read()
+        );
+
+      response += c;
+
+      // Evita crecimiento ilimitado en respuestas anómalas.
+      if (
+        response.length() > 2048
+      ) {
+
+        response.remove(
+          0,
+          1024
+        );
+      }
+    }
+
+    if (
+      token1.length() > 0 &&
+      response.indexOf(
+        token1
+      ) >= 0
+    ) {
+
+      break;
+    }
+
+    if (
+      token2.length() > 0 &&
+      response.indexOf(
+        token2
+      ) >= 0
+    ) {
+
+      break;
+    }
+
+    yield();
+
+    delay(
+      1
+    );
+  }
+
+  return response;
+}
+
+// ============================================================================
+// SEND AT
+// ============================================================================
+
+String sendAT(
+  const String& command,
+  uint32_t timeoutMs = 2000,
+  bool verbose = false
+) {
+
+  clearModemInput();
+
+  if (
+    verbose
+  ) {
+
+    Serial.print(
+      ">> "
+    );
+
+    Serial.println(
+      command
+    );
+  }
+
+  modem.print(
+    command
+  );
+
+  modem.print(
+    "\r\n"
+  );
+
+  String response =
+    readModemUntil(
+      "\r\nOK\r\n",
+      "\r\nERROR\r\n",
+      timeoutMs
+    );
+
+  if (
+    verbose ||
+    response.indexOf(
+      "\r\nERROR\r\n"
+    ) >= 0
+  ) {
+
+    Serial.print(
+      "[AT] "
+    );
+
+    Serial.print(
+      command
+    );
+
+    Serial.print(
+      " -> "
+    );
+
+    if (
+      response.indexOf(
+        "\r\nOK\r\n"
+      ) >= 0
+    ) {
+
+      Serial.println(
+        "OK"
+      );
+    }
+    else if (
+      response.indexOf(
+        "\r\nERROR\r\n"
+      ) >= 0
+    ) {
+
+      Serial.println(
+        "ERROR"
+      );
+    }
+    else {
+
+      Serial.println(
+        "TIMEOUT"
+      );
+    }
+  }
+
+  return response;
+}
+
+// ============================================================================
+// UART INIT
+// ============================================================================
+
+void startModemUART() {
+
+  modem.end();
+
+  delay(
+    50
+  );
+
+  modem.setRxBufferSize(
+    4096
+  );
+
+  modem.begin(
+    MODEM_BAUD,
+    SERIAL_8N1,
+    MODEM_RX_PIN,
+    MODEM_TX_PIN
+  );
+
+  delay(
+    500
+  );
+}
+
+// ============================================================================
+// MODEM ALIVE
+// ============================================================================
+
+bool modemAlive(
+  uint32_t timeoutMs = 1000
+) {
+
+  String response =
+    sendAT(
+      "AT",
+      timeoutMs
+    );
+
+  return (
+    response.indexOf(
+      "OK"
+    ) >= 0
+  );
+}
+
+// ============================================================================
+// PWRKEY
+// ============================================================================
+
+void pulsePWRKEY() {
+
+  Serial.println(
+    "[MODEM] Pulso PWRKEY..."
+  );
+
+  pinMode(
+    MODEM_PWRKEY,
+    OUTPUT
+  );
+
+  digitalWrite(
+    MODEM_PWRKEY,
+    LOW
+  );
+
+  delay(
+    1100
+  );
+
+  pinMode(
+    MODEM_PWRKEY,
+    INPUT
+  );
+}
+
+// ============================================================================
+// WAKE MODEM
+// ============================================================================
+
+bool wakeModem() {
+
+  gpio_deep_sleep_hold_dis();
+
+  gpio_hold_dis(
+    static_cast<gpio_num_t>(
+      MODEM_DTR
+    )
+  );
+
+  pinMode(
+    MODEM_DTR,
+    OUTPUT
+  );
+
+  digitalWrite(
+    MODEM_DTR,
+    LOW
+  );
+
+  startModemUART();
+
+  Serial.println(
+    "[MODEM] Buscando A7670..."
+  );
+
+  uint32_t cycle =
+    0;
+
+  while (
+    true
+  ) {
+
+    feedTaskWDT();
+
+    cycle++;
+
+    for (
+      int i = 0;
+      i < 5;
+      i++
+    ) {
+
+      if (
+        modemAlive(
+          1200
+        )
+      ) {
+
+        modemColdStartDetected =
+          false;
+
+        Serial.println(
+          "[MODEM] ONLINE"
+        );
+
+        return true;
+      }
+
+      yield();
+
+      delay(
+        300
+      );
+    }
+
+    Serial.printf(
+      "[MODEM] Sin respuesta. Ciclo %lu, intentando PWRKEY...\n",
+      static_cast<unsigned long>(
+        cycle
+      )
+    );
+
+    pulsePWRKEY();
+
+    const uint32_t bootStart =
+      millis();
+
+    uint32_t lastLog =
+      bootStart;
+
+    while (
+      static_cast<uint32_t>(
+        millis() - bootStart
+      ) <
+      MODEM_BOOT_TIMEOUT_MS
+    ) {
+
+      feedTaskWDT();
+
+      if (
+        modemAlive(
+          1200
+        )
+      ) {
+
+        modemColdStartDetected =
+          true;
+
+        Serial.printf(
+          "[MODEM] ONLINE después de %lu ms\n",
+          static_cast<unsigned long>(
+            millis() - bootStart
+          )
+        );
+
+        return true;
+      }
+
+      const uint32_t now =
+        millis();
+
+      if (
+        static_cast<uint32_t>(
+          now - lastLog
+        ) >= 5000UL
+      ) {
+
+        Serial.printf(
+          "[MODEM] Esperando encendido... %lu s\n",
+          static_cast<unsigned long>(
+            (now - bootStart) / 1000UL
+          )
+        );
+
+        lastLog =
+          now;
+      }
+
+      int budget =
+        64;
+
+      while (
+        modem.available() &&
+        budget-- > 0
+      ) {
+
+        modem.read();
+      }
+
+      yield();
+
+      delay(
+        100
+      );
+    }
+
+    Serial.println(
+      "[MODEM] Aún apagado/no disponible. Reintentando en 5 s..."
+    );
+
+    const uint32_t retryWaitStart =
+      millis();
+
+    while (
+      static_cast<uint32_t>(
+        millis() - retryWaitStart
+      ) < 5000UL
+    ) {
+
+      feedTaskWDT();
+
+      if (
+        modemAlive(
+          800
+        )
+      ) {
+
+        modemColdStartDetected =
+          true;
+
+        Serial.println(
+          "[MODEM] ONLINE detectado durante espera."
+        );
+
+        return true;
+      }
+
+      yield();
+
+      delay(
+        250
+      );
+    }
+  }
+}
+
+// ============================================================================
+// COLD MODEM START SETTLE
+// ============================================================================
+
+bool waitForColdModemStartReady() {
+
+  if (
+    !modemColdStartDetected
+  ) {
+    return true;
+  }
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  COLD MODEM START SETTLE"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "[MODEM COLD] A7670 recién iniciado. Estabilizando 6000 ms..."
+  );
+
+  cooperativeWait(
+    6000
+  );
+
+  const uint32_t start =
+    millis();
+
+  int consecutiveReady =
+    0;
+
+  uint32_t lastLog =
+    start;
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < 30000UL
+  ) {
+
+    feedTaskWDT();
+
+    String atResponse =
+      sendAT(
+        "AT",
+        1500
+      );
+
+    feedTaskWDT();
+
+    if (
+      atResponse.indexOf(
+        "OK"
+      ) >= 0
+    ) {
+
+      String pinResponse =
+        sendAT(
+          "AT+CPIN?",
+          2500
+        );
+
+      feedTaskWDT();
+
+      if (
+        pinResponse.indexOf(
+          "+CPIN: READY"
+        ) >= 0
+      ) {
+
+        consecutiveReady++;
+
+        Serial.printf(
+          "[MODEM COLD] AT + CPIN READY (%d/2)\n",
+          consecutiveReady
+        );
+
+        if (
+          consecutiveReady >= 2
+        ) {
+
+          clearModemInput(
+            100UL,
+            1024
+          );
+
+          cooperativeWait(
+            1500
+          );
+
+          modemColdStartDetected =
+            false;
+
+          Serial.println(
+            "[MODEM COLD] Arranque estabilizado. Continuando con LTE."
+          );
+
+          return true;
+        }
+      }
+      else {
+
+        consecutiveReady =
+          0;
+      }
+    }
+    else {
+
+      consecutiveReady =
+        0;
+    }
+
+    const uint32_t now =
+      millis();
+
+    if (
+      static_cast<uint32_t>(
+        now - lastLog
+      ) >= 5000UL
+    ) {
+
+      Serial.printf(
+        "[MODEM COLD] Esperando estabilidad... %lu s\n",
+        static_cast<unsigned long>(
+          (now - start) / 1000UL
+        )
+      );
+
+      lastLog =
+        now;
+    }
+
+    cooperativeWait(
+      1000
+    );
+  }
+
+  Serial.println(
+    "[MODEM COLD] TIMEOUT esperando AT/CPIN estable."
+  );
+
+  return false;
+}
+
+
+
+// ============================================================================
+// IMEI
+// ============================================================================
+
+bool readIMEI() {
+
+  String response =
+    sendAT(
+      "AT+CGSN",
+      2000
+    );
+
+  for (
+    int i = 0;
+    i <=
+    response.length() - 15;
+    i++
+  ) {
+
+    bool valid =
+      true;
+
+    for (
+      int j = 0;
+      j < 15;
+      j++
+    ) {
+
+      if (
+        !isDigit(
+          response[
+            i + j
+          ]
+        )
+      ) {
+
+        valid =
+          false;
+
+        break;
+      }
+    }
+
+    if (
+      valid
+    ) {
+
+      response.substring(
+        i,
+        i + 15
+      ).toCharArray(
+        imei,
+        sizeof(imei)
+      );
+
+      Serial.print(
+        "[IMEI] "
+      );
+
+      Serial.println(
+        imei
+      );
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
+// LTE
+// ============================================================================
+
+bool waitLTE() {
+
+  Serial.println("[LTE] Esperando registro...");
+
+  const uint32_t start = millis();
+  uint32_t lastQuery = 0;
+
+  while (
+    static_cast<uint32_t>(millis() - start) < LTE_TIMEOUT_MS
+  ) {
+
+    feedTaskWDT();
+
+    const uint32_t now = millis();
+
+    if (
+      lastQuery == 0 ||
+      static_cast<uint32_t>(now - lastQuery) >= 2000UL
+    ) {
+
+      clearModemInput(25UL, 256);
+
+      modem.print("AT+CEREG?\r\n");
+
+      String response;
+      response.reserve(256);
+
+      const uint32_t queryStart = millis();
+
+      while (
+        static_cast<uint32_t>(millis() - queryStart) < 2000UL
+      ) {
+
+        feedTaskWDT();
+
+        int budget = 64;
+
+        while (
+          modem.available() &&
+          budget-- > 0
+        ) {
+
+          response += static_cast<char>(modem.read());
+
+          if (response.length() > 512) {
+            response.remove(0, 256);
+          }
+        }
+
+        if (
+          response.indexOf("+CEREG: 0,1") >= 0 ||
+          response.indexOf("+CEREG: 0,5") >= 0 ||
+          response.indexOf("+CEREG: 1,1") >= 0 ||
+          response.indexOf("+CEREG: 1,5") >= 0 ||
+          response.indexOf("+CEREG: 2,1") >= 0 ||
+          response.indexOf("+CEREG: 2,5") >= 0
+        ) {
+
+          Serial.println("[LTE] Registrado.");
+          return true;
+        }
+
+        if (
+          response.indexOf("*ATREADY:") >= 0 ||
+          response.indexOf("+CPIN: READY") >= 0 ||
+          response.indexOf("SMS DONE") >= 0
+        ) {
+
+          Serial.println(
+            "[LTE] Reinicio del módem detectado durante registro."
+          );
+
+          return false;
+        }
+
+        if (
+          response.indexOf("\r\nOK\r\n") >= 0 ||
+          response.indexOf("\r\nERROR\r\n") >= 0
+        ) {
+          break;
+        }
+
+        yield();
+        delay(1);
+      }
+
+      lastQuery = now;
+    }
+
+    feedTaskWDT();
+    yield();
+    delay(10);
+  }
+
+  Serial.println("[LTE] TIMEOUT esperando registro.");
+  return false;
+}
+
+// ============================================================================
+// PDP
+// ============================================================================
+
+bool ensurePacketData() {
+
+  String response =
+    sendAT(
+      "AT+CGATT?",
+      1500
+    );
+
+  if (
+    response.indexOf(
+      "+CGATT: 1"
+    ) < 0
+  ) {
+
+    response =
+      sendAT(
+        "AT+CGATT=1",
+        15000
+      );
+
+    if (
+      response.indexOf(
+        "OK"
+      ) < 0
+    ) {
+
+      return false;
+    }
+
+    response =
+      sendAT(
+        "AT+CGATT?",
+        3000
+      );
+  }
+
+  return (
+    response.indexOf(
+      "+CGATT: 1"
+    ) >= 0
+  );
+}
+
+// ============================================================================
+// SIGNAL
+// ============================================================================
+
+int readSignal() {
+
+  String response =
+    sendAT(
+      "AT+CSQ",
+      1500
+    );
+
+  int pos =
+    response.indexOf(
+      "+CSQ:"
+    );
+
+  if (
+    pos < 0
+  ) {
+
+    return -1;
+  }
+
+  int comma =
+    response.indexOf(
+      ',',
+      pos
+    );
+
+  if (
+    comma < 0
+  ) {
+
+    return -1;
+  }
+
+  String value =
+    response.substring(
+      pos + 5,
+      comma
+    );
+
+  value.trim();
+
+  return (
+    value.toInt()
+  );
+}
+
+
+int refreshSignalCache() {
+
+  if (
+    modemTxState !=
+    MODEM_TX_IDLE
+  ) {
+
+    return cachedSignal;
+  }
+
+  cachedSignal =
+    readSignal();
+
+  return cachedSignal;
+}
+
+int getCachedSignal() {
+
+  return (
+    cachedSignal >= 0
+      ? cachedSignal
+      : 0
+  );
+}
+
+int refreshBatteryCache() {
+
+  cachedBattery =
+    readBatteryPercent();
+
+  return cachedBattery;
+}
+
+int getCachedBattery() {
+
+  return (
+    cachedBattery >= 0
+      ? cachedBattery
+      : readBatteryPercent()
+  );
+}
+
+
+// ============================================================================
+// BATTERY
+// ============================================================================
+
+int readBatteryPercent() {
+
+  analogReadResolution(
+    12
+  );
+
+  uint32_t raw =
+    analogRead(
+      VBAT_PIN
+    );
+
+  float adc =
+    (
+      raw /
+      4095.0f
+    ) *
+    3.3f;
+
+  float voltage =
+    adc *
+    2.0f;
+
+  int pct =
+    static_cast<int>(
+      (
+        voltage -
+        3.20f
+      ) *
+      100.0f
+    );
+
+  return constrain(
+    pct,
+    0,
+    100
+  );
+}
+
+// ============================================================================
+// PREPARE HTTPS
+// ============================================================================
+
+bool ensureHTTPSession() {
+
+  if (
+    httpSessionActive
+  ) {
+
+    return true;
+  }
+
+  for (
+    int attempt = 1;
+    attempt <= 2;
+    attempt++
+  ) {
+
+    Serial.printf(
+      "[HTTP SESSION] INIT intento %d/2\n",
+      attempt
+    );
+
+    // Intentamos limpiar cualquier sesión previa o estado colgado.
+    String termResponse =
+      sendAT(
+        "AT+HTTPTERM",
+        2500
+      );
+
+    // HTTPTERM puede devolver ERROR si no había sesión activa.
+    // Eso no se considera fallo.
+    yield();
+    delay(
+      300
+    );
+
+    String response =
+      sendAT(
+        "AT+HTTPINIT",
+        8000
+      );
+
+    if (
+      response.indexOf(
+        "OK"
+      ) >= 0
+    ) {
+
+      response =
+        sendAT(
+          "AT+CSSLCFG=\"sslversion\",0,4",
+          2500
+        );
+
+      if (
+        response.indexOf(
+          "OK"
+        ) < 0
+      ) {
+
+        httpSessionActive =
+          false;
+
+        continue;
+      }
+
+      response =
+        sendAT(
+          "AT+CSSLCFG=\"authmode\",0,0",
+          2500
+        );
+
+      if (
+        response.indexOf(
+          "OK"
+        ) < 0
+      ) {
+
+        httpSessionActive =
+          false;
+
+        continue;
+      }
+
+      response =
+        sendAT(
+          "AT+CSSLCFG=\"enableSNI\",0,1",
+          2500
+        );
+
+      if (
+        response.indexOf(
+          "OK"
+        ) < 0
+      ) {
+
+        httpSessionActive =
+          false;
+
+        continue;
+      }
+
+      response =
+        sendAT(
+          "AT+HTTPPARA=\"SSLCFG\",0",
+          2500
+        );
+
+      if (
+        response.indexOf(
+          "OK"
+        ) < 0
+      ) {
+
+        httpSessionActive =
+          false;
+
+        continue;
+      }
+
+      httpSessionActive =
+        true;
+
+      Serial.println(
+        "[HTTP SESSION] READY"
+      );
+
+      return true;
+    }
+
+    Serial.println(
+      "[HTTP SESSION] HTTPINIT falló, limpiando y reintentando..."
+    );
+
+    httpSessionActive =
+      false;
+
+    // Revalidación rápida antes del segundo intento.
+    sendAT(
+      "AT",
+      3000
+    );
+
+    sendAT(
+      "AT+CPIN?",
+      5000
+    );
+
+    sendAT(
+      "AT+CEREG?",
+      5000
+    );
+
+    sendAT(
+      "AT+CGATT?",
+      5000
+    );
+
+    yield();
+    delay(
+      1000
+    );
+  }
+
+  Serial.println(
+    "[HTTP SESSION] No fue posible inicializar HTTP."
+  );
+
+  return false;
+}
+
+// ============================================================================
+// PREPARE HTTPS URL
+// ============================================================================
+
+bool prepareHTTPS(
+  const String& url
+) {
+
+  if (
+    !ensureHTTPSession()
+  ) {
+
+    return false;
+  }
+
+  String command =
+    "AT+HTTPPARA=\"URL\",\"" +
+    url +
+    "\"";
+
+  String response =
+    sendAT(
+      command,
+      5000
+    );
+
+  return (
+    response.indexOf(
+      "OK"
+    ) >= 0
+  );
+}
+
+// ============================================================================
+// HTTP PREFLIGHT
+// Verifica que la red, el servicio de paquetes y el PDP estén realmente listos
+// justo antes de ejecutar AT+HTTPACTION.
+// ============================================================================
+
+bool responseRegistered(
+  const String& response,
+  const char* prefix
+) {
+
+  String p1 =
+    String(prefix) +
+    ": 0,1";
+
+  String p2 =
+    String(prefix) +
+    ": 0,5";
+
+  String p3 =
+    String(prefix) +
+    ": 1,1";
+
+  String p4 =
+    String(prefix) +
+    ": 1,5";
+
+  String p5 =
+    String(prefix) +
+    ": 2,1";
+
+  String p6 =
+    String(prefix) +
+    ": 2,5";
+
+  return (
+    response.indexOf(p1) >= 0 ||
+    response.indexOf(p2) >= 0 ||
+    response.indexOf(p3) >= 0 ||
+    response.indexOf(p4) >= 0 ||
+    response.indexOf(p5) >= 0 ||
+    response.indexOf(p6) >= 0
+  );
+}
+
+bool hasValidPdpAddress(
+  const String& response
+) {
+
+  int pos =
+    response.indexOf(
+      "+CGPADDR:"
+    );
+
+  if (
+    pos < 0
+  ) {
+
+    return false;
+  }
+
+  String line =
+    response.substring(
+      pos
+    );
+
+  int end =
+    line.indexOf(
+      '\n'
+    );
+
+  if (
+    end >= 0
+  ) {
+
+    line =
+      line.substring(
+        0,
+        end
+      );
+  }
+
+  line.trim();
+
+  // Rechaza respuestas sin IP o con IP nula.
+  if (
+    line.indexOf(
+      "0.0.0.0"
+    ) >= 0
+  ) {
+
+    return false;
+  }
+
+  int comma =
+    line.indexOf(
+      ','
+    );
+
+  if (
+    comma < 0
+  ) {
+
+    return false;
+  }
+
+  String ip =
+    line.substring(
+      comma + 1
+    );
+
+  ip.trim();
+  ip.replace(
+    "\"",
+    ""
+  );
+
+  return (
+    ip.length() >= 7 &&
+    ip.indexOf(
+      '.'
+    ) >= 0
+  );
+}
+
+bool httpPreflight(
+  uint32_t totalTimeoutMs = 90000UL
+) {
+
+  Serial.println();
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  HTTP PREFLIGHT PDP NATIVE"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  const uint32_t start =
+    millis();
+
+  uint32_t attempt =
+    0;
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < totalTimeoutMs
+  ) {
+
+    attempt++;
+
+    Serial.printf(
+      "[PREFLIGHT] Intento %lu\n",
+      static_cast<unsigned long>(
+        attempt
+      )
+    );
+
+    String response;
+
+    response =
+      sendAT(
+        "AT",
+        3000
+      );
+
+    if (
+      response.indexOf(
+        "OK"
+      ) < 0
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] AT sin respuesta."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CPIN?",
+        5000
+      );
+
+    if (
+      response.indexOf(
+        "+CPIN: READY"
+      ) < 0
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] SIM no lista."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CREG?",
+        5000
+      );
+
+    if (
+      !responseRegistered(
+        response,
+        "+CREG"
+      )
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] CREG no registrado."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CGREG?",
+        5000
+      );
+
+    if (
+      !responseRegistered(
+        response,
+        "+CGREG"
+      )
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] CGREG no registrado."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CEREG?",
+        5000
+      );
+
+    if (
+      !responseRegistered(
+        response,
+        "+CEREG"
+      )
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] CEREG no registrado."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CPSI?",
+        5000
+      );
+
+    if (
+      response.indexOf(
+        "Online"
+      ) < 0
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] CPSI aún no está Online."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CGATT?",
+        5000
+      );
+
+    if (
+      response.indexOf(
+        "+CGATT: 1"
+      ) < 0
+    ) {
+
+      Serial.println(
+        "[PREFLIGHT] Packet service no attached."
+      );
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    Serial.println(
+      "[PREFLIGHT] READY"
+    );
+
+    return true;
+  }
+
+  Serial.printf(
+    "[PREFLIGHT] TIMEOUT después de %lu ms\n",
+    static_cast<unsigned long>(
+      millis() - start
+    )
+  );
+
+  return false;
+}
+
+
+// ============================================================================
+// MODEM RECOVERY
+// ============================================================================
+
+bool waitForModemAfterReboot(
+  uint32_t timeoutMs = 120000UL
+) {
+
+  Serial.println();
+  Serial.println(
+    "[RECOVERY] Esperando recuperación completa del A7670..."
+  );
+
+  httpSessionActive =
+    false;
+
+  const uint32_t start =
+    millis();
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < timeoutMs
+  ) {
+
+    feedTaskWDT();
+
+    String response =
+      sendAT(
+        "AT",
+        3000
+      );
+
+    if (
+      response.indexOf(
+        "OK"
+      ) < 0
+    ) {
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CPIN?",
+        5000
+      );
+
+    if (
+      response.indexOf(
+        "+CPIN: READY"
+      ) < 0
+    ) {
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CEREG?",
+        5000
+      );
+
+    if (
+      !responseContainsRegisteredCereg(
+        response
+      )
+    ) {
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    response =
+      sendAT(
+        "AT+CGATT?",
+        5000
+      );
+
+    if (
+      response.indexOf(
+        "+CGATT: 1"
+      ) < 0
+    ) {
+
+      yield();
+      delay(
+        1000
+      );
+
+      continue;
+    }
+
+    Serial.println(
+      "[RECOVERY] A7670 recuperado y registrado."
+    );
+
+    return true;
+  }
+
+  Serial.println(
+    "[RECOVERY] TIMEOUT recuperando A7670."
+  );
+
+  return false;
+}
+
+bool recoverHttpAfterModemReboot() {
+
+  if (
+    !waitForModemAfterReboot(
+      120000UL
+    )
+  ) {
+
+    return false;
+  }
+
+  if (
+    !httpPreflight(
+      90000UL
+    )
+  ) {
+
+    return false;
+  }
+
+  return true;
+}
+
+// ============================================================================
+// HTTP ACTION
+// ============================================================================
+
+void printModemRebootDiagnostics() {
+
+  Serial.println();
+  Serial.println(
+    "[MODEM DIAG] Posible reinicio del A7670 detectado."
+  );
+
+  Serial.printf(
+    "[MODEM DIAG] t=%lu ms | DTR=%d | PWRKEY=%d\n",
+    static_cast<unsigned long>(
+      millis()
+    ),
+    digitalRead(
+      MODEM_DTR
+    ),
+    digitalRead(
+      MODEM_PWRKEY
+    )
+  );
+
+  // Damos un margen corto para que el módem termine su secuencia básica
+  // antes de pedir identificación. No pulsamos PWRKEY ni cambiamos DTR.
+  uint32_t waitStart =
+    millis();
+
+  while (
+    millis() - waitStart < 8000UL
+  ) {
+
+    int diagBudget =
+      64;
+
+    while (
+      modem.available() &&
+      diagBudget-- > 0
+    ) {
+
+      char c =
+        static_cast<char>(
+          modem.read()
+        );
+
+      Serial.write(
+        c
+      );
+    }
+
+    yield();
+    delay(
+      10
+    );
+  }
+
+  Serial.println();
+  Serial.println(
+    "[MODEM DIAG] Probando AT..."
+  );
+
+  String atResponse =
+    sendAT(
+      "AT",
+      3000
+    );
+
+  if (
+    atResponse.indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    Serial.println(
+      "[MODEM DIAG] El módem todavía no responde a AT."
+    );
+
+    return;
+  }
+
+  Serial.println(
+    "[MODEM DIAG] ATI:"
+  );
+
+  sendAT(
+    "ATI",
+    5000
+  );
+
+  Serial.println(
+    "[MODEM DIAG] AT+CGMR:"
+  );
+
+  sendAT(
+    "AT+CGMR",
+    5000
+  );
+
+  Serial.println(
+    "[MODEM DIAG] AT+CPIN?:"
+  );
+
+  sendAT(
+    "AT+CPIN?",
+    5000
+  );
+
+  Serial.println(
+    "[MODEM DIAG] AT+CEREG?:"
+  );
+
+  sendAT(
+    "AT+CEREG?",
+    5000
+  );
+}
+
+// ============================================================================
+// HTTP ACTION
+// ============================================================================
+
+int executeHTTPAction(
+  int method,
+  int* responseLength = nullptr
+) {
+
+  clearModemInput();
+
+  if (
+    responseLength != nullptr
+  ) {
+
+    *responseLength =
+      0;
+  }
+
+  String command =
+    "AT+HTTPACTION=" +
+    String(
+      method
+    );
+
+  Serial.printf(
+    "[HTTPACTION] START method=%d\n",
+    method
+  );
+
+  modem.print(
+    command
+  );
+
+  modem.print(
+    "\r\n"
+  );
+
+  const uint32_t start =
+    millis();
+
+  uint32_t lastHeartbeat =
+    start;
+
+  const uint32_t timeoutMs =
+    60000UL;
+
+  char lineBuffer[256];
+
+  size_t lineLength =
+    0;
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < timeoutMs
+  ) {
+
+    feedTaskWDT();
+
+    int budget =
+      64;
+
+    int uartProcessed =
+      0;
+
+    while (
+      modem.available() &&
+      budget-- > 0
+    ) {
+
+      if (
+        (uartProcessed & 0x0F) == 0
+      ) {
+
+        feedTaskWDT();
+      }
+
+      uartProcessed++;
+
+      const char c =
+        static_cast<char>(
+          modem.read()
+        );
+
+      if (
+        c == '\r'
+      ) {
+
+        continue;
+      }
+
+      if (
+        c == '\n'
+      ) {
+
+        if (
+          lineLength == 0
+        ) {
+
+          continue;
+        }
+
+        lineBuffer[
+          lineLength
+        ] =
+          '\0';
+
+        // --------------------------------------------------------------
+        // HTTP result:
+        // +HTTPACTION: method,status,length
+        // --------------------------------------------------------------
+
+        if (
+          strncmp(
+            lineBuffer,
+            "+HTTPACTION:",
+            12
+          ) == 0
+        ) {
+
+          int parsedMethod =
+            -1;
+
+          int status =
+            -1;
+
+          int length =
+            0;
+
+          int parsed =
+            sscanf(
+              lineBuffer,
+              "+HTTPACTION: %d,%d,%d",
+              &parsedMethod,
+              &status,
+              &length
+            );
+
+          const uint32_t elapsed =
+            static_cast<uint32_t>(
+              millis() - start
+            );
+
+          if (
+            parsed >= 2
+          ) {
+
+            if (
+              responseLength != nullptr &&
+              parsed >= 3
+            ) {
+
+              *responseLength =
+                length;
+            }
+
+            Serial.printf(
+              "[HTTPACTION] END status=%d len=%d time=%lu ms\n",
+              status,
+              length,
+              static_cast<unsigned long>(
+                elapsed
+              )
+            );
+
+            feedTaskWDT();
+
+            return status;
+          }
+        }
+
+        // --------------------------------------------------------------
+        // Modem reboot detection
+        // --------------------------------------------------------------
+
+        if (
+          strstr(
+            lineBuffer,
+            "*ATREADY:"
+          ) != nullptr ||
+          strstr(
+            lineBuffer,
+            "+CPIN: READY"
+          ) != nullptr ||
+          strstr(
+            lineBuffer,
+            "SMS DONE"
+          ) != nullptr
+        ) {
+
+          const uint32_t elapsed =
+            static_cast<uint32_t>(
+              millis() - start
+            );
+
+          Serial.printf(
+            "[HTTPACTION] MODEM_REBOOT at %lu ms\n",
+            static_cast<unsigned long>(
+              elapsed
+            )
+          );
+
+          httpSessionActive =
+            false;
+
+          feedTaskWDT();
+
+          return HTTP_RESULT_MODEM_REBOOTED;
+        }
+
+        // --------------------------------------------------------------
+        // Network / HTTP error URCs worth keeping
+        // --------------------------------------------------------------
+
+        if (
+          strstr(
+            lineBuffer,
+            "HTTP_NONET_EVENT"
+          ) != nullptr ||
+          strstr(
+            lineBuffer,
+            "+CGEV:"
+          ) != nullptr
+        ) {
+
+          Serial.print(
+            "[MODEM URC] "
+          );
+
+          Serial.println(
+            lineBuffer
+          );
+        }
+
+        lineLength =
+          0;
+
+        continue;
+      }
+
+      if (
+        lineLength <
+        sizeof(
+          lineBuffer
+        ) - 1
+      ) {
+
+        lineBuffer[
+          lineLength++
+        ] =
+          c;
+      }
+      else {
+
+        // Línea anómala demasiado larga: reiniciamos solo el parser.
+        lineLength =
+          0;
+      }
+    }
+
+    const uint32_t now =
+      millis();
+
+    if (
+      static_cast<uint32_t>(
+        now - lastHeartbeat
+      ) >= 5000UL
+    ) {
+
+      Serial.printf(
+        "[HTTPACTION] WAIT %lu s\n",
+        static_cast<unsigned long>(
+          (now - start) / 1000UL
+        )
+      );
+
+      lastHeartbeat =
+        now;
+    }
+
+    // Cede CPU explícitamente en cada iteración.
+    feedTaskWDT();
+
+    yield();
+
+    delay(
+      1
+    );
+  }
+
+  Serial.printf(
+    "[HTTPACTION] TIMEOUT %lu ms\n",
+    static_cast<unsigned long>(
+      static_cast<uint32_t>(
+        millis() - start
+      )
+    )
+  );
+
+  return HTTP_RESULT_TIMEOUT;
+}
+
+// ============================================================================
+// HTTP READ
+// ============================================================================
+
+String httpReadBody(
+  int dataLength
+) {
+
+  if (
+    dataLength <= 0
+  ) {
+
+    Serial.println(
+      "[HTTPREAD] Sin body para leer."
+    );
+
+    return "";
+  }
+
+  clearModemInput(
+    50UL,
+    512
+  );
+
+  String command =
+    "AT+HTTPREAD=0," +
+    String(
+      dataLength
+    );
+
+  Serial.print(
+    ">> "
+  );
+
+  Serial.println(
+    command
+  );
+
+  modem.print(
+    command
+  );
+
+  modem.print(
+    "\r\n"
+  );
+
+  String response;
+
+  response.reserve(
+    min(
+      dataLength + 128,
+      2048
+    )
+  );
+
+  const uint32_t start =
+    millis();
+
+  int httpReadMarkers =
+    0;
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < 10000UL
+  ) {
+
+    int budget =
+      128;
+
+    while (
+      modem.available() &&
+      budget-- > 0
+    ) {
+
+      char c =
+        static_cast<char>(
+          modem.read()
+        );
+
+      response += c;
+
+      if (
+        response.length() > 4096
+      ) {
+
+        response.remove(
+          0,
+          2048
+        );
+      }
+    }
+
+    httpReadMarkers =
+      0;
+
+    int searchPos =
+      0;
+
+    while (
+      true
+    ) {
+
+      int marker =
+        response.indexOf(
+          "+HTTPREAD:",
+          searchPos
+        );
+
+      if (
+        marker < 0
+      ) {
+
+        break;
+      }
+
+      httpReadMarkers++;
+
+      searchPos =
+        marker + 10;
+    }
+
+    if (
+      httpReadMarkers >= 2
+    ) {
+
+      break;
+    }
+
+    yield();
+
+    delay(
+      1
+    );
+  }
+
+  Serial.println(
+    "[HTTPREAD]"
+  );
+
+  Serial.println(
+    response
+  );
+
+  return response;
+}
+
+
+bool isRecoverableHttpNetworkError(int code) {
+  return (
+    code == 706 ||
+    code == 601 ||
+    code == 602 ||
+    code == 603
+  );
+}
+
+bool recoverNetworkAndHttpSession() {
+
+  Serial.println("[RECOVERY] Recuperando red/PDP/HTTP...");
+
+  httpSessionActive = false;
+
+  sendAT("AT+HTTPTERM", 2500);
+
+  if (!waitLTE()) {
+    Serial.println("[RECOVERY] LTE no se recuperó.");
+    return false;
+  }
+
+  String response = sendAT("AT+CGATT?", 5000);
+
+  if (response.indexOf("+CGATT: 1") < 0) {
+
+    response = sendAT("AT+CGATT=1", 15000);
+
+    if (response.indexOf("OK") < 0) {
+      Serial.println(
+        "[RECOVERY] No fue posible adjuntar servicio de paquetes."
+      );
+      return false;
+    }
+  }
+
+  if (!httpPreflight(90000UL)) {
+    Serial.println(
+      "[RECOVERY] Preflight no recuperó estado listo."
+    );
+    return false;
+  }
+
+  Serial.println("[RECOVERY] Red recuperada.");
+  return true;
+}
+
+
+// ============================================================================
+// HTTP BASELINE RESTORE
+// ============================================================================
+//
+// Basado en la secuencia del sketch traccar_gnss_test_A7670SA.ino validado:
+//
+//   HTTPTERM
+//   HTTPINIT
+//   CSSLCFG sslversion/authmode/enableSNI
+//   HTTPPARA SSLCFG
+//   HTTPPARA URL
+//   [HTTPPARA CONTENT + HTTPDATA para POST]
+//   HTTPACTION
+//   [HTTPREAD]
+//   HTTPTERM
+//
+// No se reutiliza sesión HTTP entre solicitudes.
+// ============================================================================
+
+bool ensurePacketDataBaseline() {
+
+  String response =
+    sendAT(
+      "AT+CGATT?",
+      2000
+    );
+
+  if (
+    response.indexOf(
+      "+CGATT: 1"
+    ) >= 0
+  ) {
+
+    Serial.println(
+      "[NATIVE PDP] Packet service attached."
+    );
+
+    return true;
+  }
+
+  Serial.println(
+    "[NATIVE PDP] Esperando attach..."
+  );
+
+  const uint32_t startedAt =
+    millis();
+
+  while (
+    static_cast<uint32_t>(
+      millis() - startedAt
+    ) < 30000UL
+  ) {
+
+    response =
+      sendAT(
+        "AT+CGATT?",
+        3000
+      );
+
+    if (
+      response.indexOf(
+        "+CGATT: 1"
+      ) >= 0
+    ) {
+
+      Serial.println(
+        "[NATIVE PDP] Attach confirmado."
+      );
+
+      return true;
+    }
+
+    delay(
+      1000
+    );
+  }
+
+  Serial.println(
+    "[NATIVE PDP] No se confirmó CGATT=1."
+  );
+
+  return false;
+}
+
+
+
+bool recoverModemFullAfterReboot(
+  const char* owner
+) {
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  MODEM FULL RECOVERY"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  setModemTransactionState(
+    MODEM_TX_RECOVERY
+  );
+
+  Serial.printf(
+    "[RECOVERY FULL] owner=%s\n",
+    owner
+  );
+
+  // 1) Esperar a que el A7670 vuelva a responder y quede registrado.
+  if (
+    !waitForModemAfterReboot(
+      120000UL
+    )
+  ) {
+
+    Serial.println(
+      "[RECOVERY FULL] Timeout esperando AT/CPIN/CEREG/CGATT."
+    );
+
+    return false;
+  }
+
+  // 2) Ventana de estabilidad real antes de volver a usar HTTP.
+  Serial.println(
+    "[RECOVERY FULL] Ventana estable 8000 ms..."
+  );
+
+  if (
+    !modemStableWindow(
+      8000UL
+    )
+  ) {
+
+    Serial.println(
+      "[RECOVERY FULL] El módem no permaneció estable."
+    );
+
+    return false;
+  }
+
+  // 3) Revalidación final. NO forzar CGACT.
+  String response =
+    sendAT(
+      "AT",
+      3000
+    );
+
+  if (
+    response.indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  response =
+    sendAT(
+      "AT+CPIN?",
+      5000
+    );
+
+  if (
+    response.indexOf(
+      "+CPIN: READY"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  response =
+    sendAT(
+      "AT+CEREG?",
+      5000
+    );
+
+  if (
+    !responseContainsRegisteredCereg(
+      response
+    )
+  ) {
+
+    return false;
+  }
+
+  response =
+    sendAT(
+      "AT+CGATT?",
+      5000
+    );
+
+  if (
+    response.indexOf(
+      "+CGATT: 1"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  // Limpiar cualquier resto URC antes de la siguiente transacción.
+  clearModemInput();
+
+  delay(
+    500
+  );
+
+  Serial.println(
+    "[RECOVERY FULL] A7670 listo para nueva transacción."
+  );
+
+  return true;
+}
+
+
+bool baselineHttpPrepare(
+  const String& url,
+  bool jsonPost
+) {
+
+  String response;
+
+  // Siempre comenzar desde una sesión limpia.
+  sendAT(
+    "AT+HTTPTERM",
+    1000
+  );
+
+  delay(
+    200
+  );
+
+  response =
+    sendAT(
+      "AT+HTTPINIT",
+      2500
+    );
+
+  if (
+    response.indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    Serial.println(
+      "[BASELINE HTTP] HTTPINIT falló."
+    );
+
+    return false;
+  }
+
+  if (
+    sendAT(
+      "AT+CSSLCFG=\"sslversion\",0,4",
+      1800
+    ).indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  if (
+    sendAT(
+      "AT+CSSLCFG=\"authmode\",0,0",
+      1800
+    ).indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  if (
+    sendAT(
+      "AT+CSSLCFG=\"enableSNI\",0,1",
+      1800
+    ).indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  if (
+    sendAT(
+      "AT+HTTPPARA=\"SSLCFG\",0",
+      1800
+    ).indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    return false;
+  }
+
+  String urlCommand =
+    "AT+HTTPPARA=\"URL\",\"" +
+    url +
+    "\"";
+
+  if (
+    sendAT(
+      urlCommand,
+      3000
+    ).indexOf(
+      "OK"
+    ) < 0
+  ) {
+
+    Serial.println(
+      "[BASELINE HTTP] No se pudo configurar URL."
+    );
+
+    return false;
+  }
+
+  if (
+    jsonPost
+  ) {
+
+    if (
+      sendAT(
+        "AT+HTTPPARA=\"CONTENT\",\"application/json\"",
+        1800
+      ).indexOf(
+        "OK"
+      ) < 0
+    ) {
+
+      return false;
+    }
+  }
+
+  httpSessionActive =
+    true;
+
+  return true;
+}
+
+int baselineHttpAction(
+  int method,
+  int* responseLength = nullptr
+) {
+
+  if (
+    responseLength
+  ) {
+
+    *responseLength =
+      0;
+  }
+
+  clearModemInput();
+
+  Serial.printf(
+    ">> AT+HTTPACTION=%d\n",
+    method
+  );
+
+  modem.print(
+    "AT+HTTPACTION="
+  );
+
+  modem.print(
+    method
+  );
+
+  modem.print(
+    "\r\n"
+  );
+
+  char actionResponse[512];
+
+  size_t pos =
+    0;
+
+  actionResponse[0] =
+    '\0';
+
+  const uint32_t start =
+    millis();
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) < 30000UL
+  ) {
+
+    while (
+      modem.available()
+    ) {
+
+      const char c =
+        static_cast<char>(
+          modem.read()
+        );
+
+      Serial.write(
+        c
+      );
+
+      if (
+        pos <
+        sizeof(actionResponse) - 1
+      ) {
+
+        actionResponse[
+          pos++
+        ] =
+          c;
+
+        actionResponse[
+          pos
+        ] =
+          '\0';
+      }
+    }
+
+    if (
+      strstr(
+        actionResponse,
+        "*ATREADY"
+      ) != nullptr
+    ) {
+
+      Serial.println();
+
+      Serial.println(
+        "[BASELINE HTTP] Reinicio de módem detectado."
+      );
+
+      return HTTP_RESULT_MODEM_REBOOTED;
+    }
+
+    char* action =
+      strstr(
+        actionResponse,
+        "+HTTPACTION:"
+      );
+
+    if (
+      action
+    ) {
+
+      int parsedMethod =
+        -1;
+
+      int httpCode =
+        -1;
+
+      int dataLength =
+        0;
+
+      if (
+        sscanf(
+          action,
+          "+HTTPACTION: %d,%d,%d",
+          &parsedMethod,
+          &httpCode,
+          &dataLength
+        ) == 3
+      ) {
+
+        if (
+          responseLength
+        ) {
+
+          *responseLength =
+            dataLength;
+        }
+
+        Serial.println();
+
+        Serial.printf(
+          "[BASELINE HTTP] ACTION status=%d len=%d time=%lu ms\n",
+          httpCode,
+          dataLength,
+          static_cast<unsigned long>(
+            millis() - start
+          )
+        );
+
+        return httpCode;
+      }
+    }
+
+    delay(
+      10
+    );
+  }
+
+  Serial.println();
+
+  Serial.println(
+    "[BASELINE HTTP] Timeout esperando +HTTPACTION."
+  );
+
+  return HTTP_RESULT_TIMEOUT;
+}
+
+void baselineHttpClose() {
+
+  sendAT(
+    "AT+HTTPTERM",
+    1200
+  );
+
+  httpSessionActive =
+    false;
+
+  delay(
+    150
+  );
+}
+
+bool baselineHttpWriteJsonBody(
+  const String& body
+) {
+
+  clearModemInput();
+
+  String command =
+    "AT+HTTPDATA=" +
+    String(
+      body.length()
+    ) +
+    ",10000";
+
+  Serial.print(
+    ">> "
+  );
+
+  Serial.println(
+    command
+  );
+
+  modem.print(
+    command
+  );
+
+  modem.print(
+    "\r\n"
+  );
+
+  String response =
+    readModemUntil(
+      "DOWNLOAD",
+      "\r\nERROR\r\n",
+      6000
+    );
+
+  if (
+    response.indexOf(
+      "DOWNLOAD"
+    ) < 0
+  ) {
+
+    Serial.println(
+      "[BASELINE HTTP] No llegó DOWNLOAD."
+    );
+
+    return false;
+  }
+
+  Serial.println(
+    "[BASELINE HTTP] BODY:"
+  );
+
+  Serial.println(
+    body
+  );
+
+  modem.print(
+    body
+  );
+
+  response =
+    readModemUntil(
+      "\r\nOK\r\n",
+      "\r\nERROR\r\n",
+      12000
+    );
+
+  return (
+    response.indexOf(
+      "\r\nOK\r\n"
+    ) >= 0 ||
+    response.indexOf(
+      "OK"
+    ) >= 0
+  );
+}
+
+
+// ============================================================================
+// POST JSON
+// ============================================================================
+
+bool httpPostJson(
+  const String& url,
+  const String& body,
+  String* responseBody = nullptr,
+  int* httpStatus = nullptr
+) {
+
+  if (
+    responseBody
+  ) {
+
+    *responseBody =
+      "";
+  }
+
+  if (
+    httpStatus
+  ) {
+
+    *httpStatus =
+      -1;
+  }
+
+  const int maxAttempts =
+    2;
+
+  for (
+    int attempt = 1;
+    attempt <= maxAttempts;
+    attempt++
+  ) {
+
+    Serial.println();
+
+    Serial.printf(
+      "[HTTP POST] Transacción limpia intento %d/%d\n",
+      attempt,
+      maxAttempts
+    );
+
+    if (
+      !waitForModemIdle(
+        5000
+      ) ||
+      !beginModemTransaction(
+        MODEM_TX_HTTP_PREPARE,
+        "HTTP_POST"
+      )
+    ) {
+
+      return false;
+    }
+
+    if (
+      !ensurePacketDataBaseline()
+    ) {
+
+      endModemTransaction(
+        "HTTP_POST"
+      );
+
+      return false;
+    }
+
+    if (
+      !baselineHttpPrepare(
+        url,
+        true
+      )
+    ) {
+
+      baselineHttpClose();
+
+      endModemTransaction(
+        "HTTP_POST"
+      );
+
+      return false;
+    }
+
+    if (
+      !baselineHttpWriteJsonBody(
+        body
+      )
+    ) {
+
+      baselineHttpClose();
+
+      endModemTransaction(
+        "HTTP_POST"
+      );
+
+      return false;
+    }
+
+    int responseLength =
+      0;
+
+    setModemTransactionState(
+      MODEM_TX_HTTP_ACTION
+    );
+
+    const int code =
+      baselineHttpAction(
+        1,
+        &responseLength
+      );
+
+    if (
+      httpStatus
+    ) {
+
+      *httpStatus =
+        code;
+    }
+
+    if (
+      code ==
+      HTTP_RESULT_MODEM_REBOOTED
+    ) {
+
+      // No enviar HTTPTERM a un módem que acaba de reiniciar.
+      httpSessionActive =
+        false;
+
+      const bool recovered =
+        recoverModemFullAfterReboot(
+          "HTTP_POST"
+        );
+
+      endModemTransaction(
+        "HTTP_POST"
+      );
+
+      if (
+        recovered &&
+        attempt <
+        maxAttempts
+      ) {
+
+        Serial.println(
+          "[HTTP POST] Reintentando después de recuperación completa."
+        );
+
+        continue;
+      }
+
+      return false;
+    }
+
+    if (
+      code > 0 &&
+      responseLength > 0
+    ) {
+
+      setModemTransactionState(
+        MODEM_TX_HTTP_READ
+      );
+
+      if (
+        responseBody
+      ) {
+
+        *responseBody =
+          httpReadBody(
+            responseLength
+          );
+      }
+      else {
+
+        httpReadBody(
+          responseLength
+        );
+      }
+    }
+
+    baselineHttpClose();
+
+    endModemTransaction(
+      "HTTP_POST"
+    );
+
+    if (
+      code >= 200 &&
+      code < 300
+    ) {
+
+      return true;
+    }
+
+    // 706/715: terminar la transacción limpia y dar un solo nuevo intento.
+    if (
+      (
+        code == 706 ||
+        code == 715
+      ) &&
+      attempt <
+      maxAttempts
+    ) {
+
+      Serial.printf(
+        "[HTTP POST] HTTP=%d recuperable. Esperando antes del reintento.\n",
+        code
+      );
+
+      delay(
+        2000
+      );
+
+      continue;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+
+
+// ============================================================================
+// JSON HELPERS MINIMALISTAS
+// Sin dependencia externa de ArduinoJson para esta fase.
+// ============================================================================
+
+String jsonEscape(
+  const String& input
+) {
+
+  String output;
+  output.reserve(
+    input.length() + 16
+  );
+
+  for (
+    size_t i = 0;
+    i < input.length();
+    i++
+  ) {
+
+    const char c =
+      input[i];
+
+    switch (
+      c
+    ) {
+
+      case '\\':
+        output += "\\\\";
+        break;
+
+      case '"':
+        output += "\\\"";
+        break;
+
+      case '\n':
+        output += "\\n";
+        break;
+
+      case '\r':
+        output += "\\r";
+        break;
+
+      case '\t':
+        output += "\\t";
+        break;
+
+      default:
+        output += c;
+        break;
+    }
+  }
+
+  return output;
+}
+
+bool jsonFindValueStart(
+  const String& json,
+  const String& key,
+  int* valueStart
+) {
+
+  const String needle =
+    "\"" +
+    key +
+    "\"";
+
+  int pos =
+    json.indexOf(
+      needle
+    );
+
+  if (
+    pos < 0
+  ) {
+
+    return false;
+  }
+
+  pos =
+    json.indexOf(
+      ':',
+      pos + needle.length()
+    );
+
+  if (
+    pos < 0
+  ) {
+
+    return false;
+  }
+
+  pos++;
+
+  while (
+    pos < static_cast<int>(json.length()) &&
+    isspace(
+      static_cast<unsigned char>(
+        json[pos]
+      )
+    )
+  ) {
+
+    pos++;
+  }
+
+  *valueStart =
+    pos;
+
+  return (
+    pos <
+    static_cast<int>(
+      json.length()
+    )
+  );
+}
+
+bool jsonExtractString(
+  const String& json,
+  const String& key,
+  String* output
+) {
+
+  int pos =
+    0;
+
+  if (
+    !jsonFindValueStart(
+      json,
+      key,
+      &pos
+    )
+  ) {
+
+    return false;
+  }
+
+  if (
+    json[pos] == '"'
+  ) {
+
+    pos++;
+
+    String value;
+
+    bool escaped =
+      false;
+
+    while (
+      pos <
+      static_cast<int>(
+        json.length()
+      )
+    ) {
+
+      const char c =
+        json[pos++];
+
+      if (
+        escaped
+      ) {
+
+        switch (
+          c
+        ) {
+
+          case 'n':
+            value += '\n';
+            break;
+
+          case 'r':
+            value += '\r';
+            break;
+
+          case 't':
+            value += '\t';
+            break;
+
+          default:
+            value += c;
+            break;
+        }
+
+        escaped =
+          false;
+
+        continue;
+      }
+
+      if (
+        c == '\\'
+      ) {
+
+        escaped =
+          true;
+
+        continue;
+      }
+
+      if (
+        c == '"'
+      ) {
+
+        *output =
+          value;
+
+        return true;
+      }
+
+      value +=
+        c;
+    }
+
+    return false;
+  }
+
+  int end =
+    pos;
+
+  while (
+    end <
+    static_cast<int>(
+      json.length()
+    ) &&
+    json[end] != ',' &&
+    json[end] != '}' &&
+    !isspace(
+      static_cast<unsigned char>(
+        json[end]
+      )
+    )
+  ) {
+
+    end++;
+  }
+
+  String value =
+    json.substring(
+      pos,
+      end
+    );
+
+  value.trim();
+
+  *output =
+    value;
+
+  return (
+    value.length() > 0
+  );
+}
+
+bool jsonExtractLong(
+  const String& json,
+  const String& key,
+  long* output
+) {
+
+  String value;
+
+  if (
+    !jsonExtractString(
+      json,
+      key,
+      &value
+    )
+  ) {
+
+    return false;
+  }
+
+  value.trim();
+
+  if (
+    value.length() == 0
+  ) {
+
+    return false;
+  }
+
+  *output =
+    value.toInt();
+
+  return true;
+}
+
+bool jsonExtractObject(
+  const String& json,
+  const String& key,
+  String* output
+) {
+
+  int pos =
+    0;
+
+  if (
+    !jsonFindValueStart(
+      json,
+      key,
+      &pos
+    )
+  ) {
+
+    return false;
+  }
+
+  if (
+    json[pos] != '{'
+  ) {
+
+    return false;
+  }
+
+  const int start =
+    pos;
+
+  int depth =
+    0;
+
+  bool inString =
+    false;
+
+  bool escaped =
+    false;
+
+  for (
+    ;
+    pos < static_cast<int>(json.length());
+    pos++
+  ) {
+
+    const char c =
+      json[pos];
+
+    if (
+      inString
+    ) {
+
+      if (
+        escaped
+      ) {
+
+        escaped =
+          false;
+
+        continue;
+      }
+
+      if (
+        c == '\\'
+      ) {
+
+        escaped =
+          true;
+
+        continue;
+      }
+
+      if (
+        c == '"'
+      ) {
+
+        inString =
+          false;
+      }
+
+      continue;
+    }
+
+    if (
+      c == '"'
+    ) {
+
+      inString =
+        true;
+
+      continue;
+    }
+
+    if (
+      c == '{'
+    ) {
+
+      depth++;
+    }
+    else if (
+      c == '}'
+    ) {
+
+      depth--;
+
+      if (
+        depth == 0
+      ) {
+
+        *output =
+          json.substring(
+            start,
+            pos + 1
+          );
+
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
+// HTTP GET JSON
+// ============================================================================
+
+bool httpGetJson(
+  const String& url,
+  String* responseBody,
+  int* httpStatus
+) {
+
+  if (
+    responseBody
+  ) {
+
+    *responseBody =
+      "";
+  }
+
+  if (
+    httpStatus
+  ) {
+
+    *httpStatus =
+      -1;
+  }
+
+  for (
+    int attempt = 1;
+    attempt <= 2;
+    attempt++
+  ) {
+
+    Serial.printf(
+      "[HTTP GET] Intento %d/2\n",
+      attempt
+    );
+
+    if (
+      !ensurePacketData()
+    ) {
+
+      return false;
+    }
+
+    if (
+      !prepareHTTPS(
+        url
+      )
+    ) {
+
+      httpSessionActive =
+        false;
+
+      return false;
+    }
+
+    if (
+      !httpPreflight(
+        90000UL
+      )
+    ) {
+
+      return false;
+    }
+
+    int responseLength =
+      0;
+
+    const int code =
+      executeHTTPAction(
+        0,
+        &responseLength
+      );
+
+    if (
+      code ==
+      HTTP_RESULT_MODEM_REBOOTED
+    ) {
+
+      if (
+        attempt >= 2 ||
+        !recoverHttpAfterModemReboot()
+      ) {
+
+        return false;
+      }
+
+      continue;
+    }
+
+    if (
+      isRecoverableHttpNetworkError(
+        code
+      )
+    ) {
+
+      if (
+        attempt >= 2 ||
+        !recoverNetworkAndHttpSession()
+      ) {
+
+        return false;
+      }
+
+      continue;
+    }
+
+    if (
+      httpStatus
+    ) {
+
+      *httpStatus =
+        code;
+    }
+
+    if (
+      responseLength > 0 &&
+      responseBody
+    ) {
+
+      *responseBody =
+        httpReadBody(
+          responseLength
+        );
+    }
+
+    return (
+      code >= 200 &&
+      code < 300
+    );
+  }
+
+  return false;
+}
+
+// ============================================================================
+// EXTRAER JSON REAL DESDE RESPUESTA HTTPREAD
+// ============================================================================
+
+String extractJsonDocument(
+  const String& raw
+) {
+
+  const int first =
+    raw.indexOf(
+      '{'
+    );
+
+  const int last =
+    raw.lastIndexOf(
+      '}'
+    );
+
+  if (
+    first < 0 ||
+    last < first
+  ) {
+
+    return "";
+  }
+
+  return raw.substring(
+    first,
+    last + 1
+  );
+}
+
+// ============================================================================
+// EVENTOS
+// ============================================================================
+
+bool sendDeviceEvent(
+  const String& eventCode,
+  const String& message = "",
+  const String& extraMetadataJson = "{}"
+) {
+
+  String url =
+    "https://" +
+    String(API_HOST) +
+    "/api/devices/events";
+
+  String body =
+    "{"
+    "\"device_code\":\"" +
+    jsonEscape(
+      String(deviceCode)
+    ) +
+    "\","
+    "\"imei\":\"" +
+    jsonEscape(
+      String(imei)
+    ) +
+    "\","
+    "\"event_code\":\"" +
+    jsonEscape(
+      eventCode
+    ) +
+    "\"";
+
+  if (
+    message.length() > 0
+  ) {
+
+    body +=
+      ",\"message\":\"" +
+      jsonEscape(
+        message
+      ) +
+      "\"";
+  }
+
+  body +=
+    ",\"metadata\":{"
+    "\"firmware_version\":\"" +
+    jsonEscape(
+      String(FIRMWARE_VERSION)
+    ) +
+    "\","
+    "\"state\":\"" +
+    jsonEscape(
+      String(currentDeviceState)
+    ) +
+    "\","
+    "\"battery\":" +
+    String(
+      getCachedBattery()
+    ) +
+    ","
+    "\"signal\":" +
+    String(
+      getCachedSignal()
+    );
+
+  if (
+    extraMetadataJson.length() > 2
+  ) {
+
+    String extra =
+      extraMetadataJson;
+
+    extra.trim();
+
+    if (
+      extra.startsWith("{") &&
+      extra.endsWith("}")
+    ) {
+
+      extra =
+        extra.substring(
+          1,
+          extra.length() - 1
+        );
+
+      extra.trim();
+
+      if (
+        extra.length() > 0
+      ) {
+
+        body +=
+          "," +
+          extra;
+      }
+    }
+  }
+
+  body +=
+    "}"
+    "}";
+
+  Serial.printf(
+    "[EVENT] %s\n",
+    eventCode.c_str()
+  );
+
+  return httpPostJson(
+    url,
+    body
+  );
+}
+
+// ============================================================================
+// ACK DE COMANDO
+// ============================================================================
+
+bool sendCommandAck(
+  long commandId,
+  const String& status,
+  const String& resultJson
+) {
+
+  String url =
+    "https://" +
+    String(API_HOST) +
+    "/api/devices/" +
+    String(deviceCode) +
+    "/pending-cmd/ack";
+
+  String body =
+    "{"
+    "\"cmd_id\":" +
+    String(commandId) +
+    ","
+    "\"status\":\"" +
+    jsonEscape(
+      status
+    ) +
+    "\","
+    "\"result\":" +
+    resultJson +
+    "}";
+
+  Serial.printf(
+    "[CMD] ACK #%ld -> %s\n",
+    commandId,
+    status.c_str()
+  );
+
+  const bool ackOk =
+    httpPostJson(
+      url,
+      body
+    );
+
+  if (
+    ackOk
+  ) {
+
+    Serial.printf(
+      "[CMD] ACK #%ld confirmado por servidor.\n",
+      commandId
+    );
+  }
+  else {
+
+    Serial.printf(
+      "[CMD] ACK #%ld no confirmado tras reintentos.\n",
+      commandId
+    );
+  }
+
+  return ackOk;
+}
+
+// ============================================================================
+// APLICAR SET_CONFIG
+// ============================================================================
+
+bool applyRemoteConfig(
+  const String& payload,
+  String* changedList
+) {
+
+  bool any =
+    false;
+
+  String changed =
+    "[";
+
+  auto appendChanged =
+    [&](const char* key) {
+
+      if (
+        changed.length() > 1
+      ) {
+
+        changed +=
+          ",";
+      }
+
+      changed +=
+        "\"" +
+        String(key) +
+        "\"";
+    };
+
+  prefs.begin(
+    NVS_NAMESPACE,
+    false
+  );
+
+  long value =
+    0;
+
+  if (
+    jsonExtractLong(
+      payload,
+      "mot_thr",
+      &value
+    )
+  ) {
+
+    prefs.putUChar(
+      "mot_thr",
+      constrain(
+        value,
+        1L,
+        255L
+      )
+    );
+
+    appendChanged(
+      "mot_thr"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "mot_dur",
+      &value
+    )
+  ) {
+
+    prefs.putUChar(
+      "mot_dur",
+      constrain(
+        value,
+        1L,
+        255L
+      )
+    );
+
+    appendChanged(
+      "mot_dur"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "report_armed_moving_m",
+      &value
+    )
+  ) {
+
+    prefs.putUShort(
+      "rpt_move_m",
+      constrain(
+        value,
+        1L,
+        65535L
+      )
+    );
+
+    appendChanged(
+      "report_armed_moving_m"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "report_armed_stopped_m",
+      &value
+    )
+  ) {
+
+    prefs.putUShort(
+      "rpt_stop_m",
+      constrain(
+        value,
+        1L,
+        65535L
+      )
+    );
+
+    appendChanged(
+      "report_armed_stopped_m"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "cooldown_s",
+      &value
+    )
+  ) {
+
+    prefs.putULong(
+      "cooldown_s",
+      max(
+        value,
+        1L
+      )
+    );
+
+    appendChanged(
+      "cooldown_s"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "armed_watch_h",
+      &value
+    )
+  ) {
+
+    prefs.putUShort(
+      "watch_h",
+      constrain(
+        value,
+        1L,
+        65535L
+      )
+    );
+
+    appendChanged(
+      "armed_watch_h"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "heartbeat_h",
+      &value
+    )
+  ) {
+
+    prefs.putUShort(
+      "heartbeat_h",
+      constrain(
+        value,
+        1L,
+        65535L
+      )
+    );
+
+    appendChanged(
+      "heartbeat_h"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "inactive_check_h",
+      &value
+    )
+  ) {
+
+    prefs.putUShort(
+      "inactive_h",
+      constrain(
+        value,
+        1L,
+        65535L
+      )
+    );
+
+    appendChanged(
+      "inactive_check_h"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "batt_alarm_pct",
+      &value
+    )
+  ) {
+
+    prefs.putUChar(
+      "batt_alarm",
+      constrain(
+        value,
+        1L,
+        100L
+      )
+    );
+
+    appendChanged(
+      "batt_alarm_pct"
+    );
+
+    any =
+      true;
+  }
+
+  if (
+    jsonExtractLong(
+      payload,
+      "batt_critical_pct",
+      &value
+    )
+  ) {
+
+    prefs.putUChar(
+      "batt_crit",
+      constrain(
+        value,
+        1L,
+        100L
+      )
+    );
+
+    appendChanged(
+      "batt_critical_pct"
+    );
+
+    any =
+      true;
+  }
+
+  prefs.end();
+
+  changed +=
+    "]";
+
+  if (
+    changedList
+  ) {
+
+    *changedList =
+      changed;
+  }
+
+  if (
+    any
+  ) {
+
+    loadConfig();
+  }
+
+  return any;
+}
+
+// ============================================================================
+// APLICAR SET_STATE
+// ============================================================================
+
+bool applyRemoteState(
+  const String& payload,
+  String* appliedState
+) {
+
+  String state;
+
+  if (
+    !jsonExtractString(
+      payload,
+      "state",
+      &state
+    )
+  ) {
+
+    return false;
+  }
+
+  state.trim();
+  state.toUpperCase();
+
+  if (
+    state != STATE_WAREHOUSE &&
+    state != STATE_DISARMED &&
+    state != STATE_ARMED &&
+    state != STATE_INACTIVE
+  ) {
+
+    return false;
+  }
+
+  const bool alreadyApplied =
+    state ==
+    String(
+      currentDeviceState
+    );
+
+  if (
+    !alreadyApplied
+  ) {
+
+    saveDeviceState(
+      state
+    );
+
+    Serial.printf(
+      "[STATE] Aplicado localmente: %s\n",
+      currentDeviceState
+    );
+  }
+  else {
+
+    Serial.printf(
+      "[STATE] Ya estaba aplicado localmente: %s (idempotente)\n",
+      currentDeviceState
+    );
+  }
+
+  if (
+    appliedState
+  ) {
+
+    *appliedState =
+      state;
+  }
+
+  return true;
+}
+
+// ============================================================================
+// PROCESAR COMANDOS PENDIENTES
+// ============================================================================
+
+bool processPendingCommands(
+  int maxCommands = 5
+) {
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  REMOTE COMMAND LIFECYCLE"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  for (
+    int index = 0;
+    index < maxCommands;
+    index++
+  ) {
+
+    feedTaskWDT();
+
+    const String url =
+      "https://" +
+      String(API_HOST) +
+      "/api/devices/" +
+      String(deviceCode) +
+      "/pending-cmd";
+
+    String rawResponse;
+
+    int statusCode =
+      -1;
+
+    const bool ok =
+      httpGetJson(
+        url,
+        &rawResponse,
+        &statusCode
+      );
+
+    if (
+      statusCode == 204
+    ) {
+
+      Serial.println(
+        "[CMD] Sin comandos pendientes."
+      );
+
+      return true;
+    }
+
+    if (
+      !ok
+    ) {
+
+      Serial.printf(
+        "[CMD] GET pending-cmd falló. HTTP=%d\n",
+        statusCode
+      );
+
+      return false;
+    }
+
+    const String json =
+      extractJsonDocument(
+        rawResponse
+      );
+
+    long commandId =
+      0;
+
+    String command;
+
+    String payload;
+
+    if (
+      json.length() == 0 ||
+      !jsonExtractLong(
+        json,
+        "cmd_id",
+        &commandId
+      ) ||
+      !jsonExtractString(
+        json,
+        "command",
+        &command
+      ) ||
+      !jsonExtractObject(
+        json,
+        "payload",
+        &payload
+      )
+    ) {
+
+      Serial.println(
+        "[CMD] Respuesta pendiente inválida."
+      );
+
+      return false;
+    }
+
+    command.trim();
+
+    Serial.printf(
+      "[CMD] Recibido #%ld type=%s\n",
+      commandId,
+      command.c_str()
+    );
+
+    bool applied =
+      false;
+
+    String resultJson =
+      "{}";
+
+    if (
+      command ==
+      "set_config"
+    ) {
+
+      String changed;
+
+      applied =
+        applyRemoteConfig(
+          payload,
+          &changed
+        );
+
+      if (
+        applied
+      ) {
+
+        resultJson =
+          "{"
+          "\"applied\":true,"
+          "\"changed\":" +
+          changed +
+          "}";
+
+        if (
+          !sendCommandAck(
+            commandId,
+            "executed",
+            resultJson
+          )
+        ) {
+
+          Serial.println(
+            "[CMD] ACK set_config falló; será reentregado."
+          );
+
+          return false;
+        }
+
+        sendDeviceEvent(
+          "CONFIG_APPLIED",
+          "Configuración aplicada",
+          "\"cmd_id\":" +
+          String(commandId)
+        );
+      }
+    }
+    else if (
+      command ==
+      "set_state"
+    ) {
+
+      String state;
+
+      applied =
+        applyRemoteState(
+          payload,
+          &state
+        );
+
+      if (
+        applied
+      ) {
+
+        resultJson =
+          "{"
+          "\"applied\":true,"
+          "\"state\":\"" +
+          jsonEscape(
+            state
+          ) +
+          "\""
+          "}";
+
+        if (
+          !sendCommandAck(
+            commandId,
+            "executed",
+            resultJson
+          )
+        ) {
+
+          Serial.println(
+            "[CMD] ACK set_state falló; será reentregado."
+          );
+
+          return false;
+        }
+
+        sendDeviceEvent(
+          "STATE_CHANGED",
+          "Estado cambiado",
+          "\"cmd_id\":" +
+          String(commandId) +
+          ",\"state\":\"" +
+          jsonEscape(
+            state
+          ) +
+          "\""
+        );
+      }
+    }
+
+    if (
+      !applied
+    ) {
+
+      const String failedResult =
+        "{"
+        "\"applied\":false,"
+        "\"reason\":\"unsupported_or_invalid_command\""
+        "}";
+
+      sendCommandAck(
+        commandId,
+        "failed",
+        failedResult
+      );
+
+      sendDeviceEvent(
+        "COMMAND_FAILED",
+        "Comando no ejecutado",
+        "\"cmd_id\":" +
+        String(commandId) +
+        ",\"command\":\"" +
+        jsonEscape(
+          command
+        ) +
+        "\""
+      );
+    }
+  }
+
+  Serial.println(
+    "[CMD] Límite de comandos por ciclo alcanzado."
+  );
+
+  return true;
+}
+
+
+// ============================================================================
+// MODEM READY STABLE
+// ============================================================================
+
+bool responseContainsRegisteredCereg(const String& response) {
+  return (
+    response.indexOf("+CEREG: 0,1") >= 0 ||
+    response.indexOf("+CEREG: 0,5") >= 0 ||
+    response.indexOf("+CEREG: 1,1") >= 0 ||
+    response.indexOf("+CEREG: 1,5") >= 0 ||
+    response.indexOf("+CEREG: 2,1") >= 0 ||
+    response.indexOf("+CEREG: 2,5") >= 0
+  );
+}
+
+bool responseContainsActivePdp(const String& response) {
+  return response.indexOf("+CGACT: 1,1") >= 0;
+}
+
+bool modemStableWindow(uint32_t stableMs) {
+
+  Serial.printf(
+    "[MODEM READY] Ventana de estabilidad: %lu ms\n",
+    static_cast<unsigned long>(stableMs)
+  );
+
+  clearModemInput();
+
+  const uint32_t start = millis();
+  uint32_t lastLog = start;
+
+  String urcBuffer;
+  urcBuffer.reserve(512);
+
+  while (
+    static_cast<uint32_t>(millis() - start) < stableMs
+  ) {
+
+    feedTaskWDT();
+
+    int budget = 64;
+
+    while (
+      modem.available() &&
+      budget-- > 0
+    ) {
+      char c = static_cast<char>(modem.read());
+      urcBuffer += c;
+
+      if (urcBuffer.length() > 512) {
+        urcBuffer.remove(0, 256);
+      }
+    }
+
+    if (
+      urcBuffer.indexOf("*ATREADY:") >= 0 ||
+      urcBuffer.indexOf("+CPIN: READY") >= 0 ||
+      urcBuffer.indexOf("SMS DONE") >= 0
+    ) {
+      Serial.println(
+        "[MODEM READY] Reinicio detectado durante ventana estable."
+      );
+      Serial.println(urcBuffer);
+      return false;
+    }
+
+    const uint32_t now = millis();
+    if (
+      static_cast<uint32_t>(now - lastLog) >= 5000UL
+    ) {
+      Serial.printf(
+        "[MODEM READY] estable... %lu s\n",
+        static_cast<unsigned long>((now - start) / 1000UL)
+      );
+      lastLog = now;
+    }
+
+    yield();
+    delay(5);
+  }
+
+  Serial.println(
+    "[MODEM READY] Ventana estable completada."
+  );
+
+  return true;
+}
+
+bool waitForModemFullyReady(
+  uint32_t totalTimeoutMs = 120000UL,
+  uint32_t stableWindowMs = 10000UL
+) {
+
+  Serial.println();
+  Serial.println("============================================");
+  Serial.println("  MODEM READY STABLE CHECK");
+  Serial.println("============================================");
+
+  const uint32_t overallStart = millis();
+  uint32_t attempt = 0;
+
+  while (
+    static_cast<uint32_t>(millis() - overallStart) < totalTimeoutMs
+  ) {
+
+    attempt++;
+
+    Serial.printf(
+      "[MODEM READY] Intento %lu\n",
+      static_cast<unsigned long>(attempt)
+    );
+
+    String response;
+
+    response = sendAT("AT", 3000);
+
+    if (response.indexOf("OK") < 0) {
+      Serial.println(
+        "[MODEM READY] AT sin respuesta. Reintentando..."
+      );
+      yield();
+      delay(1000);
+      continue;
+    }
+
+    response = sendAT("AT+CPIN?", 5000);
+
+    if (response.indexOf("+CPIN: READY") < 0) {
+      Serial.println(
+        "[MODEM READY] SIM aún no lista."
+      );
+      yield();
+      delay(1000);
+      continue;
+    }
+
+    response = sendAT("AT+CEREG?", 5000);
+
+    if (!responseContainsRegisteredCereg(response)) {
+      Serial.println(
+        "[MODEM READY] LTE aún no registrado."
+      );
+      yield();
+      delay(1000);
+      continue;
+    }
+
+    response = sendAT("AT+CGATT?", 5000);
+
+    if (response.indexOf("+CGATT: 1") < 0) {
+      Serial.println(
+        "[MODEM READY] Packet service aún no attached."
+      );
+      yield();
+      delay(1000);
+      continue;
+    }
+
+    response = sendAT("AT+CGACT?", 5000);
+
+    if (!responseContainsActivePdp(response)) {
+      Serial.println(
+        "[MODEM READY] PDP CID 1 aún no activo."
+      );
+      yield();
+      delay(1000);
+      continue;
+    }
+
+    // Consulta complementaria. No bloquea el READY si el firmware no la soporta.
+    sendAT("AT+CPAS", 3000);
+
+    Serial.println(
+      "[MODEM READY] Estado base confirmado."
+    );
+
+    if (!modemStableWindow(stableWindowMs)) {
+      Serial.println(
+        "[MODEM READY] El módem perdió estabilidad. Volviendo a validar desde AT."
+      );
+      yield();
+      delay(2000);
+      continue;
+    }
+
+    // Revalidación crítica después de la ventana estable.
+    response = sendAT("AT", 3000);
+    if (response.indexOf("OK") < 0) {
+      Serial.println(
+        "[MODEM READY] Falló AT tras ventana estable."
+      );
+      continue;
+    }
+
+    response = sendAT("AT+CEREG?", 5000);
+    if (!responseContainsRegisteredCereg(response)) {
+      Serial.println(
+        "[MODEM READY] LTE se perdió durante la ventana estable."
+      );
+      continue;
+    }
+
+    response = sendAT("AT+CGATT?", 5000);
+    if (response.indexOf("+CGATT: 1") < 0) {
+      Serial.println(
+        "[MODEM READY] CGATT se perdió durante la ventana estable."
+      );
+      continue;
+    }
+
+    response = sendAT("AT+CGACT?", 5000);
+    if (!responseContainsActivePdp(response)) {
+      Serial.println(
+        "[MODEM READY] PDP se perdió durante la ventana estable."
+      );
+      continue;
+    }
+
+    Serial.println();
+    Serial.printf(
+      "[MODEM READY] READY STABLE confirmado en %lu ms\n",
+      static_cast<unsigned long>(millis() - overallStart)
+    );
+
+    return true;
+  }
+
+  Serial.println();
+  Serial.printf(
+    "[MODEM READY] TIMEOUT después de %lu ms\n",
+    static_cast<unsigned long>(millis() - overallStart)
+  );
+
+  return false;
+}
+
+// ============================================================================
+// ACTIVATION
+// ============================================================================
+
+bool activateDevice() {
+
+  String url =
+    "https://" +
+    String(
+      API_HOST
+    ) +
+    "/api/devices/activate";
+
+  String body =
+    "{"
+    "\"device_code\":\"" +
+    String(
+      deviceCode
+    ) +
+    "\","
+    "\"imei\":\"" +
+    String(
+      imei
+    ) +
+    "\","
+    "\"firmware_version\":\"" +
+    String(
+      FIRMWARE_VERSION
+    ) +
+    "\""
+    "}";
+
+  Serial.println();
+
+
+  // Antes del primer HTTPS exigimos un estado estable real del módem.
+  if (
+    !waitForModemFullyReady(
+      120000UL,
+      10000UL
+    )
+  ) {
+
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println("  DEBUG DETENIDO");
+    Serial.println("============================================");
+    Serial.println(
+      "[ERROR] El módem no alcanzó estado READY STABLE."
+    );
+
+    while (true) {
+      yield();
+      delay(1000);
+    }
+  }
+
+  Serial.println(
+    "[ACTIVATE] Enviando..."
+  );
+
+  return (
+    httpPostJson(
+      url,
+      body
+    )
+  );
+}
+
+// ============================================================================
+// GNSS
+// ============================================================================
+
+void gpsOn() {
+
+  sendAT(
+    "AT+CGNSSPWR=1",
+    3000
+  );
+}
+
+// ============================================================================
+// PARSE GNSS
+// ============================================================================
+
+bool parseGNSS(
+  String response,
+  Fix* fix
+) {
+
+  int pos =
+    response.indexOf(
+      "+CGNSSINFO:"
+    );
+
+  if (
+    pos < 0
+  ) {
+
+    return false;
+  }
+
+  String line =
+    response.substring(
+      pos + 11
+    );
+
+  int end =
+    line.indexOf(
+      '\n'
+    );
+
+  if (
+    end >= 0
+  ) {
+
+    line =
+      line.substring(
+        0,
+        end
+      );
+  }
+
+  line.trim();
+
+  String fields[16];
+
+  int fieldIndex =
+    0;
+
+  int start =
+    0;
+
+  for (
+    int i = 0;
+    i <= line.length() &&
+    fieldIndex < 16;
+    i++
+  ) {
+
+    if (
+      i == line.length() ||
+      line[i] == ','
+    ) {
+
+      fields[
+        fieldIndex++
+      ] =
+        line.substring(
+          start,
+          i
+        );
+
+      start =
+        i + 1;
+    }
+  }
+
+  if (
+    fieldIndex < 12
+  ) {
+
+    return false;
+  }
+
+  if (
+    fields[5].length() == 0 ||
+    fields[6].length() == 0 ||
+    fields[7].length() == 0 ||
+    fields[8].length() == 0
+  ) {
+
+    return false;
+  }
+
+  fields[5].toCharArray(
+    fix->lat,
+    sizeof(
+      fix->lat
+    )
+  );
+
+  fix->ns =
+    fields[6][0];
+
+  fields[7].toCharArray(
+    fix->lon,
+    sizeof(
+      fix->lon
+    )
+  );
+
+  fix->ew =
+    fields[8][0];
+
+  fields[9].toCharArray(
+    fix->date,
+    sizeof(
+      fix->date
+    )
+  );
+
+  fields[10].toCharArray(
+    fix->utc,
+    sizeof(
+      fix->utc
+    )
+  );
+
+  fix->valid =
+    true;
+
+  return true;
+}
+
+// ============================================================================
+// GET FIX
+// ============================================================================
+
+bool getGNSSFix(
+  Fix* fix
+) {
+
+  const uint32_t start =
+    millis();
+
+  uint32_t lastQuery =
+    0;
+
+  while (
+    static_cast<uint32_t>(
+      millis() - start
+    ) <
+    GPS_FIX_TIMEOUT_MS
+  ) {
+
+    feedTaskWDT();
+
+    const uint32_t now =
+      millis();
+
+    if (
+      lastQuery == 0 ||
+      static_cast<uint32_t>(
+        now - lastQuery
+      ) >= 2000UL
+    ) {
+
+      String response =
+        sendAT(
+          "AT+CGNSSINFO",
+          2500
+        );
+
+      if (
+        parseGNSS(
+          response,
+          fix
+        )
+      ) {
+
+        Serial.println(
+          "[GPS] FIX."
+        );
+
+        Serial.printf(
+          "[GPS] %s%c %s%c\n",
+          fix->lat,
+          fix->ns,
+          fix->lon,
+          fix->ew
+        );
+
+        return true;
+      }
+
+      if (
+        response.indexOf(
+          "*ATREADY:"
+        ) >= 0 ||
+        response.indexOf(
+          "+CPIN: READY"
+        ) >= 0 ||
+        response.indexOf(
+          "SMS DONE"
+        ) >= 0
+      ) {
+
+        Serial.println(
+          "[GPS] Reinicio del módem detectado durante espera GNSS."
+        );
+
+        return false;
+      }
+
+      Serial.println(
+        "[GPS] Esperando..."
+      );
+
+      lastQuery =
+        now;
+    }
+
+    int budget =
+      64;
+
+    while (
+      modem.available() &&
+      budget-- > 0
+    ) {
+
+      modem.read();
+    }
+
+    yield();
+
+    delay(
+      10
+    );
+  }
+
+  Serial.println(
+    "[GPS] TIMEOUT esperando FIX."
+  );
+
+  return false;
+}
+
+// ============================================================================
+// SIGNED COORD
+// ============================================================================
+
+String signedCoordinate(
+  const char* value,
+  char hemisphere
+) {
+
+  String result =
+    value;
+
+  if (
+    hemisphere == 'S' ||
+    hemisphere == 'W'
+  ) {
+
+    result =
+      "-" +
+      result;
+  }
+
+  return result;
+}
+
+// ============================================================================
+// TRACCAR
+// ============================================================================
+
+bool sendToTraccar(
+  const Fix& fix
+){
+
+  String lat =
+    signedCoordinate(
+      fix.lat,
+      fix.ns
+    );
+
+  String lon =
+    signedCoordinate(
+      fix.lon,
+      fix.ew
+    );
+
+  String url =
+    "https://" +
+    String(
+      TRACCAR_HOST
+    ) +
+    "/?id=" +
+    String(
+      imei
+    ) +
+    "&lat=" +
+    lat +
+    "&lon=" +
+    lon +
+    "&batt=" +
+    String(
+      getCachedBattery()
+    ) +
+    "&speed=0.0"
+    "&device_code=" +
+    String(
+      deviceCode
+    );
+
+  Serial.println();
+
+  Serial.println(
+    "================================================"
+  );
+
+  Serial.println(
+    "[TRACCAR FULL RECOVERY] Enviando posición"
+  );
+
+  Serial.println(
+    url
+  );
+
+  Serial.println(
+    "================================================"
+  );
+
+  const int maxAttempts =
+    2;
+
+  for (
+    int attempt = 1;
+    attempt <= maxAttempts;
+    attempt++
+  ) {
+
+    Serial.printf(
+      "[TRACCAR] Intento %d/%d\n",
+      attempt,
+      maxAttempts
+    );
+
+    if (
+      !waitForModemIdle(
+        5000
+      ) ||
+      !beginModemTransaction(
+        MODEM_TX_HTTP_PREPARE,
+        "TRACCAR"
+      )
+    ) {
+
+      return false;
+    }
+
+    if (
+      !ensurePacketDataBaseline()
+    ) {
+
+      endModemTransaction(
+        "TRACCAR"
+      );
+
+      return false;
+    }
+
+    if (
+      !baselineHttpPrepare(
+        url,
+        false
+      )
+    ) {
+
+      baselineHttpClose();
+
+      endModemTransaction(
+        "TRACCAR"
+      );
+
+      return false;
+    }
+
+    int responseLength =
+      0;
+
+    setModemTransactionState(
+      MODEM_TX_HTTP_ACTION
+    );
+
+    const int code =
+      baselineHttpAction(
+        0,
+        &responseLength
+      );
+
+    if (
+      code ==
+      HTTP_RESULT_MODEM_REBOOTED
+    ) {
+
+      httpSessionActive =
+        false;
+
+      const bool recovered =
+        recoverModemFullAfterReboot(
+          "TRACCAR"
+        );
+
+      endModemTransaction(
+        "TRACCAR"
+      );
+
+      if (
+        recovered &&
+        attempt <
+        maxAttempts
+      ) {
+
+        Serial.println(
+          "[TRACCAR] Reintentando después de recuperación completa."
+        );
+
+        continue;
+      }
+
+      return false;
+    }
+
+    if (
+      responseLength > 0
+    ) {
+
+      setModemTransactionState(
+        MODEM_TX_HTTP_READ
+      );
+
+      httpReadBody(
+        responseLength
+      );
+    }
+
+    baselineHttpClose();
+
+    endModemTransaction(
+      "TRACCAR"
+    );
+
+    Serial.printf(
+      "[TRACCAR] HTTP=%d\n",
+      code
+    );
+
+    if (
+      code == 200
+    ) {
+
+      Serial.println(
+        "[TRACCAR] Posición enviada correctamente."
+      );
+
+      return true;
+    }
+
+    if (
+      (
+        code == 706 ||
+        code == 715
+      ) &&
+      attempt <
+      maxAttempts
+    ) {
+
+      Serial.printf(
+        "[TRACCAR] HTTP=%d recuperable. Esperando antes del reintento.\n",
+        code
+      );
+
+      delay(
+        2000
+      );
+
+      continue;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+
+
+// ============================================================================
+// PROCESAR pending_command EMBEBIDO EN RESPUESTA /api/devices/report
+// ============================================================================
+
+bool processPendingCommandFromReport(
+  const String& rawResponse
+) {
+
+  const String json =
+    extractJsonDocument(
+      rawResponse
+    );
+
+  if (
+    json.length() == 0
+  ) {
+
+    Serial.println(
+      "[CMD SYNC] Respuesta de telemetría sin JSON válido."
+    );
+
+    return false;
+  }
+
+  String pendingObject;
+
+  if (
+    !jsonExtractObject(
+      json,
+      "pending_command",
+      &pendingObject
+    )
+  ) {
+
+    // pending_command:null es un caso normal.
+    Serial.println(
+      "[CMD SYNC] Sin comando pendiente."
+    );
+
+    return true;
+  }
+
+  long commandId =
+    0;
+
+  String command;
+
+  String payload;
+
+  if (
+    !jsonExtractLong(
+      pendingObject,
+      "cmd_id",
+      &commandId
+    ) ||
+    !jsonExtractString(
+      pendingObject,
+      "command",
+      &command
+    ) ||
+    !jsonExtractObject(
+      pendingObject,
+      "payload",
+      &payload
+    )
+  ) {
+
+    Serial.println(
+      "[CMD SYNC] pending_command inválido."
+    );
+
+    return false;
+  }
+
+  command.trim();
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  REPORT COMMAND SYNC"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.printf(
+    "[CMD SYNC] Recibido #%ld type=%s\n",
+    commandId,
+    command.c_str()
+  );
+
+  bool applied =
+    false;
+
+  if (
+    command ==
+    "set_config"
+  ) {
+
+    String changed;
+
+    applied =
+      applyRemoteConfig(
+        payload,
+        &changed
+      );
+
+    if (
+      applied
+    ) {
+
+      const String resultJson =
+        "{"
+        "\"applied\":true,"
+        "\"changed\":" +
+        changed +
+        "}";
+
+      if (
+        !sendCommandAck(
+          commandId,
+          "executed",
+          resultJson
+        )
+      ) {
+
+        Serial.println(
+          "[CMD SYNC] ACK set_config falló; servidor reentregará el comando."
+        );
+
+        return false;
+      }
+
+      Serial.println(
+        "[CMD SYNC] set_config aplicado y confirmado."
+      );
+
+      if (
+        !sendDeviceEvent(
+          "CONFIG_APPLIED",
+          "Configuración aplicada",
+          "\"cmd_id\":" +
+          String(commandId)
+        )
+      ) {
+
+        Serial.println(
+          "[WARN] No fue posible registrar CONFIG_APPLIED."
+        );
+      }
+
+      return true;
+    }
+  }
+  else if (
+    command ==
+    "set_state"
+  ) {
+
+    String state;
+
+    applied =
+      applyRemoteState(
+        payload,
+        &state
+      );
+
+    if (
+      applied
+    ) {
+
+      const String resultJson =
+        "{"
+        "\"applied\":true,"
+        "\"state\":\"" +
+        jsonEscape(
+          state
+        ) +
+        "\""
+        "}";
+
+      if (
+        !sendCommandAck(
+          commandId,
+          "executed",
+          resultJson
+        )
+      ) {
+
+        Serial.println(
+          "[CMD SYNC] ACK set_state falló; servidor reentregará el comando."
+        );
+
+        return false;
+      }
+
+      Serial.printf(
+        "[CMD SYNC] set_state aplicado: %s\n",
+        state.c_str()
+      );
+
+      if (
+        !sendDeviceEvent(
+          "STATE_CHANGED",
+          "Estado cambiado",
+          "\"cmd_id\":" +
+          String(commandId) +
+          ",\"state\":\"" +
+          jsonEscape(
+            state
+          ) +
+          "\""
+        )
+      ) {
+
+        Serial.println(
+          "[WARN] No fue posible registrar STATE_CHANGED."
+        );
+      }
+
+      return true;
+    }
+  }
+
+  const String failedResult =
+    "{"
+    "\"applied\":false,"
+    "\"reason\":\"unsupported_or_invalid_command\""
+    "}";
+
+  if (
+    !sendCommandAck(
+      commandId,
+      "failed",
+      failedResult
+    )
+  ) {
+
+    Serial.println(
+      "[CMD SYNC] No fue posible enviar ACK failed."
+    );
+  }
+
+  if (
+    !sendDeviceEvent(
+      "COMMAND_FAILED",
+      "Comando no ejecutado",
+      "\"cmd_id\":" +
+      String(commandId) +
+      ",\"command\":\"" +
+      jsonEscape(
+        command
+      ) +
+      "\""
+    )
+  ) {
+
+    Serial.println(
+      "[WARN] No fue posible registrar COMMAND_FAILED."
+    );
+  }
+
+  return false;
+}
+
+// ============================================================================
+// TELEMETRY
+// ============================================================================
+
+bool sendTelemetry() {
+
+  String url =
+    "https://" +
+    String(
+      API_HOST
+    ) +
+    "/api/devices/report";
+
+  String body =
+    "{"
+    "\"device_code\":\"" +
+    String(
+      deviceCode
+    ) +
+    "\","
+    "\"imei\":\"" +
+    String(
+      imei
+    ) +
+    "\","
+    "\"batt\":" +
+    String(
+      getCachedBattery()
+    ) +
+    ","
+    "\"signal\":" +
+    String(
+      getCachedSignal()
+    ) +
+    ","
+    "\"state\":\"" +
+    String(
+      currentDeviceState
+    ) +
+    "\","
+    "\"firmware_version\":\"" +
+    String(
+      FIRMWARE_VERSION
+    ) +
+    "\""
+    "}";
+
+  Serial.println();
+
+  Serial.println(
+    "[TELEMETRY + COMMAND SYNC]"
+  );
+
+  String responseBody;
+
+  int httpStatus =
+    -1;
+
+  const bool ok =
+    httpPostJson(
+      url,
+      body,
+      &responseBody,
+      &httpStatus
+    );
+
+  if (
+    !ok
+  ) {
+
+    Serial.printf(
+      "[TELEMETRY] Falló HTTP=%d\n",
+      httpStatus
+    );
+
+    return false;
+  }
+
+  Serial.printf(
+    "[TELEMETRY] HTTP=%d. Procesando command sync...\n",
+    httpStatus
+  );
+
+  if (
+    responseBody.length() == 0
+  ) {
+
+    Serial.println(
+      "[CMD SYNC] /report respondió sin body."
+    );
+
+    return true;
+  }
+
+  if (
+    !processPendingCommandFromReport(
+      responseBody
+    )
+  ) {
+
+    Serial.println(
+      "[WARN] Telemetría OK, pero command sync no completó."
+    );
+  }
+
+  return true;
+}
+
+// ============================================================================
+// DEBUG HALT
+// ============================================================================
+
+void debugStop(
+  const String& reason
+) {
+
+  ledError();
+
+  Serial.println();
+  Serial.println(
+    "============================================"
+  );
+  Serial.println(
+    "  DEBUG DETENIDO"
+  );
+  Serial.println(
+    "============================================"
+  );
+  Serial.println(
+    reason
+  );
+  Serial.println();
+
+  Serial.println(
+    "[DEBUG] Sistema detenido sin forzar watchdog."
+  );
+
+  // Mantiene cooperativo el task principal y cede tiempo al scheduler
+  // genere un reset falso durante una parada de diagnóstico.
+  while (
+    true
+  ) {
+
+    feedTaskWDT();
+
+    yield();
+
+    delay(
+      100
+    );
+  }
+}
+
+// ============================================================================
+// MAIN TEST
+// ============================================================================
+
+void runDebugCycle() {
+
+  ledBoot();
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  GHOSTKEY PRODUCTIVE DEBUG"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  // --------------------------------------------------------------------------
+  // Defaults
+  // --------------------------------------------------------------------------
+
+  ensureDefaultConfig();
+
+  loadConfig();
+
+  const bool alreadyActivated =
+    loadActivatedState();
+
+  // --------------------------------------------------------------------------
+  // Identidad
+  // --------------------------------------------------------------------------
+
+  loadIdentity();
+
+  Serial.print(
+    "[DEVICE CODE] "
+  );
+
+  Serial.println(
+    deviceCode
+  );
+
+  if (
+    strlen(
+      deviceCode
+    ) == 0
+  ) {
+
+    debugStop(
+      "[ERROR] dev_code vacío."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // Modem
+  // --------------------------------------------------------------------------
+
+  if (
+    !wakeModem()
+  ) {
+
+    debugStop(
+      "[ERROR] Fallo inesperado en wakeModem()."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // Estabilización de arranque en frío del A7670
+  // --------------------------------------------------------------------------
+
+  if (
+    !waitForColdModemStartReady()
+  ) {
+
+    debugStop(
+      "[ERROR] A7670 no completó estabilización de arranque."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // IMEI
+  // --------------------------------------------------------------------------
+
+  if (
+    !readIMEI()
+  ) {
+
+    debugStop(
+      "[ERROR] No fue posible leer IMEI."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // LTE
+  // --------------------------------------------------------------------------
+
+  if (
+    !waitLTE()
+  ) {
+
+    debugStop(
+      "[ERROR] Sin LTE."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // PDP
+  // --------------------------------------------------------------------------
+
+  if (
+    !ensurePacketData()
+  ) {
+
+    debugStop(
+      "[ERROR] Servicio de paquetes no disponible."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // Activación solo cuando NVS aún no confirma activación.
+  // Evita reactivar y resetear estado remoto en cada boot.
+  // --------------------------------------------------------------------------
+
+  if (
+    !alreadyActivated
+  ) {
+
+    if (
+      !activateDevice()
+    ) {
+
+      debugStop(
+        "[ERROR] Activación HTTP falló."
+      );
+
+      return;
+    }
+
+    saveActivationState(
+      true,
+      currentDeviceState
+    );
+
+    Serial.println();
+
+    Serial.println(
+      "[ACTIVATE] OK."
+    );
+  }
+  else {
+
+    Serial.println();
+
+    Serial.println(
+      "[ACTIVATE] Ya activado en NVS. Se omite activación."
+    );
+
+    // Como activateDevice() es quien ejecutaba READY STABLE,
+    // cuando se omite activación lo exigimos aquí antes del primer HTTPS.
+    if (
+      !waitForModemFullyReady(
+        120000UL,
+        10000UL
+      )
+    ) {
+
+      debugStop(
+        "[ERROR] El módem no alcanzó READY STABLE."
+      );
+
+      return;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Snapshot previo a transacciones AT/HTTP.
+  // --------------------------------------------------------------------------
+
+  refreshBatteryCache();
+
+  refreshSignalCache();
+
+  Serial.printf(
+    "[CACHE] batt=%d signal=%d\n",
+    getCachedBattery(),
+    getCachedSignal()
+  );
+
+  // --------------------------------------------------------------------------
+  // GNSS
+  // --------------------------------------------------------------------------
+
+  ledSending();
+
+  gpsOn();
+
+  Fix fix;
+
+  if (
+    !waitForModemIdle(
+      5000
+    ) ||
+    !beginModemTransaction(
+      MODEM_TX_GNSS,
+      "GNSS"
+    )
+  ) {
+
+    debugStop(
+      "[ERROR] No se pudo obtener lock del módem para GNSS."
+    );
+
+    return;
+  }
+
+  const bool gotFix =
+    getGNSSFix(
+      &fix
+    );
+
+  endModemTransaction(
+    "GNSS"
+  );
+
+  if (
+    !gotFix
+  ) {
+
+    debugStop(
+      "[ERROR] GNSS sin FIX."
+    );
+
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // Traccar
+  // --------------------------------------------------------------------------
+
+  feedTaskWDT();
+
+  const bool traccarOk =
+    sendToTraccar(
+      fix
+    );
+
+  feedTaskWDT();
+
+  if (
+    !traccarOk
+  ) {
+
+    Serial.println();
+
+    Serial.println(
+      "[WARN] Traccar no confirmó éxito. Se continúa con telemetría y Command Sync."
+    );
+  }
+  else {
+
+    Serial.println(
+      "[TRACCAR] Envío confirmado."
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Telemetría + sincronización de comando remoto
+  // Traccar es fail-soft: nunca bloquea este paso.
+  // El servidor puede devolver pending_command en la misma respuesta.
+  // --------------------------------------------------------------------------
+
+  feedTaskWDT();
+
+  if (
+    !sendTelemetry()
+  ) {
+
+    Serial.println(
+      "[WARN] Telemetría falló."
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // FINAL
+  // --------------------------------------------------------------------------
+
+  ledSuccess();
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    "  PRUEBA COMPLETADA OK"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println();
+
+  Serial.println(
+    "[OK] Activación"
+  );
+
+  Serial.println(
+    "[OK] LTE"
+  );
+
+  Serial.println(
+    "[OK] GNSS"
+  );
+
+  if (
+    traccarOk
+  ) {
+
+    Serial.println(
+      "[OK] Traccar"
+    );
+  }
+  else {
+
+    Serial.println(
+      "[WARN] Traccar sin confirmación"
+    );
+  }
+
+  Serial.println();
+
+  Serial.println(
+    "[DEBUG] Deep sleep desactivado."
+  );
+
+  Serial.println(
+    "[LED] Verde por 5 s y luego OFF para ahorro."
+  );
+
+  cooperativeWait(
+    5000
+  );
+
+  ledOff();
+
+  Serial.println(
+    "[LED] OFF."
+  );
+
+  while (
+    true
+  ) {
+
+    feedTaskWDT();
+
+    yield();
+
+    delay(
+      100
+    );
+  }
+}
+
+
+// ============================================================================
+// RESET REASON
+// ============================================================================
+
+const char* resetReasonName(
+  esp_reset_reason_t reason
+) {
+
+  switch (
+    reason
+  ) {
+
+    case ESP_RST_POWERON:
+      return "POWERON";
+
+    case ESP_RST_SW:
+      return "SOFTWARE";
+
+    case ESP_RST_PANIC:
+      return "PANIC";
+
+    case ESP_RST_INT_WDT:
+      return "INT_WDT";
+
+    case ESP_RST_TASK_WDT:
+      return "TASK_WDT";
+
+    case ESP_RST_WDT:
+      return "OTHER_WDT";
+
+    case ESP_RST_BROWNOUT:
+      return "BROWNOUT";
+
+    case ESP_RST_DEEPSLEEP:
+      return "DEEPSLEEP";
+
+    default:
+      return "OTHER";
+  }
+}
+
+// ============================================================================
+// SETUP
+// ============================================================================
+
+void setup() {
+
+  Serial.begin(
+    115200
+  );
+
+  delay(
+    1500
+  );
+
+  Serial.println(
+    "[WDT] Modo cleanup: sin registro/reset manual del Task WDT."
+  );
+
+  const esp_reset_reason_t resetReason =
+    esp_reset_reason();
+
+  Serial.printf(
+    "[BOOT] Reset reason: %s (%d)\n",
+    resetReasonName(
+      resetReason
+    ),
+    static_cast<int>(
+      resetReason
+    )
+  );
+
+  pinMode(
+    BTN_PIN,
+    INPUT_PULLUP
+  );
+
+  ledOff();
+
+  Serial.println();
+
+  Serial.println(
+    "============================================"
+  );
+
+  Serial.println(
+    " GhostKey GT Productive v0.3.16.12 MODEM FULL RECOVERY"
+  );
+
+  Serial.println(
+    " BODEGA / DEEP SLEEP DESACTIVADOS"
+  );
+
+  Serial.println(
+    "============================================"
+  );
+
+  runDebugCycle();
+}
+
+// ============================================================================
+// LOOP
+// ============================================================================
+
+void loop() {
+
+  delay(
+    1000
+  );
+}

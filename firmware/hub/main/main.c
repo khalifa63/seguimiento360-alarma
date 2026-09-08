@@ -304,11 +304,14 @@ static void start_mqtt_client(const char *broker_uri) {
     snprintf(client_id_str, sizeof(client_id_str), "hub_%02x%02x%02x%02x%02x%02x", 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = broker_uri,
-        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
-        .credentials.client_id = client_id_str,
-    };
+   esp_mqtt_client_config_t mqtt_cfg = {
+       .broker.address.uri = broker_uri,
+       .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
+       .credentials.client_id = client_id_str,
+       // ✅ NUEVAS LÍNEAS DE SEGURIDAD:
+       .credentials.username = "hub_user",
+       .credentials.authentication.password = "HubSecure2026!", 
+   };
     
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     if (mqtt_client) {

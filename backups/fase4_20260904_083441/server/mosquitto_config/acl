@@ -1,0 +1,21 @@
+# ============================================================================
+# ACL para Seguimiento 360
+# ============================================================================
+
+# Dispositivos legacy GhostKey (mantener compatibilidad)
+pattern readwrite ghostkey/%u/#
+
+# Node-RED: acceso completo a todos los tópicos (incluyendo seguimiento360/)
+user nodered
+topic readwrite #
+
+# ESP32 nuevos dispositivos: cada uno accede solo a su propio subárbol
+# Formato de username: tenant_<tid>_site_<sid>_hub_<hid>
+pattern readwrite seguimiento360/+/+/+/+/%u/#
+
+# Permitir a cualquier usuario autenticado publicar en su propio tópico
+# (para futuros dispositivos con usernames específicos)
+
+# HUB-S3 devices: publish/subscribe en su propio tenant/site/mac
+user hub_s3
+topic readwrite seguimiento360/#

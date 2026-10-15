@@ -23,6 +23,7 @@
 #include "driver/gpio.h"
 #include "mqtt_client.h"
 #include "ota_manager.h"
+#include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 
 static const char *TAG = "HUB_S3_MAIN";
@@ -492,6 +493,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         xEventGroupClearBits(wifi_event_group, WIFI_FAIL_BIT);
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
         
+        // Iniciar MQTT estrictamente cuando ya tenemos IP y no está conectado
         if (!mqtt_is_connected && mqtt_client == NULL) {
             start_mqtt_client(MQTT_BROKER_URI);
         }
@@ -898,10 +900,26 @@ static void portal_inactivity_task(void *pvParameters) {
 // INICIAR PORTAL CAUTIVO
 // ============================================================================
 
+
+// Handler específico para Android (espera estrictamente 204 No Content)
+static esp_err_t captive_portal_android_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+// Handler específico para iOS / Otros (acepta redirección)
+static esp_err_t captive_portal_apple_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t start_captive_portal(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 16384;  // 16 KB para evitar stack overflow con HTML grande
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 12;
     
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_uri_t uri_config[] = {
@@ -912,7 +930,13 @@ static esp_err_t start_captive_portal(void) {
             {.uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL},
             // API REST para gestión de nodos
             {.uri = "/api/nodes", .method = HTTP_GET, .handler = api_nodes_list_handler, .user_ctx = NULL},
-            {.uri = "/api/nodes", .method = HTTP_DELETE, .handler = api_nodes_delete_handler, .user_ctx = NULL}
+            {.uri = "/api/nodes", .method = HTTP_DELETE, .handler = api_nodes_delete_handler, .user_ctx = NULL},
+            // URLs de prueba para forzar el pop-up del portal cautivo (Estándar CNA)
+            {.uri = "/generate_204", .method = HTTP_GET, .handler = captive_portal_android_handler, .user_ctx = NULL},
+            {.uri = "/gen_204", .method = HTTP_GET, .handler = captive_portal_android_handler, .user_ctx = NULL},
+            {.uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = captive_portal_apple_handler, .user_ctx = NULL},
+            {.uri = "/connecttest.txt", .method = HTTP_GET, .handler = captive_portal_apple_handler, .user_ctx = NULL},
+            {.uri = "/ncsi.txt", .method = HTTP_GET, .handler = captive_portal_apple_handler, .user_ctx = NULL}
         };
         
         for (int i = 0; i < 7; i++) {
@@ -1020,10 +1044,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "Se restauraron %d nodos en la lista de peers de ESP-NOW.", 
              node_registry.count);
 
-    // 11. Iniciar MQTT si ya hay configuración Wi-Fi
-    if (wifi_configured) {
-        start_mqtt_client(MQTT_BROKER_URI);
-    }
+    // 11. MQTT se iniciará automáticamente en el evento IP_EVENT_STA_GOT_IP (cuando ya tengamos IP)
 
     // 12. Iniciar Portal Cautivo
     start_captive_portal();
@@ -1032,7 +1053,8 @@ void app_main(void) {
     blink_indicator(2, 200);
     
     ESP_LOGI(TAG, "============================================================");
-    ESP_LOGI(TAG, "   Seguimiento 360 HUB v6.0 - PRODUCCIÓN");
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    ESP_LOGI(TAG, "   Seguimiento 360 HUB %s - PRODUCCIÓN", app_desc->version);
     ESP_LOGI(TAG, "============================================================");
     ESP_LOGI(TAG, "MAC: %s", hub_mac_str);
     ESP_LOGI(TAG, "Tenant: %s | Site: %s", active_config.tenant_id, active_config.site_id);

@@ -22,6 +22,7 @@
 #include "esp_mac.h"
 #include "driver/gpio.h"
 #include "mqtt_client.h"
+#include "ota_manager.h"
 #include "esp_crt_bundle.h"
 
 static const char *TAG = "HUB_S3_MAIN";
@@ -269,6 +270,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "✅ MQTT_EVENT_CONNECTED");
             mqtt_is_connected = true;
+        
+        // --- NUEVO: Suscribirse a comandos OTA ---
+        char ota_cmd_topic[128];
+        get_mqtt_topic(ota_cmd_topic, sizeof(ota_cmd_topic), "ota_cmd");
+        esp_mqtt_client_subscribe(mqtt_client, ota_cmd_topic, 1);
+        ESP_LOGI(TAG, "Suscrito a comandos OTA: %s", ota_cmd_topic);
             break;
             
         case MQTT_EVENT_DISCONNECTED:
@@ -281,7 +288,23 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
             break;
             
         case MQTT_EVENT_DATA:
-            ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+            ESP_LOGI(TAG, "MQTT_EVENT_DATA en tópico: %.*s", event->topic_len, event->topic);
+            
+            // --- NUEVO: Lógica para disparar OTA ---
+            if (strstr(event->topic, "ota_cmd") != NULL) {
+                ESP_LOGI(TAG, "Comando OTA recibido. Longitud: %d", event->data_len);
+                char *url_buffer = calloc(1, event->data_len + 1);
+                if (url_buffer != NULL) {
+                    memcpy(url_buffer, event->data, event->data_len);
+                    url_buffer[event->data_len] = '\0';
+                    ESP_LOGI(TAG, "Iniciando OTA con URL: %s", url_buffer);
+                    esp_err_t ret = ota_manager_start(url_buffer);
+                    if (ret != ESP_OK) {
+                        ESP_LOGE(TAG, "Error al iniciar tarea OTA: %s", esp_err_to_name(ret));
+                        free(url_buffer);
+                    }
+                }
+            }
             break;
             
         case MQTT_EVENT_ERROR:

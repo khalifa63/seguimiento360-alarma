@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estado del Hub - Seguimiento 360</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 1rem; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+        th { background: #f4f4f4; }
+        input { width: 90%; padding: 0.3rem; }
+        .btn { padding: 0.3rem 0.6rem; border: none; border-radius: 3px; cursor: pointer; margin-right: 0.3rem; }
+        .btn-save { background: #28a745; color: white; }
+        .btn-del { background: #dc3545; color: white; }
+        .status-ok { color: green; font-weight: bold; }
+        .status-err { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>📡 Estado del Hub: <span id="hubNameDisplay">Cargando...</span></h2>
+        <a href="/" style="text-decoration: none; color: #007bff;">⚙️ Volver a Configuración</a>
+    </div>
+    
+    <div id="hubInfo" style="margin-bottom: 1rem; padding: 1rem; background: #f9f9f9; border-radius: 5px;">
+        <p><strong>IP Local:</strong> <span id="ipAddr">-</span></p>
+        <p><strong>MQTT:</strong> <span id="mqttStatus">-</span></p>
+        <p><strong>Nodos Vinculados:</strong> <span id="nodeCount">0</span> / 20</p>
+    </div>
+
+    <h3>📋 Nodos Vinculados</h3>
+    <table id="nodesTable">
+        <thead>
+            <tr>
+                <th>MAC</th>
+                <th>Tipo</th>
+                <th>Nombre del Nodo</th>
+                <th>Ubicación</th>
+                <th>Habitación</th>
+                <th>Umbral (cm)</th>
+                <th>Último Ping</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="nodesBody">
+            <tr><td colspan="8">Cargando nodos...</td></tr>
+        </tbody>
+    </table>
+
+    <script src="/script.js"></script>
+</body>
+</html>

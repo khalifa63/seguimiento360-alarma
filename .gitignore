@@ -1,6 +1,5 @@
 # ============================================
 # Seguimiento 360 - Archivo .gitignore
-# Evita subir archivos sensibles al repositorio
 # ============================================
 
 # Variables de entorno (Secretos y Tokens)
@@ -13,6 +12,14 @@ nodered/data/settings.js
 nodered/data/flows_cred.json
 nodered/data/.config.json
 nodered/data/.sessions.json
+nodered/data/.config.json.backup*
+
+# ESP-IDF Build Directories (NO subir)
+**/build/
+**/sdkconfig
+**/sdkconfig.old
+**/sdkconfig.defaults
+**/sdkconfig.ci.*
 
 # Backups de Base de Datos
 *.sql
@@ -23,7 +30,6 @@ backup_*.tar.gz
 # Logs de producción
 *.log
 mosquitto/log/
-nodered/data/.config.json.backup*
 
 # Archivos temporales del sistema
 .DS_Store

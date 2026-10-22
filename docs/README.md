@@ -87,6 +87,7 @@
 
 - [Plan de arranque](desarrollo/PLAN-DE-ARRANQUE.md)
 - [Índice de desarrollo](desarrollo/README.md)
+- [Roles de IA](desarrollo/AI-ROLES.md)
 
 ### 10. Archivo
 

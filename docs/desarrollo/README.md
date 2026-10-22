@@ -9,6 +9,7 @@ Punto de entrada para continuar el desarrollo del firmware sin repetir trabajo.
 3. [API de autenticación](../backend/api-auth.md) — endpoints de usuarios y `curl`.
 4. [Contratos](../firmware/specs/02-interfaces.md) — frame, topics y payloads.
 5. [Pruebas de aceptación](../firmware/specs/03-pruebas-aceptacion.md) — criterios AT-001 a AT-010.
+6. [Roles de IA](AI-ROLES.md) — qué modelo usar por área de desarrollo.
 
 ## Documentos ejecutivos
 

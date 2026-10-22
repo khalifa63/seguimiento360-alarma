@@ -353,6 +353,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         get_mqtt_topic(ota_cmd_topic, sizeof(ota_cmd_topic), "ota_cmd");
         esp_mqtt_client_subscribe(mqtt_client, ota_cmd_topic, 1);
         ESP_LOGI(TAG, "Suscrito a comandos OTA: %s", ota_cmd_topic);
+
+        // Suscribirse a configuración de nodos
+        char node_cfg_topic[128];
+        get_mqtt_topic(node_cfg_topic, sizeof(node_cfg_topic), "node_cfg");
+        esp_mqtt_client_subscribe(mqtt_client, node_cfg_topic, 1);
+        ESP_LOGI(TAG, "📡 Suscrito a configuración de nodos: %s", node_cfg_topic);
             break;
             
         case MQTT_EVENT_DISCONNECTED:
@@ -366,24 +372,110 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
             
         case MQTT_EVENT_DATA:
             ESP_LOGI(TAG, "MQTT_EVENT_DATA en tópico: %.*s", event->topic_len, event->topic);
-            
-            // --- NUEVO: Lógica para disparar OTA ---
+
+            // --- Lógica para disparar OTA ---
             if (strstr(event->topic, "ota_cmd") != NULL) {
                 ESP_LOGI(TAG, "Comando OTA recibido. Longitud: %d", event->data_len);
-                char *url_buffer = calloc(1, event->data_len + 1);
+                
+                char *url_buffer = calloc(1, event->data_len + 2);
                 if (url_buffer != NULL) {
                     memcpy(url_buffer, event->data, event->data_len);
                     url_buffer[event->data_len] = '\0';
-                    ESP_LOGI(TAG, "Iniciando OTA con URL: %s", url_buffer);
-                    esp_err_t ret = ota_manager_start(url_buffer);
-                    if (ret != ESP_OK) {
-                        ESP_LOGE(TAG, "Error al iniciar tarea OTA: %s", esp_err_to_name(ret));
+                    
+                    // 🧹 LIMPIEZA ROBUSTA: Buscar el inicio de "http" o "https" e ignorar cualquier basura anterior
+                    char *start = strstr(url_buffer, "http");
+                    if (start == NULL) {
+                        ESP_LOGE(TAG, "❌ No se encontró 'http' en el payload. Volcado HEX del payload recibido:");
+                        ESP_LOG_BUFFER_HEX(TAG, url_buffer, event->data_len);
                         free(url_buffer);
+                    } else {
+                        // Encontrar el final de la URL (detenerse en el primer caracter no imprimible, espacio o comilla)
+                        char *end = start;
+                        while (*end != '\0' && isprint((unsigned char)*end) && *end != ' ' && *end != '\n' && *end != '\r' && *end != '"') {
+                            end++;
+                        }
+                        
+                        size_t clean_len = end - start;
+                        memmove(url_buffer, start, clean_len);
+                        url_buffer[clean_len] = '\0'; // Asegurar null-termination
+
+                        ESP_LOGI(TAG, "🔗 URL limpia para OTA: '%s' (longitud: %d)", url_buffer, clean_len);
+                        ESP_LOG_BUFFER_HEX("OTA_URL_HEX", url_buffer, clean_len);
+                        
+                        esp_err_t ret = ota_manager_start(url_buffer);
+                        if (ret != ESP_OK) {
+                            ESP_LOGE(TAG, "Error al iniciar tarea OTA: %s", esp_err_to_name(ret));
+                        }
+                        
                     }
                 }
             }
+            // --- MANEJO DE CONFIGURACIÓN DE NODOS ---
+            else if (strstr(event->topic, "node_cfg") != NULL) {
+                ESP_LOGI(TAG, "📥 Configuración de nodo recibida en %.*s", event->topic_len, event->topic);
+                
+                char *data = calloc(1, event->data_len + 1);
+                if (data != NULL) {
+                    memcpy(data, event->data, event->data_len);
+                    
+                    cJSON *root = cJSON_Parse(data);
+                    if (root) {
+                        cJSON *mac_json = cJSON_GetObjectItem(root, "node_mac");
+                        cJSON *name = cJSON_GetObjectItem(root, "node_name");
+                        cJSON *location = cJSON_GetObjectItem(root, "location");
+                        cJSON *room = cJSON_GetObjectItem(root, "room");
+                        cJSON *threshold = cJSON_GetObjectItem(root, "distance_threshold");
+
+                        if (cJSON_IsString(mac_json) && cJSON_IsString(name) && cJSON_IsString(location) && 
+                            cJSON_IsString(room) && cJSON_IsNumber(threshold)) {
+                            
+                            uint8_t parsed_mac[6];
+                            if (sscanf(mac_json->valuestring, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+                                       &parsed_mac[0], &parsed_mac[1], &parsed_mac[2], 
+                                       &parsed_mac[3], &parsed_mac[4], &parsed_mac[5]) == 6) {
+                                
+                                int idx = find_node_index(parsed_mac);
+                                if (idx >= 0) {
+                                    strncpy(node_registry.nodes[idx].name, name->valuestring, sizeof(node_registry.nodes[idx].name) - 1);
+                                    strncpy(node_registry.nodes[idx].location, location->valuestring, sizeof(node_registry.nodes[idx].location) - 1);
+                                    strncpy(node_registry.nodes[idx].room, room->valuestring, sizeof(node_registry.nodes[idx].room) - 1);
+                                    node_registry.nodes[idx].distance_threshold = (uint8_t)threshold->valueint;
+                                    
+                                    save_node_registry();
+                                    ESP_LOGI(TAG, "✅ Nodo %s actualizado y guardado en NVS", name->valuestring);
+                                    
+                                    char espnow_cmd[128];
+                                    snprintf(espnow_cmd, sizeof(espnow_cmd), "CFG_FULL:%s|%s|%s|%d", 
+                                             node_registry.nodes[idx].name, 
+                                             node_registry.nodes[idx].location, 
+                                             node_registry.nodes[idx].room, 
+                                             node_registry.nodes[idx].distance_threshold);
+                                    
+                                    esp_now_peer_info_t peer = {0};
+                                    memcpy(peer.peer_addr, node_registry.nodes[idx].mac, 6);
+                                    peer.channel = 5;
+                                    peer.encrypt = false;
+                                    esp_now_add_peer(&peer);
+                                    
+                                    esp_err_t err = esp_now_send(node_registry.nodes[idx].mac, (uint8_t *)espnow_cmd, strlen(espnow_cmd));
+                                    if (err == ESP_OK) {
+                                        ESP_LOGI(TAG, "📤 Configuración enviada al nodo vía ESP-NOW");
+                                    } else {
+                                        ESP_LOGE(TAG, "❌ Error al enviar ESP-NOW: %d", err);
+                                    }
+                                } else {
+                                    ESP_LOGW(TAG, "⚠️ Nodo con MAC %s no encontrado en el registro", mac_json->valuestring);
+                                }
+                            }
+                        }
+                        cJSON_Delete(root);
+                    } else {
+                        ESP_LOGE(TAG, "❌ Error al parsear JSON de configuración de nodo");
+                    }
+                    free(data);
+                }
+            }
             break;
-            
         case MQTT_EVENT_ERROR:
             ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
             if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
@@ -409,8 +501,8 @@ static void start_mqtt_client(const char *broker_uri) {
        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
        .credentials.client_id = client_id_str,
        // ✅ NUEVAS LÍNEAS DE SEGURIDAD:
-       .credentials.username = "hub_user",
-       .credentials.authentication.password = "HubSecure2026!", 
+       .credentials.username = "s360_hub",
+       .credentials.authentication.password = "S3g@360Hub!2026", 
    };
     
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);

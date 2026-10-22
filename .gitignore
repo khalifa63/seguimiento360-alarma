@@ -1,15 +1,62 @@
-# Ignorar carpetas de compilación de ESP-IDF
-**/build/
-**/managed_components/
-sdkconfig
-sdkconfig.old
-sdkconfig.defaults.bak
+# ============================================
+# Seguimiento 360 - Archivo .gitignore
+# Evita subir archivos sensibles al repositorio
+# ============================================
 
-# Ignorar archivos de backup temporales
-*.bak.*
-*.save
+# Variables de entorno (Secretos y Tokens)
+.env
+.env.local
+.env.production
+
+# Node-RED - Archivos con credenciales
+nodered/data/settings.js
+nodered/data/flows_cred.json
+nodered/data/.config.json
+nodered/data/.sessions.json
+
+# Backups de Base de Datos
+*.sql
+*.sql.gz
+backups/
+backup_*.tar.gz
+
+# Logs de producción
 *.log
+mosquitto/log/
+nodered/data/.config.json.backup*
 
-# Ignorar archivos de sistema
+# Archivos temporales del sistema
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE y Editores
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node modules (si se agregan fuera de contenedores)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker volumes montados localmente (si aplica)
+influxdb/data/
+grafana/data/
+uptime-kuma/data/
+gotify-data/
+mosquitto/data/
+
+# Certificados SSL (si se generan localmente)
+*.pem
+*.key
+*.crt
+*.cert
+
+# Archivos de configuración con datos reales
+traccar/traccar.xml.local
+mosquitto/config/passwd

@@ -1,0 +1,49 @@
+/**
+ * ============================================
+ * Seguimiento 360 - Plantilla de Configuración Node-RED
+ * ============================================
+ * 
+ * INSTRUCCIONES:
+ * 1. Copia este archivo como 'settings.js' en el mismo directorio
+ * 2. Reemplaza TODOS los valores marcados con 'TU_...' por tus credenciales reales
+ * 3. NUNCA subas el archivo settings.js real al repositorio (está en .gitignore)
+ * 
+ * UBICACIÓN REAL EN PRODUCCIÓN:
+ * /var/lib/docker/volumes/iot-alarma_nodered-data/_data/settings.js
+ */
+
+module.exports = {
+    uiPort: 1880,
+    mqttReconnectTime: 15000,
+    serialReconnectTime: 15000,
+    debugMaxLength: 1000,
+
+    functionGlobalContext: {
+        bcrypt: require('bcryptjs'),
+        pg: require('pg'),
+        jwt: require('jsonwebtoken'),
+        jwtSecret: 'TU_JWT_SECRET_DE_32_CARACTERES_AQUI',
+        dbConfig: {
+            host: 'postgres',
+            port: 5432,
+            database: 'seguimiento360_alarmas',
+            user: 'nodered_app',
+            password: 'TU_CONTRASENA_DE_POSTGRESQL_AQUI'
+        }
+    },
+
+    editorTheme: {
+        projects: {
+            enabled: false
+        }
+    },
+
+    httpNodeRoot: "/",
+
+    logging: {
+        console: {
+            level: "info",
+            audit: false
+        }
+    }
+};

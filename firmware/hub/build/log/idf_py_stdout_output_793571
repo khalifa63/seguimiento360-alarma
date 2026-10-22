@@ -1,0 +1,160 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce3810,len:0x178c
+load:0x403c9700,len:0x4
+load:0x403c9704,len:0xcbc
+load:0x403cc700,len:0x2d9c
+entry 0x403c9914
+[0;32mI (27) boot: ESP-IDF v5.2.2 2nd stage bootloader[0m
+[0;32mI (27) boot: compile time Oct 19 2026 14:38:06[0m
+[0;32mI (27) boot: Multicore bootloader[0m
+[0;32mI (30) boot: chip revision: v0.2[0m
+[0;32mI (34) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (38) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (43) boot.esp32s3: SPI Flash Size : 16MB[0m
+[0;32mI (48) boot: Enabling RNG early entropy source...[0m
+[0;32mI (53) boot: Partition Table:[0m
+[0;32mI (57) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (64) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (72) boot:  1 nvs_state        WiFi data        01 02 0000f000 00004000[0m
+[0;32mI (79) boot:  2 nvs_nodes        WiFi data        01 02 00013000 00008000[0m
+[0;32mI (87) boot:  3 otadata          OTA data         01 00 0001b000 00002000[0m
+[0;32mI (94) boot:  4 phy_init         RF data          01 01 0001d000 00001000[0m
+[0;32mI (102) boot:  5 ota_0            OTA app          00 10 00020000 00180000[0m
+[0;32mI (109) boot:  6 ota_1            OTA app          00 11 001a0000 00180000[0m
+[0;32mI (117) boot: End of partition table[0m
+[0;32mI (121) esp_image: segment 0: paddr=00020020 vaddr=3c0c0020 size=4271ch (272156) map[0m
+[0;32mI (178) esp_image: segment 1: paddr=00062744 vaddr=3fc99c00 size=04b60h ( 19296) load[0m
+[0;32mI (183) esp_image: segment 2: paddr=000672ac vaddr=40374000 size=08d6ch ( 36204) load[0m
+[0;32mI (192) esp_image: segment 3: paddr=00070020 vaddr=42000020 size=b3830h (735280) map[0m
+[0;32mI (324) esp_image: segment 4: paddr=00123858 vaddr=4037cd6c size=0cde0h ( 52704) load[0m
+[0;32mI (345) boot: Loaded app from partition at offset 0x20000[0m
+[0;32mI (345) boot: Disabling RNG early entropy source...[0m
+[0;32mI (357) cpu_start: Multicore app[0m
+[0;32mI (357) octal_psram: vendor id    : 0x0d (AP)[0m
+[0;32mI (357) octal_psram: dev id       : 0x02 (generation 3)[0m
+[0;32mI (360) octal_psram: density      : 0x03 (64 Mbit)[0m
+[0;32mI (366) octal_psram: good-die     : 0x01 (Pass)[0m
+[0;32mI (371) octal_psram: Latency      : 0x01 (Fixed)[0m
+[0;32mI (376) octal_psram: VCC          : 0x01 (3V)[0m
+[0;32mI (381) octal_psram: SRF          : 0x01 (Fast Refresh)[0m
+[0;32mI (387) octal_psram: BurstType    : 0x01 (Hybrid Wrap)[0m
+[0;32mI (393) octal_psram: BurstLen     : 0x01 (32 Byte)[0m
+[0;32mI (399) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)[0m
+[0;32mI (405) octal_psram: DriveStrength: 0x00 (1/1)[0m
+[0;32mI (411) MSPI Timing: PSRAM timing tuning index: 5[0m
+[0;32mI (415) esp_psram: Found 8MB PSRAM device[0m
+[0;32mI (420) esp_psram: Speed: 80MHz[0m
+[0;32mI (876) esp_psram: SPI SRAM memory test OK[0m
+[0;32mI (885) cpu_start: Pro cpu start user code[0m
+[0;32mI (885) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (885) cpu_start: Application information:[0m
+[0;32mI (888) cpu_start: Project name:     seguimiento360_hub[0m
+[0;32mI (894) cpu_start: App version:      v6.0.0-pre-ota-4-gfa27fc8-dirty[0m
+[0;32mI (901) cpu_start: Compile time:     Oct 19 2026 14:37:40[0m
+[0;32mI (907) cpu_start: ELF file SHA256:  886306b43...[0m
+[0;32mI (913) cpu_start: ESP-IDF:          v5.2.2[0m
+[0;32mI (918) cpu_start: Min chip rev:     v0.0[0m
+[0;32mI (922) cpu_start: Max chip rev:     v0.99 [0m
+[0;32mI (927) cpu_start: Chip rev:         v0.2[0m
+[0;32mI (932) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (939) heap_init: At 3FCA33D0 len 00046340 (280 KiB): RAM[0m
+[0;32mI (945) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (951) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (958) heap_init: At 600FE010 len 00001FD8 (7 KiB): RTCRAM[0m
+[0;32mI (964) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator[0m
+[0;32mI (972) spi_flash: detected chip: boya[0m
+[0;32mI (976) spi_flash: flash io: dio[0m
+[0;32mI (980) sleep: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (987) sleep: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (994) main_task: Started on CPU0[0m
+[0;32mI (998) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations[0m
+[0;32mI (1007) main_task: Calling app_main()[0m
+[0;32mI (1052) gpio: GPIO[48]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1055) pp: pp rom version: e7ae62f[0m
+[0;32mI (1056) net80211: net80211 rom version: e7ae62f[0m
+[0;32mI (1062) wifi:wifi driver task: 3fcb5ec4, prio:23, stack:6656, core=0[0m
+[0;32mI (1087) wifi:wifi firmware version: 3e0076f[0m
+[0;32mI (1088) wifi:wifi certification version: v7.0[0m
+[0;32mI (1088) wifi:config NVS flash: enabled[0m
+[0;32mI (1088) wifi:config nano formating: disabled[0m
+[0;32mI (1093) wifi:Init data frame dynamic rx buffer num: 32[0m
+[0;32mI (1098) wifi:Init static rx mgmt buffer num: 5[0m
+[0;32mI (1102) wifi:Init management short buffer num: 32[0m
+[0;32mI (1107) wifi:Init static tx buffer num: 16[0m
+[0;32mI (1111) wifi:Init tx cache buffer num: 32[0m
+[0;32mI (1114) wifi:Init static tx FG buffer num: 2[0m
+[0;32mI (1118) wifi:Init static rx buffer size: 1600[0m
+[0;32mI (1122) wifi:Init static rx buffer num: 10[0m
+[0;32mI (1126) wifi:Init dynamic rx buffer num: 32[0m
+[0;32mI (1131) wifi_init: rx ba win: 6[0m
+[0;32mI (1134) wifi_init: tcpip mbox: 32[0m
+[0;32mI (1138) wifi_init: udp mbox: 6[0m
+[0;32mI (1142) wifi_init: tcp mbox: 6[0m
+[0;32mI (1146) wifi_init: tcp tx win: 5760[0m
+[0;32mI (1150) wifi_init: tcp rx win: 5760[0m
+[0;32mI (1154) wifi_init: tcp mss: 1440[0m
+[0;32mI (1158) wifi_init: WiFi IRAM OP enabled[0m
+[0;32mI (1163) wifi_init: WiFi RX IRAM OP enabled[0m
+[0;32mI (1168) wifi:Set ps type: 0, coexist: 0[0m
+
+[0;32mI (1179) phy_init: phy_version 670,b7bc9b9,Apr 30 2024,10:54:13[0m
+[0;32mI (1227) wifi:mode : sta (3c:dc:75:62:c2:b0) + softAP (3c:dc:75:62:c2:b1)[0m
+[0;32mI (1228) wifi:enable tsf[0m
+[0;32mI (1232) wifi:Total power save buffer number: 8[0m
+[0;32mI (1233) wifi:Init max length of beacon: 752/752[0m
+[0;32mI (1234) wifi:Init max length of beacon: 752/752[0m
+[0;32mI (1240) ESPNOW: espnow [version: 1.0] init[0m
+[0;32mI (1243) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1[0m
+[0;32mI (1252) wifi:ap channel adjust o:1,1 n:5,2[0m
+[0;32mI (1255) wifi:new:<5,0>, old:<1,1>, ap:<5,2>, sta:<5,0>, prof:1[0m
+[0;32mI (1262) wifi:state: init -> auth (b0)[0m
+[0;32mI (1274) HUB_S3_MAIN: Registro de nodos cargado: 1 nodos vinculados.[0m
+[0;32mI (1275) HUB_S3_MAIN: Peer restaurado: a0:f2:62:f1:d0:f0 (GENERIC)[0m
+[0;32mI (1278) HUB_S3_MAIN: Se restauraron 1 nodos en la lista de peers de ESP-NOW.[0m
+[0;32mI (1290) HUB_S3_MAIN: Portal Cautivo v2 iniciado en http://192.168.4.1[0m
+[0;32mI (1410) wifi:state: auth -> assoc (0)[0m
+[0;32mI (1662) wifi:state: assoc -> run (10)[0m
+[0;32mI (1678) wifi:connected with KHALIFA_R, aid = 9, channel 5, BW20, bssid = 8c:5f:ad:3b:f0:8b[0m
+[0;32mI (1679) wifi:security: WPA2-PSK, phy: bgn, rssi: -46[0m
+[0;32mI (1684) wifi:pm start, type: 0[0m
+
+[0;32mI (1684) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us[0m
+[0;32mI (1691) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000[0m
+[0;32mI (1768) wifi:AP's beacon interval = 102400 us, DTIM period = 1[0m
+[0;32mI (2100) HUB_S3_MAIN: ============================================================[0m
+[0;32mI (2100) HUB_S3_MAIN:    Seguimiento 360 HUB v6.0.0-pre-ota-4-gfa27fc8-dirty - PRODUCCIÓN[0m
+[0;32mI (2106) HUB_S3_MAIN: ============================================================[0m
+[0;32mI (2114) HUB_S3_MAIN: MAC: 3cdc7562c2b0[0m
+[0;32mI (2119) HUB_S3_MAIN: Tenant: 1 | Site: 1[0m
+[0;32mI (2123) HUB_S3_MAIN: Nodos vinculados: 1/20[0m
+[0;32mI (2128) HUB_S3_MAIN: Broker MQTT: wss://mqtt.seguimiento360.com:443[0m
+[0;32mI (2135) HUB_S3_MAIN: Portal Cautivo: http://192.168.4.1 (timeout: 10 min)[0m
+[0;32mI (2143) HUB_S3_MAIN: ============================================================[0m
+[0;32mI (2151) main_task: Returned from app_main()[0m
+[0;32mI (2701) esp_netif_handlers: sta ip: 192.168.10.12, mask: 255.255.255.0, gw: 192.168.10.1[0m
+[0;32mI (2702) HUB_S3_MAIN: Obtenida IP: 192.168.10.12[0m
+[0;32mI (2706) HUB_S3_MAIN: SNTP iniciado (pool.ntp.org, zona UTC)[0m
+[0;32mI (2712) HUB_S3_MAIN: Cliente MQTT iniciado. URI: wss://mqtt.seguimiento360.com:443, ClientID: hub_3cdc7562c2b0[0m
+[0;32mI (2716) wifi:<ba-add>idx:0 (ifx:0, 8c:5f:ad:3b:f0:8b), tid:7, ssn:4, winSize:64[0m
+[0;32mI (3620) HUB_S3_MAIN: 🕐 Hora sincronizada vía SNTP[0m
+[0;32mI (3940) esp-x509-crt-bundle: Certificate validated[0m
+[0;32mI (4957) HUB_S3_MAIN: ✅ MQTT_EVENT_CONNECTED[0m
+[0;32mI (4963) HUB_S3_MAIN: 📡 Publicado HUB_ONLINE al servidor central[0m
+[0;32mI (4969) HUB_S3_MAIN: Suscrito a comandos OTA: seguimiento360/tenant/1/site/1/hub/3cdc7562c2b0/ota_cmd[0m
+[0;32mI (4974) HUB_S3_MAIN: 📡 Suscrito a configuración de nodos: seguimiento360/tenant/1/site/1/hub/3cdc7562c2b0/node_cfg[0m
+[0;32mI (14693) wifi:<ba-add>idx:1 (ifx:0, 8c:5f:ad:3b:f0:8b), tid:5, ssn:0, winSize:64[0m
+[0;32mI (15860) HUB_S3_MAIN: ESP-NOW RX: Code=ALRM, MAC=a0:f2:62:f1:d0:f0, Seq=12, Bat=95%[0m
+[0;32mI (15914) HUB_S3_MAIN: 📤 Publicando en MQTT -> Topic: seguimiento360/tenant/1/site/1/hub/3cdc7562c2b0/event[0m
+[0;32mI (15914) HUB_S3_MAIN: 📦 Payload: {"mac":"a0:f2:62:f1:d0:f0","node_name":"Sensor Garaje","location":"Casa Principal","room":"Garaje","event":"ALRM","seq":12,"battery":95,"distance_cm":9,"tenant":"1","site":"1"}[0m
+[0;32mI (15939) HUB_S3_MAIN: ✅ Evento publicado exitosamente (msg_id=59322)[0m
+[0;32mI (160081) HUB_S3_MAIN: MQTT_EVENT_DATA en tópico: seguimiento360/tenant/1/site/1/hub/3cdc7562c2b0/ota_cmd[0m
+[0;32mI (160081) HUB_S3_MAIN: Comando OTA recibido. Longitud: 46[0m
+[0;32mI (160087) HUB_S3_MAIN: Iniciando OTA con URL: https://seguimiento360.com/ota/firmware_v1.bin[0m
+[0;32mI (160096) OTA_MANAGER: Iniciando OTA desde: https://seguimiento360.com/ota/firmware_v1.bin[0m
+[0;31mE (160105) HTTP_CLIENT: invalid host[0m
+[0;31mE (160109) esp_https_ota: Failed to initialise HTTP connection[0m
+[0;31mE (160116) OTA_MANAGER: Error al iniciar OTA: ESP_FAIL[0m

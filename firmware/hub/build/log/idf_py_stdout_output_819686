@@ -1,0 +1,98 @@
+[1/10] Performing build step for 'bootloader'
+[1/1] cd /home/antonio/seguimiento360-alarma/firmware/hub/build/bootloader/esp-idf/esptool_py && /home/antonio/.espressif/python_env/idf5.2_py3.14_env/bin/python /home/antonio/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 /home/antonio/seguimiento360-alarma/firmware/hub/build/bootloader/bootloader.bin
+Bootloader binary size 0x5250 bytes. 0x2db0 bytes (36%) free.
+[2/10] No install step for 'bootloader'
+[3/10] Completed 'bootloader'
+[4/10] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/main.c.obj
+[5/10] Linking C static library esp-idf/main/libmain.a
+[6/10] Generating ld/sections.ld
+[7/10] Linking CXX executable seguimiento360_hub.elf
+[8/10] Generating binary image from built executable
+esptool.py v4.12.0
+Creating esp32s3 image...
+Merged 2 ELF sections
+Successfully created esp32s3 image.
+Generated /home/antonio/seguimiento360-alarma/firmware/hub/build/seguimiento360_hub.bin
+[9/10] cd /home/antonio/seguimiento360-alarma/firmware/hub/build/esp-idf/esptool_py && /home/antonio/.espressif/python_env/idf5.2_py3.14_env/bin/python /home/antonio/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/antonio/seguimiento360-alarma/firmware/hub/build/partition_table/partition-table.bin /home/antonio/seguimiento360-alarma/firmware/hub/build/seguimiento360_hub.bin
+seguimiento360_hub.bin binary size 0x110900 bytes. Smallest app partition is 0x180000 bytes. 0x6f700 bytes (29%) free.
+[9/10] cd /home/antonio/esp-idf/components/esptool_py && /usr/bin/cmake -D IDF_PATH=/home/antonio/esp-idf -D "SERIAL_TOOL=/home/antonio/.espressif/python_env/idf5.2_py3.14_env/bin/python;;/home/antonio/esp-idf/components/esptool_py/esptool/esptool.py;--chip;esp32s3" -D "SERIAL_TOOL_ARGS=--before=default_reset;--after=hard_reset;write_flash;@flash_args" -D WORKING_DIRECTORY=/home/antonio/seguimiento360-alarma/firmware/hub/build -P /home/antonio/esp-idf/components/esptool_py/run_serial_tool.cmake
+esptool.py --chip esp32s3 -p /dev/ttyACM0 -b 460800 --before=default_reset --after=hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB 0x0 bootloader/bootloader.bin 0x20000 seguimiento360_hub.bin 0x8000 partition_table/partition-table.bin 0x1b000 ota_data_initial.bin
+esptool.py v4.12.0
+Serial port /dev/ttyACM0
+Connecting....
+Chip is ESP32-S3 (QFN56) (revision v0.2)
+Features: WiFi, BLE, Embedded PSRAM 8MB (AP_3v3)
+Crystal is 40MHz
+MAC: 3c:dc:75:62:c2:b0
+Uploading stub...
+Running stub...
+Stub running...
+Changing baud rate to 460800
+Changed.
+Configuring flash size...
+Flash will be erased from 0x00000000 to 0x00005fff...
+Flash will be erased from 0x00020000 to 0x00130fff...
+Flash will be erased from 0x00008000 to 0x00008fff...
+Flash will be erased from 0x0001b000 to 0x0001cfff...
+SHA digest in image updated
+Compressed 21072 bytes to 13056...
+Writing at 0x00000000... (100 %)
+Wrote 21072 bytes (13056 compressed) at 0x00000000 in 0.6 seconds (effective 290.8 kbit/s)...
+Hash of data verified.
+Compressed 1116416 bytes to 689515...
+Writing at 0x00020000... (2 %)
+Writing at 0x0002c94f... (4 %)
+Writing at 0x0003ad4e... (6 %)
+Writing at 0x00040f64... (9 %)
+Writing at 0x00045f8e... (11 %)
+Writing at 0x0004b4da... (13 %)
+Writing at 0x00051f4c... (16 %)
+Writing at 0x00056fee... (18 %)
+Writing at 0x00060c6d... (20 %)
+Writing at 0x0006a6bb... (23 %)
+Writing at 0x00070924... (25 %)
+Writing at 0x00076d36... (27 %)
+Writing at 0x0007d050... (30 %)
+Writing at 0x00083568... (32 %)
+Writing at 0x00089733... (34 %)
+Writing at 0x0008f0e7... (37 %)
+Writing at 0x00094fdd... (39 %)
+Writing at 0x0009ada6... (41 %)
+Writing at 0x000a0938... (44 %)
+Writing at 0x000a71e8... (46 %)
+Writing at 0x000ad487... (48 %)
+Writing at 0x000b2ec2... (51 %)
+Writing at 0x000b8dd3... (53 %)
+Writing at 0x000bf2cc... (55 %)
+Writing at 0x000c50c8... (58 %)
+Writing at 0x000ca964... (60 %)
+Writing at 0x000cf82f... (62 %)
+Writing at 0x000d49f4... (65 %)
+Writing at 0x000d98ae... (67 %)
+Writing at 0x000ded10... (69 %)
+Writing at 0x000e3fa3... (72 %)
+Writing at 0x000e95b0... (74 %)
+Writing at 0x000ef306... (76 %)
+Writing at 0x000f4c6e... (79 %)
+Writing at 0x000faa16... (81 %)
+Writing at 0x0010070d... (83 %)
+Writing at 0x00105af7... (86 %)
+Writing at 0x0010b8aa... (88 %)
+Writing at 0x001161c9... (90 %)
+Writing at 0x0011e1d9... (93 %)
+Writing at 0x001240eb... (95 %)
+Writing at 0x0012a8b2... (97 %)
+Writing at 0x0013005d... (100 %)
+Wrote 1116416 bytes (689515 compressed) at 0x00020000 in 15.7 seconds (effective 568.1 kbit/s)...
+Hash of data verified.
+Compressed 3072 bytes to 155...
+Writing at 0x00008000... (100 %)
+Wrote 3072 bytes (155 compressed) at 0x00008000 in 0.0 seconds (effective 522.3 kbit/s)...
+Hash of data verified.
+Compressed 8192 bytes to 31...
+Writing at 0x0001b000... (100 %)
+Wrote 8192 bytes (31 compressed) at 0x0001b000 in 0.0 seconds (effective 1348.2 kbit/s)...
+Hash of data verified.
+
+Leaving...
+Hard resetting via RTS pin...

@@ -52,6 +52,7 @@ nav:
       - backend/README.md
       - backend/database.md
       - backend/nodered-flows.md
+      - backend/api-auth.md
   - Infraestructura:
       - infraestructura/ESTADO_ACTUAL.md
       - infraestructura/FLUJOS_NODERED.md
@@ -76,3 +77,6 @@ nav:
       - gobernanza/README.md
       - gobernanza/PROMPT-SDD-MASTER.md
       - gobernanza/PROMPT-SDD-SERVER.md
+  - Desarrollo:
+      - desarrollo/README.md
+      - desarrollo/PLAN-DE-ARRANQUE.md

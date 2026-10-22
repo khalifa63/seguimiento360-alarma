@@ -11,7 +11,8 @@
 | Si eres... | Empieza por |
 |---|---|
 | Nuevo en el proyecto | [Visión y alcance](00-vision.md) |
-| Desarrollador de firmware | [Marco teórico del firmware](marco-teorico/marco-teorico-firmware.md) · [Índice de firmware](firmware/README.md) |
+| Desarrollador de firmware | [Marco teórico del firmware](marco-teorico/marco-teorico-firmware.md) · [Plan de arranque](desarrollo/PLAN-DE-ARRANQUE.md) |
+| Continuar el desarrollo | [Plan de arranque](desarrollo/PLAN-DE-ARRANQUE.md) · [Estado actual](desarrollo/README.md) |
 | Backend / Node-RED | [Backend](backend/README.md) |
 | Operaciones / servidor | [Estado actual de la infraestructura](infraestructura/ESTADO_ACTUAL.md) |
 | Hardware | [Hardware](hardware/README.md) |
@@ -46,6 +47,7 @@
 - [Índice de backend](backend/README.md)
 - [Base de datos PostgreSQL](backend/database.md)
 - [Flujos Node-RED](backend/nodered-flows.md)
+- [API de autenticación y usuarios](backend/api-auth.md)
 - [Plantilla de `settings.js`](../nodered/data/settings.js.example)
 
 ### 5. Infraestructura y operación
@@ -81,7 +83,12 @@
 - [Prompt maestro de firmware](gobernanza/PROMPT-SDD-MASTER.md)
 - [Prompt maestro de servidor](gobernanza/PROMPT-SDD-SERVER.md)
 
-### 9. Archivo
+### 9. Desarrollo
+
+- [Plan de arranque](desarrollo/PLAN-DE-ARRANQUE.md)
+- [Índice de desarrollo](desarrollo/README.md)
+
+### 10. Archivo
 
 - [Documentos históricos](_archivo/README.md)
 

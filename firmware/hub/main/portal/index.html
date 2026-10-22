@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración Hub - Seguimiento 360</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 500px; margin: 2rem auto; padding: 1rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.3rem; font-weight: bold; }
+        input { width: 100%; padding: 0.5rem; box-sizing: border-box; }
+        button { width: 100%; padding: 0.7rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #0056b3; }
+        .msg { margin-top: 1rem; padding: 0.5rem; border-radius: 4px; display: none; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h2>⚙️ Configuración Inicial del Hub</h2>
+    <form id="configForm">
+        <div class="form-group">
+            <label>Nombre del Hub (ej: Hub Entrada Principal)</label>
+            <input type="text" id="hub_name" required maxlength="31">
+        </div>
+        <div class="form-group">
+            <label>Red Wi-Fi (SSID)</label>
+            <input type="text" id="ssid" required maxlength="31">
+        </div>
+        <div class="form-group">
+            <label>Contraseña Wi-Fi</label>
+            <input type="password" id="password" required maxlength="63">
+        </div>
+        <div class="form-group">
+            <label>Tenant ID</label>
+            <input type="text" id="tenant_id" value="0" required maxlength="15">
+        </div>
+        <div class="form-group">
+            <label>Site ID</label>
+            <input type="text" id="site_id" value="site0" required maxlength="31">
+        </div>
+        <button type="submit">💾 Guardar y Reiniciar</button>
+    </form>
+    <div id="msg" class="msg"></div>
+
+    <script>
+        // Cargar configuración actual al iniciar
+        fetch('/api/config')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('hub_name').value = data.hub_name || '';
+                document.getElementById('ssid').value = data.ssid || '';
+                document.getElementById('tenant_id').value = data.tenant_id || '0';
+                document.getElementById('site_id').value = data.site_id || 'site0';
+            })
+            .catch(e => console.log("No se pudo cargar config (normal si es primera vez)"));
+
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.disabled = true;
+            btn.textContent = 'Guardando...';
+
+            const payload = {
+                hub_name: document.getElementById('hub_name').value,
+                ssid: document.getElementById('ssid').value,
+                password: document.getElementById('password').value,
+                tenant_id: document.getElementById('tenant_id').value,
+                site_id: document.getElementById('site_id').value
+            };
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const result = await res.json();
+                const msg = document.getElementById('msg');
+                if (result.status === 'ok') {
+                    msg.className = 'msg success';
+                    msg.textContent = '✅ Configuración guardada. El Hub se reiniciará en 3 segundos...';
+                    msg.style.display = 'block';
+                    setTimeout(() => window.location.href = '/status', 3000);
+                } else {
+                    throw new Error(result.message || 'Error desconocido');
+                }
+            } catch (err) {
+                const msg = document.getElementById('msg');
+                msg.className = 'msg error';
+                msg.textContent = '❌ Error: ' + err.message;
+                msg.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = '💾 Guardar y Reiniciar';
+            }
+        });
+    </script>
+</body>
+</html>

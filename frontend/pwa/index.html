@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <title>Seguimiento 360 | Alarmas</title>
+    <link rel="manifest" href="manifest.json?v=__V__">
+    <link rel="stylesheet" href="css/styles.css?v=__V__">
+</head>
+<body>
+
+    <header style="padding: 1rem; text-align: center; border-bottom: 1px solid #334155;">
+        <h1 style="font-size: 1.2rem; color: var(--accent);">🛡️ S360 Alarmas</h1>
+    </header>
+
+    <main id="app-container">
+        <div id="view-loader" style="text-align: center; margin-top: 50%;">
+            <p>Cargando sistema...</p>
+        </div>
+    </main>
+
+    <footer style="text-align: center; padding: 1rem; color: var(--text-secondary); font-size: 0.8rem;">
+        &copy; 2026 Seguimiento 360 - v1.0
+    </footer>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js?v=__V__')
+                    .then(reg => console.log('[SW] registrado v=__V__'))
+                    .catch(err => console.error('[SW] error', err));
+            });
+        }
+    </script>
+
+    <script type="module" src="js/app.js?v=__V__"></script>
+</body>
+</html>

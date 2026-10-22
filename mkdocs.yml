@@ -1,0 +1,77 @@
+site_name: Seguimiento 360 · Alarma
+site_description: Documentación única del proyecto
+docs_dir: docs
+
+theme:
+  name: material
+  language: es
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+
+not_in_nav: |
+  _archivo/**
+
+nav:
+  - Inicio: README.md
+  - Visión y alcance: 00-vision.md
+  - Manual general: 01-manual-general.md
+  - Estado por fases: fases/RESUMEN_FASES.md
+  - Hardware:
+      - hardware/README.md
+      - hardware/ARQUITECTURA_HUB.md
+      - hardware/PROTOCOLO_ESPNOW.md
+      - hardware/validacion-m2bis.md
+      - hardware/INFRA-REAL.md
+      - hardware/A1-TAREAS-FREERTOS.md
+      - hardware/A2-MAQUINAS-ESTADO.md
+      - hardware/A3-PRESUPUESTO-MEMORIA.md
+      - hardware/A4-MODELO-SEGURIDAD.md
+      - hardware/A5-SECUENCIAS-INTEGRACION.md
+      - hardware/A6-REGISTRO-RIESGOS.md
+      - hardware/A7-HITOS-M1-M7.md
+      - hardware/A8-PREGUNTAS-ABIERTAS.md
+  - Firmware:
+      - firmware/README.md
+      - firmware/hub.md
+      - Specs:
+          - firmware/specs/00-gobierno-sdd.md
+          - firmware/specs/01-requisitos.md
+          - firmware/specs/02-interfaces.md
+          - firmware/specs/03-pruebas-aceptacion.md
+  - Backend:
+      - backend/README.md
+      - backend/database.md
+      - backend/nodered-flows.md
+  - Infraestructura:
+      - infraestructura/ESTADO_ACTUAL.md
+      - infraestructura/FLUJOS_NODERED.md
+      - infraestructura/CLOUDFLARE_RUTAS.md
+  - Patrones: patrones/PATRONES_DISENO.md
+  - Marco teórico:
+      - marco-teorico/portada.md
+      - marco-teorico/00_indice.md
+      - marco-teorico/01_introduccion.md
+      - marco-teorico/02_estado_del_arte.md
+      - marco-teorico/03_analisis_mercado.md
+      - marco-teorico/04_arquitectura_sistema.md
+      - marco-teorico/05_diseno_hardware.md
+      - marco-teorico/06_diseno_software.md
+      - marco-teorico/07_seguridad.md
+      - marco-teorico/08_despliegue_operacion.md
+      - marco-teorico/09_plan_negocio.md
+      - marco-teorico/10_conclusiones.md
+      - marco-teorico/referencias.md
+  - Gobernanza:
+      - gobernanza/README.md
+      - gobernanza/PROMPT-SDD-MASTER.md
+      - gobernanza/PROMPT-SDD-SERVER.md

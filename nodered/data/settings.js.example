@@ -1,0 +1,70 @@
+/**
+ * ============================================
+ * Seguimiento 360 - Plantilla de configuración Node-RED
+ * ============================================
+ *
+ * INSTRUCCIONES
+ * 1. Copia este archivo como `settings.js` en el mismo directorio.
+ * 2. Define las variables de entorno en `.env` (nunca las escribas aquí).
+ * 3. NUNCA subas el `settings.js` real al repositorio.
+ *
+ * VARIABLES DE ENTORNO
+ *   NODE_RED_ADMIN_USER           usuario del editor (por defecto: admin)
+ *   NODE_RED_ADMIN_HASH           hash bcrypt generado con `npx node-red admin hash-pw`
+ *   NODE_RED_CREDENTIAL_SECRET    secreto de credenciales de Node-RED
+ *   JWT_SECRET                    mínimo 32 caracteres (openssl rand -hex 32)
+ *   PG_HOST / PG_PORT / PG_DATABASE / PG_USER / PG_PASSWORD
+ *   CORS_ORIGIN                   origen permitido por la API (por defecto: *)
+ *
+ * UBICACIÓN REAL EN PRODUCCIÓN
+ *   /var/lib/docker/volumes/iot-alarma_nodered-data/_data/settings.js
+ */
+
+module.exports = {
+    uiPort: parseInt(process.env.NODE_RED_PORT || '1880', 10),
+    uiHost: process.env.NODE_RED_HOST || '0.0.0.0',
+    credentialSecret: process.env.NODE_RED_CREDENTIAL_SECRET,
+
+    adminAuth: {
+        type: 'credentials',
+        users: [{
+            username: process.env.NODE_RED_ADMIN_USER || 'admin',
+            password: process.env.NODE_RED_ADMIN_HASH,
+            permissions: '*'
+        }]
+    },
+
+    functionGlobalContext: {
+        bcrypt: require('bcryptjs'),
+        pg: require('pg'),
+        jwt: require('jsonwebtoken'),
+        jwtSecret: process.env.JWT_SECRET,
+        dbConfig: {
+            host: process.env.PG_HOST || 'postgres',
+            port: parseInt(process.env.PG_PORT || '5432', 10),
+            database: process.env.PG_DATABASE || 'seguimiento360_alarmas',
+            user: process.env.PG_USER || 'nodered_app',
+            password: process.env.PG_PASSWORD
+        }
+    },
+
+    httpNodeCors: {
+        origin: process.env.CORS_ORIGIN || '*',
+        methods: 'GET,PUT,POST,DELETE'
+    },
+
+    editorTheme: {
+        projects: {
+            enabled: false
+        }
+    },
+
+    httpNodeRoot: '/',
+
+    logging: {
+        console: {
+            level: 'info',
+            audit: false
+        }
+    }
+};

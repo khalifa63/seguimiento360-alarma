@@ -1,0 +1,89 @@
+# ============================================
+# Seguimiento 360 - Archivo .gitignore
+# ============================================
+
+# Variables de entorno (Secretos y Tokens)
+.env
+.env.local
+.env.production
+
+# Node-RED - Archivos con credenciales
+nodered/data/settings.js
+nodered/data/flows_cred.json
+nodered/data/.config.json
+nodered/data/.sessions.json
+nodered/data/.config.json.backup*
+
+# ESP-IDF Build Directories (NO subir)
+**/build/
+**/sdkconfig
+**/sdkconfig.old
+**/sdkconfig.defaults
+**/sdkconfig.ci.*
+
+# Backups de Base de Datos
+*.sql
+*.sql.gz
+backups/
+backup_*.tar.gz
+
+# Logs de producción
+*.log
+mosquitto/log/
+
+# Archivos temporales del sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE y Editores
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node modules (si se agregan fuera de contenedores)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker volumes montados localmente (si aplica)
+influxdb/data/
+grafana/data/
+uptime-kuma/data/
+gotify-data/
+mosquitto/data/
+
+# Certificados SSL (si se generan localmente)
+*.pem
+*.key
+*.crt
+*.cert
+
+# Archivos de configuración con datos reales
+traccar/traccar.xml.local
+mosquitto/config/passwd
+
+# Documentación generada
+.docs-work/
+site/
+dify-kb/
+
+# Herramientas locales de validación
+.npm-cache/
+.mkdocs-deps/
+.venv-docs/
+.tmp-pip/
+
+# Configuración real de Node-RED (la plantilla sí se versiona)
+backend/nodered/settings.js
+nodered/data/settings.js
+
+# Firmware: secretos y artefactos
+firmware/**/secrets.h
+firmware/**/backups/
+*.bak
+*.bak.*

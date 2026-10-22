@@ -58,6 +58,7 @@ nav:
       - infraestructura/CLOUDFLARE_RUTAS.md
   - Patrones: patrones/PATRONES_DISENO.md
   - Marco teórico:
+      - marco-teorico/marco-teorico-firmware.md
       - marco-teorico/portada.md
       - marco-teorico/00_indice.md
       - marco-teorico/01_introduccion.md

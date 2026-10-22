@@ -14,6 +14,7 @@
     ".npm-cache/**",
     ".mkdocs-deps/**",
     ".venv-docs/**",
-    ".tmp-pip/**"
+    ".tmp-pip/**",
+    ".docs-work/**"
   ]
 }

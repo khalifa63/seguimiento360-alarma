@@ -2,6 +2,8 @@
 
 ## Marco Teórico y Diseño del Sistema
 
+> Para el desarrollo del firmware, la referencia vigente es [Marco teórico y arquitectura de referencia para el desarrollo del firmware](marco-teorico-firmware.md). Este documento se conserva como contexto académico y de negocio.
+
 Plataforma Seguimiento 360
 
 Autor: Antonio

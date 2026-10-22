@@ -11,7 +11,7 @@
 | Si eres... | Empieza por |
 |---|---|
 | Nuevo en el proyecto | [Visión y alcance](00-vision.md) |
-| Desarrollador de firmware | [Firmware](firmware/README.md) |
+| Desarrollador de firmware | [Marco teórico del firmware](marco-teorico/marco-teorico-firmware.md) · [Índice de firmware](firmware/README.md) |
 | Backend / Node-RED | [Backend](backend/README.md) |
 | Operaciones / servidor | [Estado actual de la infraestructura](infraestructura/ESTADO_ACTUAL.md) |
 | Hardware | [Hardware](hardware/README.md) |
@@ -60,6 +60,7 @@
 
 ### 7. Marco teórico
 
+- [Marco teórico del firmware](marco-teorico/marco-teorico-firmware.md) — documento único de referencia para el desarrollo
 - [Portada](marco-teorico/portada.md)
 - [Índice general](marco-teorico/00_indice.md)
 - [Introducción](marco-teorico/01_introduccion.md)

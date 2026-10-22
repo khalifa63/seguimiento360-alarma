@@ -87,3 +87,6 @@ firmware/**/secrets.h
 firmware/**/backups/
 *.bak
 *.bak.*
+
+# Previews temporales de Office
+.dsh-office-*/

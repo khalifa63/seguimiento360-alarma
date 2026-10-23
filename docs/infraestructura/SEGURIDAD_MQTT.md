@@ -166,6 +166,57 @@ existe durante el aprovisionamiento (timeout de 10 minutos de inactividad).
 Si se necesitara una contraseña distinta de la del SSID, habría que volver a
 definirla en `secrets.h` y reiniciar el ciclo de rotación.
 
+## Volcados de flash en el repositorio (2026-10-23)
+
+Se encontraron **32 MB de volcados de la flash del hub** versionados, del
+22 de agosto:
+
+| Archivo | Tamano | Contenido |
+|---|---:|---|
+| `hub_s3_full_20260822_163212.bin` | 16 MB | Volcado completo |
+| `hub_s3_full_backup_20260822_154626.bin` | 16 MB | Volcado completo |
+| `nvs_config_backup.bin` | 24 KB | **Credenciales WiFi y MQTT** |
+| `nvs_nodes_backup.bin` | 32 KB | Nodos vinculados |
+| `nvs_state_backup.bin` | 16 KB | Estado de alarma |
+
+La particion `nvs_config` guarda el SSID, la contrasena del WiFi y las
+credenciales MQTT del dispositivo. Estaban publicadas en GitHub, en un
+repositorio privado.
+
+Ademas habia 9 archivos `sdkconfig` versionados: el `.gitignore` tenia la
+regla, pero se commitearon antes de que existiera. Es el mismo patron que ya
+aparecio con los artefactos de `build/`.
+
+### Accion tomada
+
+Los archivos se sacaron del control de versiones y siguen en disco. Los
+respaldos se copiaron a `~/backups-flash/hub-agosto/` y
+`~/backups-flash/sdkconfigs-agosto/` del servidor antes de tocarlos.
+
+El `.gitignore` se reforzo con `**/backups/flash/`, `*.sha256` y los
+`sdkconfig`.
+
+### Sobre el historial
+
+**No se reescribio la historia del repositorio.**
+
+Los archivos siguen siendo accesibles en commits anteriores. Se decidio no
+eliminarlos porque:
+
+1. Las credenciales de esos volcados **ya fueron rotadas** el mismo dia
+   (usuario MQTT del hub y contrasena del portal cautivo). Lo filtrado no
+   sirve para atacar el sistema.
+2. El repositorio es privado.
+3. Reescribir historia rompe todos los hashes de commit y obliga a
+   re-clonar en cada sitio. El beneficio seria eliminar algo ya inutil.
+
+**El criterio:** reescribir historia se justifica cuando hay credenciales
+*activas* expuestas, no cuando ya fueron rotadas.
+
+Si en el futuro se decide limpiarlo, la operacion seria `git filter-repo`
+sobre la ruta `firmware/hub/backups/`, seguida de un push forzado y
+re-clonado en los tres sitios.
+
 ## Riesgos abiertos
 
 1. **`passwd` y `acl` no están versionados ni respaldados.** Una reinstalación

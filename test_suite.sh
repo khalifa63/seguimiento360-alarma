@@ -18,7 +18,7 @@ NODO_PORT="/dev/ttyUSB0"
 MQTT_SERVER="${MQTT_SERVER:-IP-DEL-SERVIDOR}"
 MQTT_PORT="1883"
 HUB_AP_SSID="Seguimiento360_HUB"
-HUB_AP_PASS="hub_password_2026"
+HUB_AP_PASS="${HUB_AP_PASS:-CAMBIAR_EN_PRODUCCION}"
 HUB_AP_IP="192.168.4.1"
 
 # ============================================================================

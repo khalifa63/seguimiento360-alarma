@@ -27,6 +27,7 @@
 #include "driver/gpio.h"
 #include "mqtt_client.h"
 #include "ota_manager.h"
+#include "espnow_protocol.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_sntp.h"
@@ -99,7 +100,7 @@ typedef struct {
 
 // ⚠️ CRÍTICO: Estructura EXACTA del Nodo (7 bytes - debe coincidir con node_sim_main.c)
 typedef struct {
-    uint8_t event_code[4];    // "PAIR", "ALRM", "HEAR", "P_ACK"
+    uint8_t event_code[4];    // "PAIR", "ALRM", "HEAR"
     uint8_t seq;              // Contador de secuencia (0-255)
     uint8_t battery_level;    // Nivel de batería (0-100%)
     uint8_t distance_cm;      // Distancia medida (0 si no aplica)
@@ -115,8 +116,14 @@ _Static_assert(sizeof(security_payload_t) == 7,
 static nvs_handle_t nvs_handle_pairing;
 static bool wifi_configured = false;
 static httpd_handle_t server = NULL;
-static uint8_t router_channel = 0;
+/* Canal compartido con los nodos. Debe coincidir con WIFI_CHANNEL del
+ * firmware del nodo y con el canal en que queda el AP del hub.
+ * Estaba a 0 y nunca se asignaba: los peers se registraban en el canal 0
+ * mientras los nodos transmiten en el 5, asi que no se escuchaban. */
+#define S360_ESPNOW_CHANNEL  5
+static uint8_t router_channel = S360_ESPNOW_CHANNEL;
 static char hub_mac_str[18];
+static uint8_t hub_mac[6];   /* MAC STA; el frame v1 la lleva como src_mac */
 
 typedef enum {
     PORTAL_STATE_CONFIGURING,
@@ -463,7 +470,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                     
                                     esp_now_peer_info_t peer = {0};
                                     memcpy(peer.peer_addr, node_registry.nodes[idx].mac, 6);
-                                    peer.channel = 5;
+                                    peer.channel = S360_ESPNOW_CHANNEL;
                                     peer.encrypt = false;
                                     esp_now_add_peer(&peer);
                                     
@@ -594,22 +601,55 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
 // ESP-NOW: RECEPCIÓN DE DATOS Y VINCULACIÓN
 // ============================================================================
 
-static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
-    if (len != sizeof(security_payload_t)) {
-        ESP_LOGW(TAG, "Paquete descartado: tamaño %d != %d bytes esperados", 
-                 len, sizeof(security_payload_t));
+/* Responde al nodo con un frame v1 de tipo ACK.
+ * El ACK se envia antes de procesar el evento para cumplir el presupuesto
+ * de 50 ms (AT-02). */
+static void send_ack_v1(const uint8_t *dst_mac, uint16_t seq) {
+    espnow_frame_t ack;
+    if (espnow_build_frame(&ack, ESPNOW_FT_ACK, seq,
+                           hub_mac, dst_mac, NULL, 0) != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo construir el ACK");
         return;
     }
-    
-    security_payload_t *payload = (security_payload_t *)data;
-    const uint8_t *sender_mac = info->src_addr;
-    char mac_str[18]; 
+    esp_err_t err = esp_now_send(dst_mac, (const uint8_t *)&ack,
+                                 espnow_frame_size(0));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "ACK no enviado: %s", esp_err_to_name(err));
+    }
+}
+
+static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+    /* Frame v1: magic, version y CRC16. Un paquete que no valide se descarta. */
+    espnow_frame_t frame;
+    esp_err_t verr = espnow_validate_frame(data, (size_t)len, &frame);
+    if (verr != ESP_OK) {
+        ESP_LOGW(TAG, "Frame descartado (%s): %d bytes", esp_err_to_name(verr), len);
+        return;
+    }
+
+    if (frame.frame_type != ESPNOW_FT_DATA_EVENT) {
+        /* Los ACK de otros nodos y los BEACON no se procesan aqui. */
+        return;
+    }
+
+    if (frame.payload_len != sizeof(security_payload_t)) {
+        ESP_LOGW(TAG, "Payload de %u bytes, se esperaban %u",
+                 frame.payload_len, (unsigned)sizeof(security_payload_t));
+        return;
+    }
+
+    /* La MAC de origen va en el frame; el hub la usa como identidad del nodo.
+     * info->src_addr es la fuente real del enlace, que debe coincidir. */
+    const uint8_t *sender_mac = frame.src_mac;
+    char mac_str[18];
     format_mac(sender_mac, mac_str, sizeof(mac_str));
-    
+
+    security_payload_t *payload = (security_payload_t *)frame.payload;
+
     char event_str[5] = {0};
     memcpy(event_str, payload->event_code, 4);
-    
-    ESP_LOGI(TAG, "ESP-NOW RX: Code=%s, MAC=%s, Seq=%d, Bat=%d%%", 
+
+    ESP_LOGI(TAG, "ESP-NOW RX (v1): Code=%s, MAC=%s, Seq=%d, Bat=%d%%",
              event_str, mac_str, payload->seq, payload->battery_level);
 
     // --- LÓGICA DE VINCULACIÓN (PAIRING) ---
@@ -618,11 +658,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 
         if (is_mac_registered(sender_mac)) {
             ESP_LOGI(TAG, "El nodo %s ya está vinculado. Enviando ACK.", mac_str);
-            security_payload_t ack; 
-            memset(&ack, 0, sizeof(ack));
-            memcpy(ack.event_code, "P_ACK", 4);
-            ack.seq = payload->seq;
-            esp_now_send(sender_mac, (uint8_t *)&ack, sizeof(ack));
+            send_ack_v1(sender_mac, payload->seq);
             return;
         }
 
@@ -654,11 +690,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             
             blink_indicator(3, 100); 
 
-            security_payload_t ack; 
-            memset(&ack, 0, sizeof(ack));
-            memcpy(ack.event_code, "P_ACK", 4);
-            ack.seq = payload->seq;
-            esp_now_send(sender_mac, (uint8_t *)&ack, sizeof(ack));
+            send_ack_v1(sender_mac, payload->seq);
         }
         return;
     }
@@ -1092,6 +1124,7 @@ void app_main(void) {
     // 3. Obtener MAC del HUB
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    memcpy(hub_mac, mac, sizeof(hub_mac));
     snprintf(hub_mac_str, sizeof(hub_mac_str), "%02x%02x%02x%02x%02x%02x", 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 

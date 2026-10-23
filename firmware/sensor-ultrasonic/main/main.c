@@ -1,10 +1,18 @@
 // ============================================================================
-// Seguimiento 360 - SENSOR ULTRASÓNICO HC-SR04
-// Compatible con HUB v6.1.0 (Payload estricto de 7 bytes)
+// Seguimiento 360 — NODO ULTRASÓNICO HC-SR04
+//
+// Envía eventos al hub con el frame ESP-NOW v1 (cabecera de 19 bytes, magic
+// 0xA5 y CRC16), el mismo contrato que usa el hub.
+//
+// Antes enviaba el payload de 7 bytes en crudo, sin cabecera ni CRC: el hub
+// esperaba 19+2 bytes de overhead y descartaba todo lo que llegaba del nodo.
+//
+// Contrato: docs/firmware/specs/02-interfaces.md (HUB-IF-001, HUB-IF-002).
 // ============================================================================
 
 #include <stdio.h>
 #include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_now.h"
@@ -16,113 +24,163 @@
 #include "driver/gpio.h"
 #include "esp_timer.h"
 
+#include "espnow_protocol.h"
+
 static const char *TAG = "NODE_ULTRASONIC";
 
-// 1. CONFIGURACIÓN DE HARDWARE (Pines ajustados para SuperMini)
-#define TRIG_PIN                GPIO_NUM_5
-#define ECHO_PIN                GPIO_NUM_4
-#define LED_PIN                 GPIO_NUM_2
-#define WIFI_CHANNEL            5
-#define HEARTBEAT_INTERVAL_SEC  (10 * 60)
-#define MEASUREMENT_INTERVAL_SEC  5
-#define DISTANCE_THRESHOLD_CM   50
-#define MAX_DISTANCE_CM         400
+// ============================================================================
+// 1. CONFIGURACIÓN DE HARDWARE (pines para SuperMini)
+// ============================================================================
+#define TRIG_PIN                 GPIO_NUM_5
+#define ECHO_PIN                 GPIO_NUM_4
+#define LED_PIN                  GPIO_NUM_2
+#define WIFI_CHANNEL             5
+#define HEARTBEAT_INTERVAL_SEC   (10 * 60)
+#define MEASUREMENT_INTERVAL_SEC 5
+#define DISTANCE_THRESHOLD_CM    50
+#define MAX_DISTANCE_CM          400
 
-// 2. PAYLOAD ESTRICTO DE 7 BYTES
-typedef struct {
-    uint8_t event_code[4];
-    uint8_t seq;
-    uint8_t battery_level;
-    uint8_t reserved;
-} __attribute__((packed)) security_payload_t;
+// ============================================================================
+// MAC DEL HUB (temporal, hasta que exista el pairing real — FW-008)
+//
+// ESP-NOW NO admite enviar a broadcast: exige la MAC del destino. Enviar a
+// FF:FF:FF:FF:FF:FF hacia un peer registrado provoca un fallo y reinicia el
+// nodo en cuanto hay un evento que enviar.
+//
+// El hub registra los peers por su interfaz AP (hub/main.c: ifidx =
+// ESP_IF_WIFI_AP), así que el destino es la MAC del SoftAP, no la de la STA.
+// Se obtiene con: esptool chip_id  ->  MAC STA + 1
+//
+// TODO(FW-008): sustituir por la MAC guardada en NVS durante el pairing.
+// ============================================================================
+static const uint8_t HUB_MAC[6] = {0x3c, 0xdc, 0x75, 0x62, 0xc2, 0xb1};
 
-_Static_assert(sizeof(security_payload_t) == 7, "EL PAYLOAD DEBE SER DE 7 BYTES EXACTOS");
-
-// 3. VARIABLES GLOBALES
-static uint8_t seq_counter = 0;
+// ============================================================================
+// 2. VARIABLES GLOBALES
+// ============================================================================
+static uint8_t  seq_counter = 0;
+static uint8_t  own_mac[6] = {0};
 static esp_now_peer_info_t peerInfo;
-static uint8_t hub_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static uint32_t last_measurement = 0;
-static float last_distance = 0;
+static float    last_distance = 0;
 
-// 4. SENSOR HC-SR04
-static float measure_distance(void) {
+// ============================================================================
+// 3. SENSOR HC-SR04
+// ============================================================================
+static float measure_distance(void)
+{
     uint64_t start_us, end_us;
-    float distance_cm;
-    
+
     gpio_set_level(TRIG_PIN, 0);
     esp_rom_delay_us(2);
     gpio_set_level(TRIG_PIN, 1);
     esp_rom_delay_us(10);
     gpio_set_level(TRIG_PIN, 0);
-    
+
     uint32_t timeout = 10000;
     while (gpio_get_level(ECHO_PIN) == 0 && timeout > 0) {
         esp_rom_delay_us(1);
         timeout--;
     }
-    if (timeout == 0) return 0;
-    
+    if (timeout == 0) {
+        return 0;
+    }
+
     start_us = esp_timer_get_time();
     timeout = 100000;
-    
     while (gpio_get_level(ECHO_PIN) == 1 && timeout > 0) {
         esp_rom_delay_us(1);
         timeout--;
     }
     end_us = esp_timer_get_time();
-    
-    uint64_t duration_us = end_us - start_us;
-    distance_cm = (duration_us * 0.0343) / 2.0;
-    
-    if (distance_cm > MAX_DISTANCE_CM || distance_cm < 0) return 0;
+
+    float distance_cm = ((end_us - start_us) * 0.0343f) / 2.0f;
+    if (distance_cm > MAX_DISTANCE_CM || distance_cm < 0) {
+        return 0;
+    }
     return distance_cm;
 }
 
-static void init_ultrasonic_sensor(void) {
+static void init_ultrasonic_sensor(void)
+{
     gpio_reset_pin(TRIG_PIN);
     gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(TRIG_PIN, 0);
-    
+
     gpio_reset_pin(ECHO_PIN);
     gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
     gpio_pullup_dis(ECHO_PIN);
     gpio_pulldown_en(ECHO_PIN);
-    
+
     ESP_LOGI(TAG, "Sensor HC-SR04 inicializado (TRIG=%d, ECHO=%d)", TRIG_PIN, ECHO_PIN);
 }
 
-// 5. CALLBACKS ESP-NOW
-static void on_data_sent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+// ============================================================================
+// 4. CALLBACKS ESP-NOW
+// ============================================================================
+static void on_data_sent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
     if (status == ESP_NOW_SEND_SUCCESS) {
-        ESP_LOGI(TAG, "✅ Mensaje enviado correctamente");
+        ESP_LOGI(TAG, "Mensaje enviado");
         gpio_set_level(LED_PIN, 0);
     } else {
-        ESP_LOGE(TAG, " Error al enviar: %s", esp_err_to_name(status));
+        ESP_LOGE(TAG, "Error al enviar: %d", (int)status);
     }
 }
 
-static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
-    if (len >= 4 && memcmp(data, "P_ACK", 5) == 0) {
-        ESP_LOGI(TAG, "✅ P_ACK recibido del HUB.");
+/* El ACK del hub llega como frame v1 de tipo ESPNOW_FT_ACK. */
+static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
+{
+    espnow_frame_t frame;
+    if (espnow_validate_frame(data, (size_t)len, &frame) != ESP_OK) {
+        ESP_LOGW(TAG, "Frame descartado (CRC o formato invalido), %d bytes", len);
+        return;
+    }
+
+    if (frame.frame_type == ESPNOW_FT_ACK) {
+        ESP_LOGI(TAG, "ACK del hub recibido (seq=%u)", frame.seq);
     }
 }
 
-static void send_event(const char *event_code, uint8_t distance_cm) {
-    security_payload_t payload = {0};
-    strncpy((char *)payload.event_code, event_code, 4);
-    payload.seq = seq_counter++;
+// ============================================================================
+// 5. ENVÍO DE EVENTOS CON FRAME v1
+// ============================================================================
+static void send_event(const char *event_code, uint8_t distance_cm)
+{
+    espnow_payload_v1_t payload = {0};
+    memcpy(payload.event_code, event_code, sizeof(payload.event_code));
+    payload.seq           = seq_counter++;
     payload.battery_level = 95;
-    payload.reserved = distance_cm;
-    
-    ESP_LOGI(TAG, "📡 Enviando: %s | Dist: %dcm | Seq: %d", event_code, distance_cm, payload.seq);
+    payload.distance_cm   = distance_cm;
+
+    espnow_frame_t frame;
+    esp_err_t err = espnow_build_frame(&frame,
+                                       ESPNOW_FT_DATA_EVENT,
+                                       payload.seq,
+                                       own_mac,
+                                       HUB_MAC,
+                                       (const uint8_t *)&payload,
+                                       sizeof(payload));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo construir el frame: %s", esp_err_to_name(err));
+        return;
+    }
+
+    ESP_LOGI(TAG, "Enviando: %s | Dist: %dcm | Seq: %d", event_code, distance_cm, payload.seq);
     gpio_set_level(LED_PIN, 1);
-    esp_now_send(hub_mac, (uint8_t *)&payload, sizeof(payload));
+
+    /* Se envía el tamaño real: cabecera + payload + CRC, no sizeof(frame). */
+    esp_now_send(HUB_MAC, (const uint8_t *)&frame,
+                 espnow_frame_size(sizeof(payload)));
+
     vTaskDelay(pdMS_TO_TICKS(200));
 }
 
+// ============================================================================
 // 6. APP MAIN
-void app_main(void) {
+// ============================================================================
+void app_main(void)
+{
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -132,26 +190,28 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
-    
-    // Configurar canal (sin ESP_ERROR_CHECK para evitar crash en v5.x)
+
     esp_err_t err_channel = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     if (err_channel != ESP_OK) {
         ESP_LOGW(TAG, "Aviso canal: %s", esp_err_to_name(err_channel));
     }
+
+    /* La MAC propia va dentro del frame: el hub la usa para identificar el nodo. */
+    ESP_ERROR_CHECK(esp_read_mac(own_mac, ESP_MAC_WIFI_STA));
 
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_send_cb(on_data_sent));
     ESP_ERROR_CHECK(esp_now_register_recv_cb(on_data_recv));
 
     memset(&peerInfo, 0, sizeof(peerInfo));
-    memcpy(peerInfo.peer_addr, hub_mac, 6);
+    memcpy(peerInfo.peer_addr, HUB_MAC, 6);
     peerInfo.channel = WIFI_CHANNEL;
-    peerInfo.ifidx = ESP_IF_WIFI_STA;
+    peerInfo.ifidx   = ESP_IF_WIFI_STA;
     peerInfo.encrypt = false;
     ESP_ERROR_CHECK(esp_now_add_peer(&peerInfo));
 
@@ -162,9 +222,13 @@ void app_main(void) {
     init_ultrasonic_sensor();
 
     ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "  SENSOR ULTRASÓNICO HC-SR04 v1.0");
-    ESP_LOGI(TAG, "  MAC: a0:f2:62:f1:d0:f0");
-    ESP_LOGI(TAG, "  Umbral: %d cm | Medición: %d seg", DISTANCE_THRESHOLD_CM, MEASUREMENT_INTERVAL_SEC);
+    ESP_LOGI(TAG, "  SENSOR ULTRASONICO HC-SR04 v2.0");
+    ESP_LOGI(TAG, "  MAC: %02x:%02x:%02x:%02x:%02x:%02x",
+             own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
+    ESP_LOGI(TAG, "  Frame: v1 (magic 0x%02X, cabecera %d B, CRC16)",
+             ESPNOW_FRAME_MAGIC, ESPNOW_HEADER_SIZE);
+    ESP_LOGI(TAG, "  Umbral: %d cm | Medicion: %d seg",
+             DISTANCE_THRESHOLD_CM, MEASUREMENT_INTERVAL_SEC);
     ESP_LOGI(TAG, "========================================");
 
     send_event("PAIR", 0);
@@ -172,16 +236,16 @@ void app_main(void) {
 
     while (1) {
         uint32_t now = esp_timer_get_time() / 1000000;
-        
+
         if (now - last_measurement >= MEASUREMENT_INTERVAL_SEC) {
             float distance = measure_distance();
             last_distance = distance;
             last_measurement = now;
-            
-            ESP_LOGI(TAG, "📏 Distancia: %.1f cm", distance);
-            
+
+            ESP_LOGI(TAG, "Distancia: %.1f cm", distance);
+
             if (distance > 0 && distance < DISTANCE_THRESHOLD_CM) {
-                ESP_LOGW(TAG, "🚨 ¡OBJETO DETECTADO! %.1f cm", distance);
+                ESP_LOGW(TAG, "OBJETO DETECTADO: %.1f cm", distance);
                 send_event("ALRM", (uint8_t)distance);
                 for (int i = 0; i < 5; i++) {
                     gpio_set_level(LED_PIN, i % 2);
@@ -190,12 +254,12 @@ void app_main(void) {
                 gpio_set_level(LED_PIN, 0);
             }
         }
-        
+
         if (now - last_measurement >= HEARTBEAT_INTERVAL_SEC) {
             send_event("HEAR", (uint8_t)last_distance);
             last_measurement = now;
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

@@ -145,7 +145,122 @@ para trazabilidad; ninguno se cumple hoy.
 Estas diferencias son la brecha que cierra la tarea **FW-001** del
 [Plan de arranque](../../desarrollo/PLAN-DE-ARRANQUE.md).
 
+## HUB-IF-010: Implementación del frame v1 (FW-001 a FW-003)
+
+El contrato del frame vive en `firmware/shared/espnow_protocol/`, compartido
+por el hub y los nodos. Antes solo existía dentro del componente del hub y el
+nodo no podía incluirlo: de ahí que el mismo byte se llamara `distance_cm` en
+un lado y `reserved` en el otro.
+
+### API compartida
+
+| Función | Uso |
+|---|---|
+| `espnow_build_frame()` | Construye cabecera, copia el payload y calcula el CRC |
+| `espnow_validate_frame()` | Valida magic, versión, longitud y CRC |
+| `espnow_crc16_ccitt()` | CRC16-CCITT (0x1021, semilla 0xFFFF) |
+| `espnow_frame_size()` | Tamaño real del frame según su payload |
+
+`espnow_payload_v1_t` es el payload de 7 bytes de HUB-IF-002.
+
+### Disposición del frame
+
+| Offset | Campo | Bytes |
+|---:|---|---:|
+| 0 | magic (`0xA5`) | 1 |
+| 1 | version (`0x01`) | 1 |
+| 2 | frame_type | 1 |
+| 3 | seq | 2 |
+| 5 | src_mac | 6 |
+| 11 | dst_mac | 6 |
+| 17 | payload_len | 2 |
+| 19 | payload | N |
+| 19+N | crc16 | 2 |
+
+**El CRC va inmediatamente después del payload real**, no en el offset del
+campo `crc16` del struct. Ese campo vive en el byte 234 porque la estructura
+reserva `payload[215]`; si se escribe ahí, el CRC queda fuera del frame que se
+transmite y el receptor recibe basura. Ver el fallo 5 más abajo.
+
+### Cambios en cada lado
+
+**Nodo** (`sensor-ultrasonic/main/main.c`): construye frames v1, valida el ACK
+con `espnow_validate_frame()` y usa su MAC real (`esp_read_mac`) como
+`src_mac`.
+
+**Hub** (`hub/main/main.c`): valida el frame antes de procesarlo y envía el ACK
+como frame v1 de tipo `ESPNOW_FT_ACK`. La lógica de negocio (pairing, eventos,
+publicación MQTT) no cambió.
+
+### Rendimiento medido
+
+    ESP-NOW RX (v1)
+    Evento publicado exitosamente     <- 25 ms después
+
+El presupuesto de A7 para RX→publicación es ≤ 250 ms: se cumple con margen.
+
+## Fallos del enlace ESP-NOW (2026-10-23)
+
+El enlace no funcionaba y no era un solo problema: eran cinco, y cada uno
+ocultaba al siguiente.
+
+### Fallo 1 — El nodo enviaba el payload crudo
+
+El nodo mandaba 7 bytes sin cabecera ni CRC. El hub comparaba el tamaño
+recibido contra `sizeof(security_payload_t)` (7) y descartaba los 28 bytes
+del frame v1 con `Paquete descartado: tamaño 28 != 7`.
+
+### Fallo 2 — `router_channel` nunca se asignaba
+
+    static uint8_t router_channel = 0;   /* única mención en todo el archivo */
+
+Los peers se registraban con `channel = 0` mientras los nodos transmiten en el
+5. Se corrigió con `#define S360_ESPNOW_CHANNEL 5`, que ahora es la única
+fuente del canal.
+
+### Fallo 3 — ESP-NOW no admite enviar a broadcast
+
+El nodo enviaba a `FF:FF:FF:FF:FF:FF`. Eso **reiniciaba el nodo** en cuanto
+había un evento que enviar: la consola se cortaba a media línea y el timestamp
+volvía a cero.
+
+ESP-NOW exige la MAC real del destino. El nodo usa ahora la MAC del SoftAP del
+hub, que es la interfaz por la que el hub registra los peers
+(`ifidx = ESP_IF_WIFI_AP`).
+
+**Consecuencia:** el pairing (FW-008) deja de ser opcional. Hoy la MAC está
+compilada en el nodo y debe venir de la NVS.
+
+### Fallo 4 — `payload_len` leído en el offset equivocado
+
+    memcpy(&payload_len, data + 15, ...);   /* el offset real es 17 */
+
+El offset 15 cae dentro de `dst_mac`, así que se leía parte de la MAC como
+longitud y salía `ESP_ERR_INVALID_SIZE`. Se corrigió usando
+`offsetof(espnow_frame_t, payload_len)`, que no se rompe si cambia el struct.
+
+### Fallo 5 — El CRC se escribía fuera del frame
+
+El más sutil. `espnow_build_frame()` guardaba el CRC en `out->crc16`, que el
+struct sitúa en el byte **234** por el `payload[215]`. Como solo se transmiten
+los 28 primeros bytes, **el CRC nunca salía del chip** y el hub leía basura en
+la posición 26: `ESP_ERR_INVALID_CRC`.
+
+Se corrigió escribiéndolo justo después del payload real:
+
+    const size_t crc_len = ESPNOW_HEADER_SIZE + payload_len;
+    memcpy((uint8_t *)out + crc_len, &crc, sizeof(crc));
+
+### Cómo diagnosticarlos
+
+La consola del hub sale por UART0 **y** por USB-Serial-JTAG
+(`CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y`). Con el adaptador CH343 la
+consola no llegaba —las líneas UART no estaban cableadas— y el diagnóstico fue
+a ciegas durante un buen rato. **Conectando el hub por su USB nativo los logs
+aparecen de inmediato.**
+
 ## Documentos relacionados
+
 
 - [Protocolo ESP-NOW](../../hardware/PROTOCOLO_ESPNOW.md)
 - [Requisitos](01-requisitos.md) · [Pruebas de aceptación](03-pruebas-aceptacion.md)

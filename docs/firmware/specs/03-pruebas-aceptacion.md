@@ -106,7 +106,44 @@ Resultado: FAIL (2026-10-23, hub 37bff1e).
 ## AT-006 (HUB-F-010)
 Pasos: armar via PWA; reiniciar hub.
 PASS: tras reboot, LED refleja armed sin mediar command.
-Resultado: _pendiente_
+Resultado: FAIL (2026-10-23, hub 37bff1e).
+
+  **La funcionalidad no esta conectada de extremo a extremo.**
+
+  1. El componente sm_alarm SI esta compilado (aparece en REQUIRES de
+     main/CMakeLists.txt) y expone una API completa:
+
+         esp_err_t sm_alarm_init(sm_alarm_publish_cb_t publish_cb);
+         esp_err_t sm_alarm_process_cmd(sm_alarm_cmd_t cmd);
+         esp_err_t sm_alarm_notify_event(sm_alarm_event_t evt);
+         esp_err_t sm_alarm_tick(void);
+
+  2. Pero main.c **no lo invoca en ningun sitio**: cero referencias a
+     sm_alarm, alarm_fsm o ALARM_ en todo el archivo. Es codigo muerto.
+
+  3. No existe endpoint de armado/desarmado. Los http in de Node-RED son:
+
+         post /api/auth/login          post /api/nodes
+         post /api/auth/register       put  /api/nodes/:id
+         post /api/register            delete /api/nodes/:id
+         post /api/ota/trigger         get  /api/events
+         get  /api/nodes               get  /api/overview
+         get  /api/auth/nodes          get  /api/auth/profile
+
+     Ninguno arma ni desarma.
+
+  4. El LED de indicacion (GPIO 48) solo se usa para parpadeos
+     (blink_indicator); no refleja ningun estado de alarma.
+
+  5. La tabla alarm_state de PostgreSQL tiene un unico registro del
+     2026-08-08, apuntando al hub 10 en estado "disarmed". Es un resto
+     huerfano: nada lo actualiza hoy.
+
+  La PWA menciona una vista de control de alarma (fase 3.2.3b del
+  RESUMEN_FASES), pero no hay backend detras que la sostenga.
+
+  **Trabajo pendiente:** integrar sm_alarm en main.c, exponer los endpoints
+  de armado/desarmado en Node-RED y publicar el comando por MQTT.
 
 ## AT-007 (HUB-F-011) — fase 5.2
 PASS: hub sin config -> SoftAP + portal -> active.
@@ -164,19 +201,34 @@ extremo y sin intervención manual.
 | AT | Que verifica | Resultado |
 |---|---|---|
 | AT-001 | Boot a MQTT <= 10 s | **PASS** (4,85 s) |
-| AT-002 | Armado/desarmado desde la PWA | pendiente |
+| AT-002 | Armado/desarmado desde la PWA | **FAIL** (no existe la API) |
 | AT-003 | Frame v1 de nodo a hub | **PASS** |
 | AT-004 | `node_lost` tras 3 heartbeats | **FAIL** (no implementado) |
 | AT-005 | LWT offline al caer | **FAIL** (no implementado) |
-| AT-006 | Persistencia del estado de alarma | pendiente |
+| AT-006 | Persistencia del estado de alarma | **FAIL** (no conectado) |
 | AT-007+ | Provisioning y OTA | pendiente |
 
-Tres de las pruebas revelaron que la funcionalidad **no existe**, aunque la
-documentacion la daba por hecha:
+Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
+existe**, aunque la documentacion la daba por hecha en varios casos:
 
 - **HUB-F-009 (LWT):** 01-requisitos lo marcaba como "implementado" y
   02-interfaces afirmaba que el estado se publica por LWT. Ninguna era cierta.
   Corregido en 01-requisitos.
 - **HUB-F-008 (node_lost):** ya estaba marcado como pendiente; la prueba
   confirma que sigue sin implementarse.
-- **AT-002 y AT-006:** sin ejecutar todavia.
+- **HUB-F-010 (armado/desarmado):** el componente sm_alarm existe, compila y
+  no se usa. No hay endpoint que lo alimente. Es codigo muerto.
+- **AT-002** depende de AT-006: sin API de armado no hay nada que probar.
+
+Solo AT-001 y AT-003 pasan. Conviene revisar el resto de la matriz de
+trazabilidad de 01-requisitos con el mismo criterio: una afirmacion
+"implementado" sin una AT que lo respalde no es evidencia.
+
+### Prioridad sugerida
+
+1. **API de armado/desarmado + integrar sm_alarm** — desbloquea AT-002 y AT-006
+   de una vez, y es lo que la PWA espera.
+2. **LWT** — cambio pequeno (una linea en mqtt_cfg) con impacto alto:
+   sin el, el backend no puede distinguir un hub caido de uno en silencio.
+3. **node_lost** — requiere una tarea de vigilancia y poder ajustar el
+   intervalo de heartbeat por configuracion para no esperar 30 minutos.

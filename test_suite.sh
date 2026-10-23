@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Variables del proyecto
 HUB_PORT="/dev/ttyACM0"
 NODO_PORT="/dev/ttyUSB0"
-MQTT_SERVER="192.168.1.200"
+MQTT_SERVER="${MQTT_SERVER:-IP-DEL-SERVIDOR}"
 MQTT_PORT="1883"
 HUB_AP_SSID="Seguimiento360_HUB"
 HUB_AP_PASS="hub_password_2026"
@@ -133,7 +133,7 @@ summary() {
     echo "╚══════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo -e "${GREEN}✓ FASE 1: Portal Cautivo${NC} (Configuración Wi-Fi desde celular)"
-    echo -e "${GREEN}✓ FASE 2: Conexión MQTT${NC} (HUB conectado a 192.168.1.200:1883)"
+    echo -e "${GREEN}✓ FASE 2: Conexión MQTT${NC} (HUB conectado a $MQTT_SERVER:1883)"
     echo -e "${GREEN}✓ FASE 3: Sincronización ESP-NOW${NC} (Canales AP/STA alineados)"
     echo -e "${GREEN}✓ FASE 4: Pairing NODO-HUB${NC} (Vinculación persistente en NVS)"
     echo -e "${GREEN}✓ FASE 5: Ciclo de Alarma${NC} (NODO -> HUB -> MQTT -> Node-RED -> Gotify)"

@@ -60,6 +60,7 @@ Lo que falta no es “empezar de cero”: es **cerrar brechas concretas** y demo
 | **FW-006** — Tabla de nodos y `node_lost` | `main.c`, `t_node_mgr` | 3 heartbeats perdidos → evento | 2 | FW-005 |
 | **FW-007** — MQTT auth + ACL | `mosquitto.conf`, `passwd`, `acl` | Anónimo rechazado; dispositivo solo su tenant | 2 | FW-003 |
 | **FW-008** — Provisioning claim completo | `components/sm_prov`, `web_config` | Hub sin config → SoftAP → claim → active | 3 | FW-005 |
+| **FW-011** — Pairing del nodo con el hub | `sensor-ultrasonic/main/pairing.{c,h}` | ✅ Hecho (2026-10-23) | 2 | FW-003 |
 | **FW-009** — OTA con firma y rollback | `ota_manager.c` | Firma válida actualiza; inválida rechaza; rollback | 3 | FW-007 |
 | **FW-010** — CI de firmware | `.github/workflows/firmware.yml` | Build de hub y nodo en cada PR | 2 | FW-003 |
 

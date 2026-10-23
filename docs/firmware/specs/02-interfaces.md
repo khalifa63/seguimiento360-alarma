@@ -199,6 +199,74 @@ publicación MQTT) no cambió.
 
 El presupuesto de A7 para RX→publicación es ≤ 250 ms: se cumple con margen.
 
+## HUB-IF-011: Vinculación del nodo (FW-008)
+
+Cómo aprende un nodo a qué hub dirigirse, sin llevar la MAC compilada.
+
+### Restricción de partida
+
+ESP-NOW **no admite enviar a broadcast**: enviar a `FF:FF:FF:FF:FF:FF` con un
+peer registrado provoca un fallo y reinicia el nodo (ver fallo 3 del enlace).
+Por eso el nodo necesita saber a quién preguntar antes de poder descubrir nada.
+
+### La MAC semilla
+
+Un nodo de fábrica no tiene nada en NVS. Para el primer `PAIR` usa unas
+constantes compiladas:
+
+    HUB_MAC_SEED_0..5   (main.c del nodo)
+
+**No son la MAC definitiva.** Son solo el destino de la primera pregunta. Una
+vez que el hub contesta, su MAC real se guarda en NVS y la semilla deja de
+usarse: si el hub cambia, el nodo lo aprende solo.
+
+### Flujo de vinculación
+
+    1. El nodo arranca y lee NVS (namespace s360node, clave hub_mac).
+
+    2a. Si hay MAC  -> se registra el peer y se envían eventos con normalidad.
+    2b. Si no hay   -> modo SIN VINCULAR:
+                       - el LED parpadea
+                       - no se envían eventos (no hay destino)
+                       - se envía PAIR cada 30 s
+
+    3. El hub recibe el PAIR. Si el nodo ya estaba registrado responde ACK;
+       si no, lo registra en su node_registry y responde ACK.
+
+    4. El ACK es un frame v1 de tipo ESPNOW_FT_ACK cuyo campo src_mac lleva
+       la MAC del hub. El nodo la extrae, la guarda en NVS y queda vinculado.
+
+### Aprendizaje del ACK
+
+| Campo del ACK | Uso en el nodo |
+|---|---|
+| `frame_type` | Debe ser `ESPNOW_FT_ACK` |
+| `src_mac` | **MAC del hub: se guarda en NVS** |
+| `seq` | Se registra para trazabilidad |
+
+El nodo solo escribe en NVS **si la MAC cambió**. El ACK llega en cada evento,
+y escribir en cada uno desgastaría la flash.
+
+Si la MAC del ACK difiere de la guardada, el nodo borra el peer anterior
+(`esp_now_del_peer`) y registra el nuevo: es la ruta de sustitución de hub.
+
+### NVS del nodo
+
+| Partición | Namespace | Clave | Contenido |
+|---|---|---|---|
+| `nvs` (por defecto) | `s360node` | `hub_mac` | 6 bytes, MAC del hub |
+
+Una MAC de ceros se trata como no vinculada. Si NVS está corrupta o vacía, el
+nodo vuelve al modo sin vincular sin intervención.
+
+### Comportamiento observable
+
+| Situación | LED | Consola | Eventos |
+|---|---|---|---|
+| Sin vincular | Parpadea | "Sin hub en NVS... semilla..." | No se envían |
+| Vinculado | Apagado | "Hub vinculado en NVS: ..." | Sí |
+| Hub cambiado | Apagado | "El hub ha cambiado..." | Sí, al nuevo |
+
 ## Fallos del enlace ESP-NOW (2026-10-23)
 
 El enlace no funcionaba y no era un solo problema: eran cinco, y cada uno

@@ -287,6 +287,36 @@ extremo y sin intervención manual.
 | Node-RED → Gotify (push) | Validado |
 | Autenticación MQTT y ACL | Validado |
 
+## AT-011 (HUB-F-013) — pairing del nodo
+Pasos: borrar la NVS del nodo; reiniciarlo; observar consola y eventos.
+PASS: el nodo pide PAIR, recibe el ACK, guarda la MAC y empieza a enviar.
+      Tras reiniciar, usa la MAC de NVS sin repetir el descubrimiento.
+Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
+
+  **Nodo de fabrica (NVS borrada con erase_region 0x9000 0x6000):**
+
+      Sin hub en NVS (ESP_ERR_NOT_FOUND). Se usara la semilla
+      3c:dc:75:62:c2:b1 para pedir el pairing.
+      Solicitando emparejamiento (seq=0)
+      ACK del hub recibido (seq=0)
+      Nodo VINCULADO con el hub 3c:dc:75:62:c2:b0
+
+  El pairing aprendio la MAC real. Detalle relevante: la semilla apunta al
+  SoftAP del hub (...c2:b1) y el ACK llega desde su STA (...c2:b0). Son
+  distintas, y el pairing corrige la semilla automaticamente.
+
+  **Tras reiniciar, sin repetir el descubrimiento:**
+
+      Hub vinculado en NVS: 3c:dc:75:62:c2:b0
+      (sigue enviando eventos con normalidad)
+
+  **Modo sin vincular:** si no llega el ACK, el nodo insiste cada 30 s y el
+  LED parpadea. Verificado antes de implementar la semilla: los reintentos
+  aparecen en consola con seq incremental.
+
+  **Pipeline intacto:** tras el pairing, un evento publicado en el topic del
+  hub llega a PostgreSQL (evento 72, ALRM 42 cm).
+
 ### Resumen de AT (2026-10-23)
 
 | AT | Que verifica | Resultado |
@@ -297,6 +327,7 @@ extremo y sin intervención manual.
 | AT-004 | `node_lost` tras 3 heartbeats | **PASS** |
 | AT-005 | LWT offline al caer | **FAIL** (no implementado) |
 | AT-006 | Persistencia del estado de alarma | **PASS** |
+| AT-011 | Pairing del nodo con el hub | **PASS** |
 | AT-007+ | Provisioning y OTA | pendiente |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no

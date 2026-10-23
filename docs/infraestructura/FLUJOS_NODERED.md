@@ -2,6 +2,28 @@
 
 Actualizada: 2026-08-08
 
+## Aviso "No response object" (cosmetico)
+
+Node-RED registra de vez en cuando:
+
+    [warn] [http response:HTTP Error] No response object
+
+**No es un fallo.** Los flujos del portal usan funciones de dos salidas para
+separar el camino de exito del de error:
+
+    return [msg, null];   // exito -> salida 1
+    return [null, msg];   // error -> salida 2
+
+La salida 2 va a un nodo `http response` etiquetado 'HTTP Error'. Node-RED
+**no desactiva** una salida cuando la funcion devuelve `null`: entrega igual el
+mensaje, y el `http response` avisa de que no encuentra `msg.res`.
+
+Son 17 nodos con este patron y todos funcionan. Intentar silenciar el aviso
+tocando el cableado pondria en riesgo endpoints como `PUT /api/nodes/:id`, que
+dependen de esa separacion.
+
+**Conclusion:** ignorar el aviso. No se corrige.
+
 ## Incidente: la ingesta de eventos no funcionaba (2026-10-23)
 
 El hub publicaba, pero ningun evento llegaba a PostgreSQL. No era un fallo

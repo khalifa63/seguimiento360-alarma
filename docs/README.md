@@ -54,7 +54,9 @@
 
 - [Estado actual](infraestructura/ESTADO_ACTUAL.md)
 - [Flujos Node-RED y MQTT](infraestructura/FLUJOS_NODERED.md)
+- [Rutas de archivos y volúmenes](infraestructura/RUTAS-ARCHIVOS.md)
 - [Rutas de Cloudflare](infraestructura/CLOUDFLARE_RUTAS.md)
+- [Seguridad del broker MQTT](infraestructura/SEGURIDAD_MQTT.md)
 
 ### 6. Patrones y decisiones
 

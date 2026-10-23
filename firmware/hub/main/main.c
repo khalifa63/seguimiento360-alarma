@@ -125,6 +125,10 @@ static uint8_t router_channel = S360_ESPNOW_CHANNEL;
 static char hub_mac_str[18];
 static uint8_t hub_mac[6];   /* MAC STA; el frame v1 la lleva como src_mac */
 
+/* Payload del testamento (LWT). Debe sobrevivir mientras viva el cliente
+ * MQTT: ESP-IDF no copia el string, solo guarda el puntero. */
+static char s_lwt_payload[128];
+
 typedef enum {
     PORTAL_STATE_CONFIGURING,
     PORTAL_STATE_TESTING,
@@ -513,6 +517,14 @@ static void start_mqtt_client(const char *broker_uri) {
     snprintf(client_id_str, sizeof(client_id_str), "hub_%02x%02x%02x%02x%02x%02x", 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+   /* Testamento: si el hub se cae o pierde la conexion, el broker publica
+    * este mensaje en su nombre. Es lo unico que permite al backend distinguir
+    * un hub caido de uno simplemente en silencio. Retenido, para que lo vea
+    * quien se suscriba despues del suceso. */
+   snprintf(s_lwt_payload, sizeof(s_lwt_payload),
+            "{\"event\":\"HUB_OFFLINE\",\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}",
+            hub_mac[0], hub_mac[1], hub_mac[2], hub_mac[3], hub_mac[4], hub_mac[5]);
+
    esp_mqtt_client_config_t mqtt_cfg = {
        .broker.address.uri = broker_uri,
        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
@@ -520,6 +532,14 @@ static void start_mqtt_client(const char *broker_uri) {
        // ✅ NUEVAS LÍNEAS DE SEGURIDAD:
        .credentials.username = "s360_hub",
        .credentials.authentication.password = S360_MQTT_PASSWORD,
+       // Testamento (HUB-F-009, AT-005)
+       .session.last_will = {
+           .topic   = "seguimiento360/hub/status",
+           .msg     = s_lwt_payload,
+           .msg_len = 0,   /* 0 = usar strlen */
+           .qos     = 1,
+           .retain  = 1,
+       },
    };
     
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);

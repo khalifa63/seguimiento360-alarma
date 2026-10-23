@@ -67,41 +67,42 @@ Resultado: FAIL (2026-10-23, hub 37bff1e).
 ## AT-005 (HUB-F-009)
 Pasos: cortar alimentacion; mosquitto_sub en status.
 PASS: {"status":"offline"} en <= keepalive + 5 s.
-Resultado: FAIL (2026-10-23, hub 37bff1e).
+Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0).
 
-  **El LWT no esta implementado.**
+  **Implementado y verificado en esta misma sesion.** El LWT no existia.
 
-  La estructura esp_mqtt_client_config_t de main.c (linea 516) no define
-  .session.last_will, y no hay ninguna referencia a LWT en el firmware:
+  Cambio aplicado en main.c, dentro de start_mqtt_client():
 
-      esp_mqtt_client_config_t mqtt_cfg = {
-          .broker.address.uri = broker_uri,
-          .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
-          .credentials.client_id = client_id_str,
-          .credentials.username = "s360_hub",
-          .credentials.authentication.password = S360_MQTT_PASSWORD,
-      };
+      .session.last_will = {
+          .topic   = "seguimiento360/hub/status",
+          .msg     = s_lwt_payload,
+          .msg_len = 0,          /* 0 = strlen */
+          .qos     = 1,
+          .retain  = 1,
+      },
 
-  Reproducido: con mosquitto_sub escuchando en seguimiento360/hub/status y
-  reiniciando el hub, solo llega HUB_ONLINE al reconectar. No hay mensaje
-  offline en ningun momento.
+  El payload se construye antes, en un buffer estatico (ESP-IDF guarda el
+  puntero, no copia el string, asi que debe sobrevivir al arranque):
 
-  Lo que SI funciona: el hub publica su estado al conectar.
+      {"event":"HUB_OFFLINE","mac":"3c:dc:75:62:c2:b0"}
 
-      seguimiento360/hub/status {"event":"HUB_ONLINE","mac":"3c:dc:75:62:c2:b0","hub_name":""}
+  El topic es el mismo que ya escucha Node-RED ("Sub HUB_ONLINE"), asi que
+  el backend recibe ambos estados sin cambios.
 
-  **Contradiccion documental:** 01-requisitos.md marca HUB-F-009 como
-  "implementado", y 02-interfaces.md afirma que "el estado se publica por
-  LWT". Ninguna de las dos cosas es cierta. Corregir ambas.
+  **Evidencia**, con marcas de tiempo de recepcion:
 
-  **Trabajo pendiente:** anadir .session.last_will al mqtt_cfg con topic
-  seguimiento360/hub/status, payload {"event":"HUB_OFFLINE",...} y QoS 1,
-  retenido. El ACL ya concede "topic write" sobre ese topic, que es lo
-  correcto para un LWT.
+      12:41:36  reinicio del hub
+      12:41:41  {"event":"HUB_OFFLINE","mac":"3c:dc:75:62:c2:b0"}
+      12:41:41  {"event":"HUB_ONLINE","mac":"3c:dc:75:62:c2:b0","hub_name":""}
 
-  Aparte: hub_name llega vacio porque active_config.hub_name no esta
-  poblado. La tabla hubs de PostgreSQL si tiene el nombre ("Hub Entrada
-  Principal").
+  Deteccion en 5 s. Presupuesto: keepalive (120 s por defecto) + 5 s.
+
+  El "retain: 1" hace que el mensaje lo reciba tambien quien se suscriba
+  despues del suceso, que es lo que necesita el backend si estuvo caido.
+
+  **Pendiente menor:** hub_name llega vacio. La tabla hubs de PostgreSQL si
+  tiene el nombre ("Hub Entrada Principal"), pero active_config.hub_name no
+  esta poblado en el firmware. Mismo caso en HUB_ONLINE.
 
 ## AT-006 (HUB-F-010)
 Pasos: armar via PWA; reiniciar hub.

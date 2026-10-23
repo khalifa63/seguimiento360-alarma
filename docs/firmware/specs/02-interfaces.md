@@ -140,7 +140,7 @@ para trazabilidad; ninguno se cumple hoy.
 | `status: .../hub/{hid}/status` | Es `seguimiento360/hub/status`, sin tenant |
 | `command: .../command` | El hub escucha `ota_cmd` y `node_cfg` |
 | `response: .../response` | No existe en el firmware |
-| `hello: .../hello` | No existe; el estado se publica por LWT |
+| `hello: .../hello` | No existe; el estado se publica en `seguimiento360/hub/status`, con LWT para el offline desde el 2026-10-23 |
 
 Estas diferencias son la brecha que cierra la tarea **FW-001** del
 [Plan de arranque](../../desarrollo/PLAN-DE-ARRANQUE.md).

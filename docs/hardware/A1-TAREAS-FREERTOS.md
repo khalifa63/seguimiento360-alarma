@@ -1,4 +1,4 @@
-{{ # DOCUMENTO DE ARQUITECTURA DE firmware: HUB-S3
+# Documento de Arquitectura — HUB-S3
 ## Sección A1: Componentes y Tareas FreeRTOS v0.2
 
 **Autor:** Arquitecto Jefe de Firmware
@@ -212,4 +212,4 @@ MENORES:
 - [A1-06] La decisión de serializar TX ESP-NOW vía cola en lugar de mutex es una buena práctica para evitar bloqueos de prioridad.
 - [A1-07] La asignación de stacks es razonable y considera el uso de PSRAM para buffers grandes de TLS.
 - [A1-08] El diagrama ASCII es claro y representa adecuadamente la distribución de tareas.
-- [A1-09] Las secciones críticas y el uso de mutex están bien identificados.ia }
+- [A1-09] Las secciones críticas y el uso de mutex están bien identificados.

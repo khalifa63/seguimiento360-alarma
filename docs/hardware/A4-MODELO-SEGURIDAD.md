@@ -1,4 +1,4 @@
-{## Sección A4: Modelo de Seguridad v0.2
+# Sección A4: Modelo de Seguridad v0.2
 
 **Autor:** Arquitecto Jefe de Firmware  
 **Proyecto:** Seguimiento 360  
@@ -7,12 +7,12 @@
 
 ---
 
-### 1. Resumen Ejecutivo
+## 1. Resumen Ejecutivo
 El modelo de seguridad del HUB-S3 se basa en el principio de "Defensa en Profundidad" y "Confianza Cero" en el edge. Dado que los nodos operan a batería y no pueden costear TLS, la seguridad perimetral recae en el cifrado ESP-NOW (AES-128) y la gestión estricta de claves en el Hub. La comunicación exterior utiliza mTLS sobre WSS. Este documento define los mecanismos criptográficos, la protección de memoria no volátil, la reacción ante manipulación física y el modelo de amenazas, asegurando el cumplimiento de los presupuestos de latencia (ACK ≤ 50ms) mediante el uso de aceleración por hardware.
 
 ---
 
-### 2. Distribución de LMK (Pairing) y Almacenamiento
+## 2. Distribución de LMK (Pairing) y Almacenamiento
 
 El proceso de pairing establece la Long Term Key (LMK) de 128 bits para el cifrado ESP-NOW entre el Hub y el Nodo.
 
@@ -30,7 +30,7 @@ El proceso de pairing establece la Long Term Key (LMK) de 128 bits para el cifra
 
 ---
 
-### 3. Ventana Anti-Replay (Seq Monotónico)
+## 3. Ventana Anti-Replay (Seq Monotónico)
 
 Para prevenir ataques de repetición, cada frame ESP-NOW v1 incluye un número de secuencia (`seq`) de 32 bits.
 
@@ -47,7 +47,7 @@ Para prevenir ataques de repetición, cada frame ESP-NOW v1 incluye un número d
 
 ---
 
-### 4. Protección NVS y Factory Reset Seguro
+## 4. Protección NVS y Factory Reset Seguro
 
 **Protección de Memoria (Flash Encryption):**
 *   **Decisión:** Habilitar **Flash Encryption (AES-256)** en modo Release. Las claves de cifrado se queman en los eFuses (`SECURE_BOOT_KEY` y `FLASH_ENCRYPTION_KEY`) durante la fabricación o primer boot seguro.
@@ -64,7 +64,7 @@ Para prevenir ataques de repetición, cada frame ESP-NOW v1 incluye un número d
 
 ---
 
-### 5. Tamper Físico: Detección y Reacción
+## 5. Tamper Físico: Detección y Reacción
 
 El Hub incluye un interruptor támper (ej. microruptor en la carcasa).
 
@@ -81,7 +81,7 @@ El Hub incluye un interruptor támper (ej. microruptor en la carcasa).
 
 ---
 
-### 6. Credenciales MQTT: Obtención y Rotación
+## 6. Credenciales MQTT: Obtención y Rotación
 
 **Obtención (Provisioning):**
 *   El Hub NUNCA trae credenciales MQTT hardcodeadas.
@@ -97,7 +97,7 @@ El Hub incluye un interruptor támper (ej. microruptor en la carcasa).
 
 ---
 
-### 7. Modelo de Amenazas y Mitigaciones
+## 7. Modelo de Amenazas y Mitigaciones
 
 | Amenaza | Vector de Ataque | Mitigación en HUB-S3 | Trazabilidad |
 | :--- | :--- | :--- | :--- |
@@ -110,7 +110,7 @@ El Hub incluye un interruptor támper (ej. microruptor en la carcasa).
 
 ---
 
-### 8. Firmas y Estructuras de Diseño (Contratos de Seguridad)
+## 8. Firmas y Estructuras de Diseño (Contratos de Seguridad)
 
 ```c
 // --- Contexto de Seguridad por Nodo (Almacenado en RAM para <50ms ACK) ---
@@ -139,7 +139,7 @@ typedef struct {
 
 ---
 
-### 9. Registro de Decisiones y Alternativas Descartadas
+## 9. Registro de Decisiones y Alternativas Descartadas
 
 1.  **Uso de eFuse para Flash Encryption:**
     *   *Decisión:* Quemar las claves de cifrado en eFuse en modo "Disable Debug" y "Release".
@@ -190,4 +190,4 @@ MENORES:
 - [A4-04] Reacción a Tamper físico detallada con ISR y Lockdown (AT-09).
 - [A4-05] Credenciales MQTT obtenidas vía claim y rotación segura, sin hardcodeo (AT-04).
 - [A4-06] Modelo de amenazas completo con mitigaciones específicas para ESP-NOW y TLS.
-- [B1-B8] Reglas bloqueantes y menores verificadas. Sin código final, solo contratos. }ia }
+- [B1-B8] Reglas bloqueantes y menores verificadas. Sin código final, solo contratos.

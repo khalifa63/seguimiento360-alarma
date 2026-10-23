@@ -66,3 +66,27 @@ mosquitto/data/
 # Archivos de configuración con datos reales
 traccar/traccar.xml.local
 mosquitto/config/passwd
+
+# Documentación generada
+.docs-work/
+site/
+dify-kb/
+
+# Herramientas locales de validación
+.npm-cache/
+.mkdocs-deps/
+.venv-docs/
+.tmp-pip/
+
+# Configuración real de Node-RED (la plantilla sí se versiona)
+backend/nodered/settings.js
+nodered/data/settings.js
+
+# Firmware: secretos y artefactos
+firmware/**/secrets.h
+firmware/**/backups/
+*.bak
+*.bak.*
+
+# Previews temporales de Office
+.dsh-office-*/

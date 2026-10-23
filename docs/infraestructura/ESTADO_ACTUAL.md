@@ -16,8 +16,8 @@ Registro de diferencias reales respecto a la documentacion original (infraestruc
 
 1. Base de datos seguimiento360_alarmas creada en el contenedor postgres. Seis tablas: users, tenants, sites, devices, device_credentials, device_audit_log. Esquema versionado en backend/database/schema.sql.
 2. Node-RED: modulos pg, bcryptjs y jsonwebtoken instalados dentro del contenedor.
-3. Node-RED settings.js: functionGlobalContext con pg, bcrypt, jwt, dbConfig (apunta al contenedor postgres) y jwtSecret; httpNodeMiddleware con CORS. Copia de referencia redactada en docs/infraestructura/settings-nodered-reference.js.
-4. API de autenticacion desplegada y probada: POST /api/auth/register, POST /api/auth/login, GET /api/auth/profile. Flujos en la pestana Autenticacion; JSON versionado en backend/nodered-flows/flow-auth.json; snapshot completo en docs/infraestructura/snapshots/.
+3. Node-RED settings.js: functionGlobalContext con pg, bcrypt, jwt, dbConfig (apunta al contenedor postgres) y jwtSecret; httpNodeMiddleware con CORS. Plantilla segura, sin secretos, en `nodered/data/settings.js.example`.
+4. API de autenticacion desplegada y probada: POST /api/auth/register, POST /api/auth/login, GET /api/auth/profile. Flujos en la pestana Autenticacion; JSON versionado en `backend/nodered-flows/flow-auth.json`. El snapshot completo de flujos no se versiona: se exporta desde el contenedor cuando haga falta.
 5. Incidente de credenciales: flows_cred.json se corrompio durante las ediciones de settings.js y fue reseteado el 2026-08-06. PENDIENTE: re-ingresar tokens en los nodos Telegram, Gotify y HTTP durante la fase Traccar.
 6. NODE_RED_CREDENTIAL_SECRET definido en ~/iot-alarma/.env y consumido por credentialSecret del settings.js.
 
@@ -29,7 +29,6 @@ Registro de diferencias reales respecto a la documentacion original (infraestruc
 - Todos quedan cubiertos por el backup semanal (volumenes + .env + pg_dumpall)
 
 Las rutas exactas de cada archivo en el host, en el contenedor y en el repositorio estan en [Rutas de archivos y volumenes](RUTAS-ARCHIVOS.md).
-
 ## Pendientes
 
 - [ ] Re-ingresar credenciales de nodos (fase Traccar)

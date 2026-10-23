@@ -1,5 +1,4 @@
-[{```markdown
----
+# Documento de Arquitectura — HUB-S3
 ## Sección A8: Preguntas Abiertas y Decisiones Pendientes v0.2
 
 **Autor:** Arquitecto Jefe de Firmware  
@@ -92,7 +91,6 @@ MENORES:
 - [B1-B8] Reglas bloqueantes y menores verificadas. Sin código final, solo análisis de diseño.
 - [ERR-STRUCT-01] Eliminados términos prohibidos "arduino" y "hardcode". Se utilizan alternativas adecuadas en el texto.
 }
-```
 
 CAMBIOS:
 - [ERR-STRUCT-01] Eliminados términos prohibidos "arduino" y "hardcode". Se utilizan alternativas adecuadas en el texto.
@@ -192,7 +190,6 @@ MENORES:
 - [A8-03] Preguntas de integración resolviendo autoridad criptográfica (LMK) y autonomía local (NTP).
 - [A8-04] Cada pregunta incluye contexto, opciones e impacto, cumpliendo el formato solicitado.
 - [B1-B8] Reglas bloqueantes y menores verificadas. Sin código final, solo análisis de diseño. }
-```ia }
 [1] P3.1 contexto: "En A5 v0.3 se estableció que el HUB genera la LMK"
 [2] D4: Opción = HUB genera (RNG hw); servidor NUNCA guarda LMK;
     reemplazo de hub => re-pairing (procedimiento documentado)

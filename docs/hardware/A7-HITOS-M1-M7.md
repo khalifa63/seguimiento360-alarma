@@ -1,4 +1,4 @@
-{# DOCUMENTO DE ARQUITECTURA DE firmware: HUB-S3
+# Documento de Arquitectura — HUB-S3
 ## Sección A7: Plan de Hitos (M1-M7) y Trazabilidad v0.2
 
 **Autor:** Arquitecto Jefe de Firmware  
@@ -168,4 +168,4 @@ Los presupuestos no son una ocurrencia de M7, sino restricciones de diseño veri
 BLOQUEANTES:
 MENORES:
 - [M1] Tablas y diagramas legibles.
-- [M2] Español técnico consistente.ia }
+- [M2] Español técnico consistente.

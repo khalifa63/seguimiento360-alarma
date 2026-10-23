@@ -1,5 +1,4 @@
-{```markdown
-{--- DOCUMENTO DE ARQUITECTURA DE firmware: HUB-S3
+# Documento de Arquitectura — HUB-S3
 ## Sección A6: Registro de Riesgos v0.2
 
 **Autor:** Arquitecto Jefe de Firmware  
@@ -103,7 +102,6 @@ CAMBIOS:
 - [A6-03] Confirmada la correcta identificación de dependencias de SRV-CORE.
 - [A6-04] Confirmada la justificación de decisiones de diseño con alternativas descartadas.
 - [B1-B8] Confirmada la adherencia a las reglas: sin código final, solo análisis y tablas.
-```}
 
 --- AUDITORÍA ---
 {```json
@@ -118,4 +116,3 @@ CAMBIOS:
 "[B1-B8] Reglas bloqueantes y menores verificadas. Sin código final, solo análisis y tablas."
 ]
 }
-```ia }

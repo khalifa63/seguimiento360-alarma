@@ -32,6 +32,16 @@
 #include "esp_sntp.h"
 #include <time.h>
 
+/* Credenciales locales. secrets.h no se versiona (ver secrets.h.example). */
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#warning "secrets.h no encontrado: usando valores de ejemplo. Ver secrets.h.example"
+#define S360_MQTT_USERNAME   "s360_hub"
+#define S360_MQTT_PASSWORD   "CAMBIAR_EN_PRODUCCION"
+#define S360_AP_PASSWORD     "CAMBIAR_EN_PRODUCCION"
+#endif
+
 // ============================================================================
 // ARCHIVOS DEL PORTAL CAUTIVO INCRUSTADOS (COMPONENT_EMBED_TXTFILES)
 // ============================================================================
@@ -502,7 +512,7 @@ static void start_mqtt_client(const char *broker_uri) {
        .credentials.client_id = client_id_str,
        // ✅ NUEVAS LÍNEAS DE SEGURIDAD:
        .credentials.username = "s360_hub",
-       .credentials.authentication.password = "S3g@360Hub!2026", 
+       .credentials.authentication.password = S360_MQTT_PASSWORD,
    };
     
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
@@ -1114,7 +1124,7 @@ void app_main(void) {
         .ap = {
             .ssid = "Seguimiento360_HUB",
             .ssid_len = strlen("Seguimiento360_HUB"),
-            .password = "hub_password_2026",
+            .password = S360_AP_PASSWORD,
             .max_connection = 4,
             .authmode = WIFI_AUTH_WPA2_PSK
         },

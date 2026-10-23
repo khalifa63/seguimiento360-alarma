@@ -167,7 +167,7 @@ Mosquitto tiene listeners diferenciados:
 
 ### Credenciales Node-RED
 - user: nodered
-- password: s360_nodered_2026
+- password: ${MQTT_PASSWORD} (definir en `.env`, no versionar)
 - broker: mosquitto:1883
 
 ## Arquitectura MQTT con listeners diferenciados (solución final)

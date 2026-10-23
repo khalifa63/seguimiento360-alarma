@@ -11,7 +11,7 @@ Verificado el 2026-10-23 contra el servidor de producción.
 
 | Perspectiva | Qué es | Cómo se accede |
 |---|---|---|
-| **Host** | El archivo real en el disco del servidor | SSH a `antonio@192.168.1.200` |
+| **Host** | El archivo real en el disco del servidor | Sesion SSH en el servidor |
 | **Contenedor** | La ruta que ve el proceso dentro de Docker | `docker exec <contenedor> ...` |
 | **Repositorio** | Lo que está versionado en git | `~/seguimiento360-alarma` |
 

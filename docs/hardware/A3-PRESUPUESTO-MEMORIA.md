@@ -1,4 +1,4 @@
-{--- DOCUMENTO DE ARQUITECTURA DE firmware: HUB-S3
+# Documento de Arquitectura — HUB-S3
 ## Sección A3: Presupuesto de Memoria y CPU v0.1
 
 **Autor:** Arquitecto Jefe de Firmware  
@@ -195,4 +195,4 @@ MENORES:
 - [A3-01] Desglose de SRAM y PSRAM justificado con números y trazado a A1.
 - [A3-02] Cálculo de desgaste NVS demuestra viabilidad >20 años tras ajuste de estrategia.
 - [A3-03] Pico de memoria TLS analizado paso a paso, confirmando uso de PSRAM.
-- [A3-04] Carga de CPU diferenciada por Core y estado, justificando uso de acelerador criptográfico.ia }
+- [A3-04] Carga de CPU diferenciada por Core y estado, justificando uso de acelerador criptográfico.

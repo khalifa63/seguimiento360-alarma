@@ -15,7 +15,7 @@ Solo 22 (SSH), 80 y 443 permiten trafico entrante (UFW). Todo el acceso web entr
 | gotify.seguimiento360.com | http://gotify:80 | Notificaciones | Usuario y clave |
 | uptime.seguimiento360.com | http://uptime-kuma:3001 | Monitoreo | Pendiente |
 
-Nota: el 2026-08-06 se observo el origen de nodered apuntando a http://192.168.1.200:1880 (IP del host). Funciona porque el puerto esta publicado, pero la forma robusta es el nombre de contenedor. Se recomienda estandarizar todos los origenes a nombres de contenedor.
+Nota: el 2026-08-06 se observo el origen de nodered apuntando a `http://<IP-DEL-HOST>:1880`. Funciona porque el puerto esta publicado, pero la forma robusta es el nombre de contenedor. Se recomienda estandarizar todos los origenes a nombres de contenedor.
 
 ## Puertos publicados por Docker (visibles en la LAN)
 

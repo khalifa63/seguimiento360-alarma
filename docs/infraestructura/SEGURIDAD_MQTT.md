@@ -184,6 +184,14 @@ definirla en `secrets.h` y reiniciar el ciclo de rotación.
    `ALTER USER`, que se pierde si se recrea el contenedor. Para que sea
    permanente hay que fijar `POSTGRES_PASSWORD` antes del primer arranque.
 
+   Para detectarlo, `scripts/verificar-pg-password.sh` comprueba que el `.env`
+   y el rol coincidan, y con `--fix` los sincroniza. Conviene ejecutarlo tras
+   cualquier recreación del contenedor de PostgreSQL.
+
+   La comprobación se hace **desde el contenedor de Node-RED**, no desde el de
+   PostgreSQL: `pg_hba.conf` trae `trust` para `127.0.0.1`, así que una prueba
+   local da OK aunque la contraseña sea incorrecta.
+
 
 ## Operación
 

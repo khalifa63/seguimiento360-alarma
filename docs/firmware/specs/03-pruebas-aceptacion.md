@@ -24,8 +24,57 @@ Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0, fw 37bff1e).
 ## AT-002 (HUB-F-004/005)
 Pasos: PWA -> Control de Alarma -> ARMAR; observar monitor y LED.
 PASS: monitor "COMANDO: arm"; LED GPIO48 ON; response "ok".
-Resultado: _pendiente_
+Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0).
 
+  **Implementado y verificado.** No existia ningun endpoint de armado: la
+  PWA tenia la vista, pero no habia backend detras.
+
+  Endpoint nuevo en Node-RED, siguiendo el patron de los endpoints de nodos:
+
+      POST /api/alarm/:action      (action = arm | disarm)
+
+      http in -> Validar JWT -> Preparar comando -> SELECT hub del tenant
+              -> Construir comando -> mqtt out -> HTTP 200
+                                  -> HTTP Error
+
+  Publica en seguimiento360/tenant/{tid}/site/{sid}/hub/{mac}/command. El hub
+  busca el hub del tenant del JWT: el aislamiento lo garantiza el WHERE por
+  tenant_id, nunca el cuerpo de la peticion.
+
+  **Evidencia.**
+
+      POST /api/alarm/arm  -> HTTP 200
+      {"action":"arm","hub_mac":"3cdc7562c2b0",
+       "mqtt_topic":"seguimiento360/tenant/2/site/1/hub/3cdc7562c2b0/command",
+       "state":"armed","message":"Comando publicado al hub via MQTT"}
+
+  Y el hub lo aplico. Tras reiniciarlo para leer la NVS:
+
+      Estado restaurado de NVS: armed
+      Alarma: armed | LED ON
+
+  Con disarm, el mismo ciclo deja el estado en disarmed y el LED apagado.
+
+  **Casos de error verificados:**
+
+      POST /api/alarm/explode  -> 400  {"error":"Accion debe ser 'arm' o 'disarm'"}
+      POST /api/alarm/arm sin token -> 401
+      Token de un tenant sin hubs   -> 404
+
+  **Cuatro fallos resueltos durante la implementacion**, todos del endpoint
+  nuevo y ninguno del firmware:
+
+  1. `there is no parameter $1`: se usaba msg.queryParams; el campo que lee
+     node-red-contrib-postgresql es msg.params (array).
+  2. `Invalid action specified`: **colision de nombres**. msg.action no es un
+     campo libre: es la API de control del nodo mqtt out, que valida su valor
+     contra una lista de acciones permitidas. Se renombro a msg.alarmAction.
+  3. Peticion colgada y "No response object": la respuesta se construia como
+     un objeto nuevo, perdiendo msg.res. El nodo http response necesita ese
+     campo para contestar. Ahora se clona el mensaje original.
+  4. El login devolvia el tenant equivocado: el usuario de prueba quedo como
+     owner de dos tenants y el SELECT del login no ordenaba, asi que tomaba
+     uno arbitrario.
 ## AT-003 (HUB-F-006/007, NF-002)
 Pasos: nodo dev publica frame event (boton); mosquitto_sub en /event.
 PASS: hub loggea RX + ACK; /event recibe JSON con seq correcto.
@@ -243,7 +292,7 @@ extremo y sin intervención manual.
 | AT | Que verifica | Resultado |
 |---|---|---|
 | AT-001 | Boot a MQTT <= 10 s | **PASS** (4,85 s) |
-| AT-002 | Armado/desarmado desde la PWA | PARCIAL (hub listo; falta la API) |
+| AT-002 | Armado/desarmado desde la PWA | **PASS** |
 | AT-003 | Frame v1 de nodo a hub | **PASS** |
 | AT-004 | `node_lost` tras 3 heartbeats | **PASS** |
 | AT-005 | LWT offline al caer | **FAIL** (no implementado) |

@@ -24,9 +24,11 @@ Registro de diferencias reales respecto a la documentacion original (infraestruc
 ## Donde viven los secretos (NO versionar en git)
 
 - Contrasena de postgres: env del contenedor y POSTGRES_PASSWORD en ~/iot-alarma/.env
-- jwtSecret y dbConfig: /data/settings.js dentro del volumen iot-alarma_nodered-data
+- jwtSecret y dbConfig: settings.js del volumen iot-alarma_nodered-data
 - Credential secret de Node-RED: NODE_RED_CREDENTIAL_SECRET en ~/iot-alarma/.env
 - Todos quedan cubiertos por el backup semanal (volumenes + .env + pg_dumpall)
+
+Las rutas exactas de cada archivo en el host, en el contenedor y en el repositorio estan en [Rutas de archivos y volumenes](RUTAS-ARCHIVOS.md).
 
 ## Pendientes
 

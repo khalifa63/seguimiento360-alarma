@@ -90,3 +90,6 @@ firmware/**/backups/
 
 # Previews temporales de Office
 .dsh-office-*/
+
+# Plantillas probadas (contienen credenciales de ejemplo)
+plantillas-probadas/

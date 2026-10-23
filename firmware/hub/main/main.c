@@ -57,6 +57,14 @@ static const char *TAG = "HUB_S3_MAIN";
 #define PORTAL_INACTIVITY_TIMEOUT_MS 600000  // 10 minutos
 #define INDICATOR_LED_PIN 48                  // GPIO 48 del ESP32-S3
 
+/* Vigilancia de nodos (HUB-F-008, AT-004).
+ * Un nodo se considera perdido tras NODE_LOST_MISSED heartbeats sin dar
+ * señales. Cualquier evento del nodo (ALRM o HEAR) cuenta como actividad. */
+#define NODE_HEARTBEAT_SEC   (10 * 60)        // debe coincidir con el nodo
+#define NODE_LOST_MISSED     3                // heartbeats perdidos
+#define NODE_LOST_TIMEOUT_S  (NODE_HEARTBEAT_SEC * NODE_LOST_MISSED)
+#define NODE_WATCHDOG_PERIOD_S 30             // cada cuanto se revisa
+
 // URI del Broker MQTT (Cloudflare Tunnel)
 #define MQTT_BROKER_URI "wss://mqtt.seguimiento360.com:443"
 
@@ -315,6 +323,17 @@ static void load_node_registry(void) {
         memset(&node_registry, 0, sizeof(node_registry_t));
     } else if (err == ESP_OK) {
         ESP_LOGI(TAG, "Registro de nodos cargado: %d nodos vinculados.", node_registry.count);
+
+        /* last_ping se conserva tal como quedo en NVS a proposito.
+         *
+         * Refrescarlo al arrancar parecia comodo, pero rompe el proposito de
+         * la vigilancia: si el hub estuvo caido 6 horas y el nodo lleva todo
+         * ese tiempo en silencio, el backend debe enterarse. Un nodo callado
+         * sigue siendo un nodo perdido aunque el hub acabe de arrancar.
+         *
+         * Efecto buscado: si el hub vuelve tras una ausencia mayor que el
+         * umbral, avisa de los nodos que siguen sin dar señales. El aviso es
+         * unico por nodo: last_ping se pone a 0 al publicarlo. */
     } else {
         ESP_LOGE(TAG, "Error al cargar registro de nodos: %s", esp_err_to_name(err));
         memset(&node_registry, 0, sizeof(node_registry_t));
@@ -1054,6 +1073,75 @@ static esp_err_t api_nodes_delete_handler(httpd_req_t *req) {
 // TAREA DE VIGILANCIA DEL PORTAL
 // ============================================================================
 
+/* ============================================================================
+ * VIGILANCIA DE NODOS (HUB-F-008, AT-004)
+ *
+ * Publica un evento cuando un nodo lleva NODE_LOST_MISSED heartbeats sin
+ * dar señales. Tras avisar, pone last_ping a 0 para no repetir el aviso en
+ * cada ciclo; vuelve a contar cuando el nodo se manifieste de nuevo.
+ * ========================================================================== */
+static void publish_node_lost(const uint8_t *mac, const char *name)
+{
+    if (mqtt_client == NULL || !mqtt_is_connected) {
+        return;
+    }
+
+    char mac_str[18];
+    format_mac(mac, mac_str, sizeof(mac_str));
+
+    char topic[128];
+    get_mqtt_topic(topic, sizeof(topic), "event");
+
+    char payload[256];
+    snprintf(payload, sizeof(payload),
+             "{"
+             "\"mac\":\"%s\","
+             "\"node_name\":\"%s\","
+             "\"event\":\"NODE_LOST\","
+             "\"tenant\":\"%s\","
+             "\"site\":\"%s\""
+             "}",
+             mac_str, name,
+             active_config.tenant_id, active_config.site_id);
+
+    int msg_id = esp_mqtt_client_publish(mqtt_client, topic, payload, 0, 1, 0);
+    if (msg_id > 0) {
+        ESP_LOGW(TAG, "Nodo perdido: %s (%s). Evento publicado.", name, mac_str);
+    } else {
+        ESP_LOGE(TAG, "No se pudo publicar NODE_LOST de %s", mac_str);
+    }
+}
+
+static void node_watchdog_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "Vigilancia de nodos activa: umbral %d s (%d heartbeats de %d s)",
+             NODE_LOST_TIMEOUT_S, NODE_LOST_MISSED, NODE_HEARTBEAT_SEC);
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(NODE_WATCHDOG_PERIOD_S * 1000));
+
+        uint32_t now = get_unix_now();
+        if (now < 1600000000U) {
+            /* Sin hora real todavia (SNTP no sincronizado): no se puede
+             * comparar contra last_ping, que es un instante absoluto. */
+            continue;
+        }
+
+        for (int i = 0; i < node_registry.count; i++) {
+            uint32_t last = node_registry.nodes[i].last_ping;
+            if (last == 0) {
+                continue;   /* ya avisado, o nunca visto */
+            }
+            if ((now - last) > (uint32_t)NODE_LOST_TIMEOUT_S) {
+                publish_node_lost(node_registry.nodes[i].mac,
+                                  node_registry.nodes[i].name);
+                node_registry.nodes[i].last_ping = 0;
+                save_node_registry();
+            }
+        }
+    }
+}
+
 static void portal_inactivity_task(void *pvParameters) {
     while(1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
@@ -1120,6 +1208,7 @@ static esp_err_t start_captive_portal(void) {
         
         last_portal_activity = esp_timer_get_time();
         xTaskCreate(&portal_inactivity_task, "portal_watchdog", 2048, NULL, 1, NULL);
+        xTaskCreate(&node_watchdog_task, "node_watchdog", 4096, NULL, 2, NULL);
         ESP_LOGI(TAG, "Portal Cautivo v2 iniciado en http://192.168.4.1");
         return ESP_OK;
     }

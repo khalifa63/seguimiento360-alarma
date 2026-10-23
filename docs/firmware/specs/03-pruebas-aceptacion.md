@@ -44,26 +44,54 @@ Resultado: PASS (2026-10-23, hub 37bff1e, nodo v2.0).
 ## AT-004 (HUB-F-008)
 Pasos: nodo publica heartbeat; esperar 3 periodos sin HB.
 PASS: evento node_lost tras 3 HB perdidos.
-Resultado: FAIL (2026-10-23, hub 37bff1e).
+Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0).
 
-  **node_lost no esta implementado.** El hub guarda la marca de actividad del
-  nodo pero no la vigila:
+  **Implementado y verificado en esta sesion.** node_lost no existia: el hub
+  guardaba last_ping pero ninguna tarea lo vigilaba.
 
-      // main.c:702, al recibir un evento
-      node_registry.nodes[node_idx].last_ping = get_unix_now();
+  Cambio en main.c: nueva tarea node_watchdog_task que cada 30 s recorre el
+  registro y compara last_ping contra la hora actual. Umbral:
 
-  No existe ninguna tarea que compare last_ping contra la hora actual, ni
-  codigo que publique un evento de nodo perdido. Las tareas creadas en main.c
-  son portal_inactivity_task y las de wifi/mqtt; ninguna vigila nodos.
+      NODE_HEARTBEAT_SEC     600 s   (debe coincidir con el nodo)
+      NODE_LOST_MISSED       3       heartbeats
+      NODE_LOST_TIMEOUT_S    1800 s
+      NODE_WATCHDOG_PERIOD_S 30 s
 
-  Reproducido por inspeccion: no hay forma de que se emita node_lost.
+  Publica en el topic de eventos del hub:
 
-  **Nota de viabilidad:** HEARTBEAT_INTERVAL_SEC es 600 (10 minutos), asi que
-  la prueba exige 30 minutos de espera. Para validarla conviene poder bajar el
-  intervalo por configuracion en lugar de recompilar.
+      {"mac":"a0:f2:62:f1:d0:f0","node_name":"Sensor Ultrasonico Gar",
+       "event":"NODE_LOST","tenant":"2","site":"1"}
 
-  Coincide con 01-requisitos.md, que ya marca HUB-F-008 como pendiente.
+  Tras avisar pone last_ping a 0, de modo que el aviso se emite una sola vez
+  por nodo y vuelve a contar cuando el nodo se manifieste de nuevo.
 
+  **Verificacion.** El umbral de produccion son 30 minutos, inviable de
+  esperar en una sesion. Se compilo una variante con umbral de 10 s para
+  validar la logica, con la tarea instrumentada:
+
+      WD: nodo 0 last_ping=1792777941 delta=5
+      WD: nodo 0 last_ping=1792777941 delta=10
+      WD: nodo 0 last_ping=1792777941 delta=15
+      W  Nodo perdido: Sensor Ultrasonico Gar. Evento publicado.
+      WD: nodo 0 last_ping=0 delta=-1        <- no repite
+
+  El evento llego a MQTT y a PostgreSQL (eventos 67 y siguientes con
+  event_type NODE_LOST). Despues se restauro el umbral de produccion.
+
+  **Decision de diseño: last_ping se conserva de NVS al arrancar.**
+  Refrescarlo parecia comodo para evitar falsos positivos tras un reinicio,
+  pero rompe el proposito: si el hub estuvo caido horas y el nodo lleva todo
+  ese tiempo en silencio, el backend debe enterarse. Un nodo callado sigue
+  siendo un nodo perdido aunque el hub acabe de arrancar.
+
+  **Nota de mantenimiento:** NODE_HEARTBEAT_SEC debe coincidir con el
+  HEARTBEAT_INTERVAL_SEC del nodo. Si se cambia en uno, hay que cambiarlo en
+  el otro o la deteccion se adelanta o se retrasa.
+
+  **Limitacion conocida:** si el reinicio del hub y el silencio del nodo
+  coinciden, el aviso puede repetirse una vez por reinicio, porque cada
+  arranque parte del last_ping guardado. Es el comportamiento buscado, pero
+  conviene tenerlo presente si el hub se reinicia a menudo.
 ## AT-005 (HUB-F-009)
 Pasos: cortar alimentacion; mosquitto_sub en status.
 PASS: {"status":"offline"} en <= keepalive + 5 s.
@@ -204,7 +232,7 @@ extremo y sin intervención manual.
 | AT-001 | Boot a MQTT <= 10 s | **PASS** (4,85 s) |
 | AT-002 | Armado/desarmado desde la PWA | **FAIL** (no existe la API) |
 | AT-003 | Frame v1 de nodo a hub | **PASS** |
-| AT-004 | `node_lost` tras 3 heartbeats | **FAIL** (no implementado) |
+| AT-004 | `node_lost` tras 3 heartbeats | **PASS** |
 | AT-005 | LWT offline al caer | **FAIL** (no implementado) |
 | AT-006 | Persistencia del estado de alarma | **FAIL** (no conectado) |
 | AT-007+ | Provisioning y OTA | pendiente |

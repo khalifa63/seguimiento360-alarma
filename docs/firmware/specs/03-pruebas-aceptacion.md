@@ -5,7 +5,21 @@ Formato: pasos | criterio PASS | traza | resultado (fecha, fw, PASS/FAIL)
 ## AT-001 (HUB-F-001/002/003, NF-001)
 Pasos: flashear dev build; monitor ON; medir t desde power-on.
 PASS: "WiFi OK" y "MQTT conectado" y "hello publicado" con t <= 10 s.
-Resultado: _pendiente_
+Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0, fw 37bff1e).
+
+  Medido con reset por hardware y captura simultanea de la consola. Las marcas
+  son del propio firmware (ms desde power-on):
+
+      2112 ms  Tenant: 2 | Site: 1
+      2695 ms  Obtenida IP: 192.168.10.12
+      2705 ms  Cliente MQTT iniciado
+      4844 ms  MQTT_EVENT_CONNECTED
+      4851 ms  Publicado HUB_ONLINE
+
+  Tiempo a MQTT conectado y estado publicado: 4,85 s.
+  Presupuesto: <= 10 s. Cumple con margen 2x.
+
+  El hub publica HUB_ONLINE en lugar de un topic "hello" (ver HUB-IF-003).
 
 ## AT-002 (HUB-F-004/005)
 Pasos: PWA -> Control de Alarma -> ARMAR; observar monitor y LED.
@@ -30,23 +44,64 @@ Resultado: PASS (2026-10-23, hub 37bff1e, nodo v2.0).
 ## AT-004 (HUB-F-008)
 Pasos: nodo publica heartbeat; esperar 3 periodos sin HB.
 PASS: evento node_lost tras 3 HB perdidos.
-Resultado: _pendiente_
+Resultado: FAIL (2026-10-23, hub 37bff1e).
+
+  **node_lost no esta implementado.** El hub guarda la marca de actividad del
+  nodo pero no la vigila:
+
+      // main.c:702, al recibir un evento
+      node_registry.nodes[node_idx].last_ping = get_unix_now();
+
+  No existe ninguna tarea que compare last_ping contra la hora actual, ni
+  codigo que publique un evento de nodo perdido. Las tareas creadas en main.c
+  son portal_inactivity_task y las de wifi/mqtt; ninguna vigila nodos.
+
+  Reproducido por inspeccion: no hay forma de que se emita node_lost.
+
+  **Nota de viabilidad:** HEARTBEAT_INTERVAL_SEC es 600 (10 minutos), asi que
+  la prueba exige 30 minutos de espera. Para validarla conviene poder bajar el
+  intervalo por configuracion en lugar de recompilar.
+
+  Coincide con 01-requisitos.md, que ya marca HUB-F-008 como pendiente.
 
 ## AT-005 (HUB-F-009)
 Pasos: cortar alimentacion; mosquitto_sub en status.
 PASS: {"status":"offline"} en <= keepalive + 5 s.
-Resultado: PARCIAL (2026-10-23).
+Resultado: FAIL (2026-10-23, hub 37bff1e).
 
-  El hub publica su estado al conectar en seguimiento360/hub/status:
+  **El LWT no esta implementado.**
 
-      {"event":"HUB_ONLINE","mac":"3c:dc:75:62:c2:b0","hub_name":""}
+  La estructura esp_mqtt_client_config_t de main.c (linea 516) no define
+  .session.last_will, y no hay ninguna referencia a LWT en el firmware:
 
-  Capturado con mosquitto_sub tras reiniciar el hub. Queda por verificar
-  el mensaje offline del LWT al cortar la alimentación, y que hub_name no
-  llegue vacío.
+      esp_mqtt_client_config_t mqtt_cfg = {
+          .broker.address.uri = broker_uri,
+          .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
+          .credentials.client_id = client_id_str,
+          .credentials.username = "s360_hub",
+          .credentials.authentication.password = S360_MQTT_PASSWORD,
+      };
 
-  Nota: el ACL concede "topic write" (no readwrite) sobre ese tópico, que
-  es lo correcto para un LWT.
+  Reproducido: con mosquitto_sub escuchando en seguimiento360/hub/status y
+  reiniciando el hub, solo llega HUB_ONLINE al reconectar. No hay mensaje
+  offline en ningun momento.
+
+  Lo que SI funciona: el hub publica su estado al conectar.
+
+      seguimiento360/hub/status {"event":"HUB_ONLINE","mac":"3c:dc:75:62:c2:b0","hub_name":""}
+
+  **Contradiccion documental:** 01-requisitos.md marca HUB-F-009 como
+  "implementado", y 02-interfaces.md afirma que "el estado se publica por
+  LWT". Ninguna de las dos cosas es cierta. Corregir ambas.
+
+  **Trabajo pendiente:** anadir .session.last_will al mqtt_cfg con topic
+  seguimiento360/hub/status, payload {"event":"HUB_OFFLINE",...} y QoS 1,
+  retenido. El ACL ya concede "topic write" sobre ese topic, que es lo
+  correcto para un LWT.
+
+  Aparte: hub_name llega vacio porque active_config.hub_name no esta
+  poblado. La tabla hubs de PostgreSQL si tiene el nombre ("Hub Entrada
+  Principal").
 
 ## AT-006 (HUB-F-010)
 Pasos: armar via PWA; reiniciar hub.
@@ -104,10 +159,24 @@ extremo y sin intervención manual.
 | Node-RED → Gotify (push) | Validado |
 | Autenticación MQTT y ACL | Validado |
 
-### Lo que sigue pendiente de AT
+### Resumen de AT (2026-10-23)
 
-- AT-001 (tiempos de boot a MQTT)
-- AT-002 (armado/desarmado desde la PWA)
-- AT-004 (`node_lost` tras 3 heartbeats)
-- AT-006 (persistencia del estado de alarma al reiniciar)
-- AT-007 en adelante (provisioning y OTA)
+| AT | Que verifica | Resultado |
+|---|---|---|
+| AT-001 | Boot a MQTT <= 10 s | **PASS** (4,85 s) |
+| AT-002 | Armado/desarmado desde la PWA | pendiente |
+| AT-003 | Frame v1 de nodo a hub | **PASS** |
+| AT-004 | `node_lost` tras 3 heartbeats | **FAIL** (no implementado) |
+| AT-005 | LWT offline al caer | **FAIL** (no implementado) |
+| AT-006 | Persistencia del estado de alarma | pendiente |
+| AT-007+ | Provisioning y OTA | pendiente |
+
+Tres de las pruebas revelaron que la funcionalidad **no existe**, aunque la
+documentacion la daba por hecha:
+
+- **HUB-F-009 (LWT):** 01-requisitos lo marcaba como "implementado" y
+  02-interfaces afirmaba que el estado se publica por LWT. Ninguna era cierta.
+  Corregido en 01-requisitos.
+- **HUB-F-008 (node_lost):** ya estaba marcado como pendiente; la prueba
+  confirma que sigue sin implementarse.
+- **AT-002 y AT-006:** sin ejecutar todavia.

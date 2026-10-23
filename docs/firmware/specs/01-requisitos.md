@@ -10,7 +10,7 @@ HUB-F-005 | Reflejar estado en salidas (LED; rele/sirena en 5.2) + response  | p
 HUB-F-006 | RX frame ESP-NOW v1: version, CRC, anti-replay seq + ACK         | parcial      | AT-003
 HUB-F-007 | Publicar eventos de nodos a /event (QoS1)                        | implementado | AT-003
 HUB-F-008 | Tabla de nodos (last_seen, battery); node_lost tras 3 HB         | pendiente    | AT-004
-HUB-F-009 | LWT offline ante caida (anti-sabotaje)                           | implementado | AT-005
+HUB-F-009 | LWT offline ante caida (anti-sabotaje)                           | PENDIENTE   | AT-005
 HUB-F-010 | NVS: persistir config y estado de alarma                         | pendiente    | AT-006
 HUB-F-011 | Provisioning SoftAP + portal (WiFi + claim code)                 | pendiente    | AT-007
 HUB-F-012 | OTA seguro (HTTPS, firma, rollback)                              | pendiente    | AT-008

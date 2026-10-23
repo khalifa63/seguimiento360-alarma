@@ -93,3 +93,13 @@ firmware/**/backups/
 
 # Plantillas probadas (contienen credenciales de ejemplo)
 plantillas-probadas/
+
+# Volcados de flash y respaldos de NVS: contienen credenciales del dispositivo.
+# Nunca se versionan. Los respaldos viven en ~/backups-flash/ del servidor.
+**/backups/flash/
+*.sha256
+
+# Configuracion local de compilacion
+**/sdkconfig
+**/sdkconfig.old
+**/sdkconfig.defaults

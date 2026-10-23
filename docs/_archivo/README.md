@@ -4,7 +4,7 @@ Documentos que ya no son fuente de verdad. Se conservan para trazabilidad; no se
 
 ## Contenido
 
-- [Fase 1 · Documentación local](fase-1/documentacion-local.md): borrador histórico con marcas de fusión sin resolver.
+- [Fase 1 · Documentación local](fase-1/documentacion-local.md): borrador histórico de la Fase 1 (núcleo IoT, OTA y contrato de API).
 - [Plantillas probadas](plantillas-probadas/): firmware y flujo Node-RED de pruebas, con credenciales redactadas.
 
 ## Reglas

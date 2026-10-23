@@ -315,6 +315,22 @@ Solo AT-001 y AT-003 pasan. Conviene revisar el resto de la matriz de
 trazabilidad de 01-requisitos con el mismo criterio: una afirmacion
 "implementado" sin una AT que lo respalde no es evidencia.
 
+### Cuenta del hub
+
+Durante las pruebas de AT-002 se creo un usuario temporal. Ya esta eliminado.
+
+El tenant 2 "Casa Antonio" —el que contiene el hub fisico, su nodo y el
+historico de eventos— pertenece ahora a la cuenta real del propietario. Se
+eligio reasignarlo en lugar de borrarlo porque eliminarlo habria dejado el
+hub sin usuario que pueda autenticar la API de armado.
+
+### Nota sobre el login
+
+El endpoint de login toma el tenant del primer registro que devuelve su
+consulta, sin ORDER BY. Si un usuario es propietario de mas de un tenant,
+el token puede traer uno arbitrario. Ocurrio durante las pruebas y costo un
+rato de diagnostico. Conviene anadir un ORDER BY explicito.
+
 ### Prioridad sugerida
 
 1. **API de armado/desarmado + integrar sm_alarm** — desbloquea AT-002 y AT-006

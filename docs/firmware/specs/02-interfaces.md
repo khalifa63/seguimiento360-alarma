@@ -113,6 +113,22 @@ Node-RED considera críticos los que empiezan por `ALRM`, `GAS`, `SMOKE`,
     site_id:u32, mqtt_user:str, mqtt_pass:str, alarm_state:u8,
     node_seq_<id>:u32 (anti-replay por nodo)
 
+## HUB-IF-009: Portal cautivo
+
+El hub levanta un SoftAP para el aprovisionamiento. SSID y contraseña derivan
+de la MAC, de modo que varios hubs en la misma casa son distinguibles.
+
+| Elemento | Formato | Ejemplo |
+|---|---|---|
+| SSID | `S360-XXXX` | `S360-C2B0` |
+| Contraseña | `S360-XXXX` | `S360-C2B0` |
+| IP del portal | `192.168.4.1` | — |
+
+`XXXX` son los cuatro últimos hex de la MAC en mayúsculas.
+
+El portal guarda en NVS la red WiFi de destino, el broker MQTT, el `tenant_id`
+y el `site_id`. El AP se cierra tras 10 minutos de inactividad.
+
 ## Hallazgos v0.1 → v0.2
 
 La v0.1 describía contratos que el firmware nunca implementó. Se conservan aquí

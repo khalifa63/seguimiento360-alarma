@@ -31,6 +31,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_sntp.h"
 #include <time.h>
+#include <ctype.h>
 
 /* Credenciales locales. secrets.h no se versiona (ver secrets.h.example). */
 #if __has_include("secrets.h")
@@ -39,7 +40,6 @@
 #warning "secrets.h no encontrado: usando valores de ejemplo. Ver secrets.h.example"
 #define S360_MQTT_USERNAME   "s360_hub"
 #define S360_MQTT_PASSWORD   "CAMBIAR_EN_PRODUCCION"
-#define S360_AP_PASSWORD     "CAMBIAR_EN_PRODUCCION"
 #endif
 
 // ============================================================================
@@ -1119,16 +1119,32 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
                                                          &wifi_event_handler, NULL, NULL));
 
-    // 7. Configurar AP para Portal Cautivo
+    // 7. Configurar AP para Portal Cautivo.
+    //    SSID y contrasena derivan de la MAC: con varios hubs en la misma
+    //    casa cada uno emite su propia red y el instalador puede elegir.
+    //    Formato: S360-XXXX, con los ultimos 4 hex de la MAC en mayusculas.
+    char ap_ssid[16];
+    char ap_pass[16];
+    snprintf(ap_ssid, sizeof(ap_ssid), "S360-%c%c%c%c",
+             toupper((unsigned char)hub_mac_str[8]),
+             toupper((unsigned char)hub_mac_str[9]),
+             toupper((unsigned char)hub_mac_str[10]),
+             toupper((unsigned char)hub_mac_str[11]));
+    snprintf(ap_pass, sizeof(ap_pass), "S360-%c%c%c%c",
+             toupper((unsigned char)hub_mac_str[8]),
+             toupper((unsigned char)hub_mac_str[9]),
+             toupper((unsigned char)hub_mac_str[10]),
+             toupper((unsigned char)hub_mac_str[11]));
+
     wifi_config_t ap_config = {
         .ap = {
-            .ssid = "Seguimiento360_HUB",
-            .ssid_len = strlen("Seguimiento360_HUB"),
-            .password = S360_AP_PASSWORD,
             .max_connection = 4,
             .authmode = WIFI_AUTH_WPA2_PSK
         },
     };
+    strncpy((char *)ap_config.ap.ssid, ap_ssid, sizeof(ap_config.ap.ssid) - 1);
+    ap_config.ap.ssid_len = strlen(ap_ssid);
+    strncpy((char *)ap_config.ap.password, ap_pass, sizeof(ap_config.ap.password) - 1);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
     
@@ -1184,5 +1200,6 @@ void app_main(void) {
     ESP_LOGI(TAG, "Nodos vinculados: %d/%d", node_registry.count, MAX_NODES);
     ESP_LOGI(TAG, "Broker MQTT: %s", MQTT_BROKER_URI);
     ESP_LOGI(TAG, "Portal Cautivo: http://192.168.4.1 (timeout: 10 min)");
+    ESP_LOGI(TAG, "  Red WiFi: %s  |  Clave: %s", ap_ssid, ap_pass);
     ESP_LOGI(TAG, "============================================================");
 }

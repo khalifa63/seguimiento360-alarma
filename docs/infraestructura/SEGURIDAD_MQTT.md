@@ -101,7 +101,7 @@ Se rotaron ambas.
 | Credencial | Estado |
 |---|---|
 | MQTT (`S360_MQTT_PASSWORD`) | Rotada y en uso |
-| Portal cautivo (`S360_AP_PASSWORD`) | Rotada y en uso |
+| Portal cautivo | Rotada y luego sustituida por el esquema derivado de la MAC (ver más abajo) |
 
 La contraseña MQTT antigua **ya no autentica** contra el broker. Se verificó
 explícitamente después del cambio.
@@ -126,6 +126,45 @@ reintenta con backoff y vuelve solo.
 El hub reconectó sin intervención y quedó autenticado:
 
     New client connected as hub_3cdc7562c2b0 (u's360_hub')
+
+## Portal cautivo
+
+El hub levanta un AP para el aprovisionamiento inicial. Desde el 2026-10-23 el
+SSID y la contraseña **derivan de la MAC**, no son fijos:
+
+| Elemento | Valor | Ejemplo |
+|---|---|---|
+| SSID | `S360-XXXX` | `S360-C2B0` |
+| Contraseña | `S360-XXXX` | `S360-C2B0` |
+| URL del portal | `http://192.168.4.1` | — |
+
+`XXXX` son los cuatro últimos dígitos hexadecimales de la MAC del hub, en
+mayúsculas. Para el hub `3cdc7562c2b0` el resultado es `C2B0`.
+
+### Por qué derivan de la MAC
+
+Con un SSID fijo, dos hubs en la misma casa emiten la misma red y el teléfono
+se conecta al de más señal, sin forma de elegir cuál se está configurando.
+Con el sufijo de MAC cada equipo tiene su propia red y el instalador sabe a
+cuál conectarse.
+
+Además, el sufijo coincide con el identificador que el resto del sistema usa
+para el hub: los tópicos MQTT (`hub/3cdc7562c2b0`) y la etiqueta física del
+equipo.
+
+### Recomendación de despliegue
+
+Imprimir la MAC en la etiqueta del equipo. El instalador no memoriza nada:
+lee la etiqueta, se conecta a `S360-XXXX` y entra al portal.
+
+### Nota sobre la rotación
+
+Estas credenciales **no se rotan** como las de MQTT: al derivarse de la MAC,
+cambiar la contraseña exigiría reflashear. La protección es que la red solo
+existe durante el aprovisionamiento (timeout de 10 minutos de inactividad).
+
+Si se necesitara una contraseña distinta de la del SSID, habría que volver a
+definirla en `secrets.h` y reiniciar el ciclo de rotación.
 
 ## Riesgos abiertos
 

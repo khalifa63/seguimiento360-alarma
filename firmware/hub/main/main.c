@@ -28,6 +28,8 @@
 #include "mqtt_client.h"
 #include "ota_manager.h"
 #include "espnow_protocol.h"
+#include "sm_alarm.h"
+#include "nvs_manager.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_sntp.h"
@@ -399,6 +401,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         get_mqtt_topic(node_cfg_topic, sizeof(node_cfg_topic), "node_cfg");
         esp_mqtt_client_subscribe(mqtt_client, node_cfg_topic, 1);
         ESP_LOGI(TAG, "📡 Suscrito a configuración de nodos: %s", node_cfg_topic);
+
+        /* Comandos de armado/desarmado (HUB-F-004/005, AT-002) */
+        char cmd_topic[128];
+        get_mqtt_topic(cmd_topic, sizeof(cmd_topic), "command");
+        esp_mqtt_client_subscribe(mqtt_client, cmd_topic, 1);
+        ESP_LOGI(TAG, "🛡️  Suscrito a comandos de alarma: %s", cmd_topic);
             break;
             
         case MQTT_EVENT_DISCONNECTED:
@@ -451,6 +459,34 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                 }
             }
             // --- MANEJO DE CONFIGURACIÓN DE NODOS ---
+            else if (strstr(event->topic, "command") != NULL) {
+                /* --- COMANDOS DE ALARMA (AT-002) --- */
+                char *cmd_data = calloc(1, event->data_len + 1);
+                if (cmd_data != NULL) {
+                    memcpy(cmd_data, event->data, event->data_len);
+                    ESP_LOGI(TAG, "Comando de alarma recibido: %s", cmd_data);
+
+                    sm_alarm_cmd_t cmd = SM_ALARM_CMD_NONE;
+                    if (strstr(cmd_data, "arm") != NULL && strstr(cmd_data, "disarm") == NULL) {
+                        cmd = SM_ALARM_CMD_ARM;
+                    } else if (strstr(cmd_data, "disarm") != NULL) {
+                        cmd = SM_ALARM_CMD_DISARM;
+                    }
+
+                    if (cmd != SM_ALARM_CMD_NONE) {
+                        esp_err_t aerr = sm_alarm_process_cmd(cmd);
+                        /* El LED queda fijo encendido si esta armado. */
+                        gpio_set_level(INDICATOR_LED_PIN,
+                                       sm_alarm_get_state() == SM_ALARM_STATE_ARMED ? 1 : 0);
+                        ESP_LOGI(TAG, "Estado de alarma: %s (%s)",
+                                 sm_alarm_state_str(sm_alarm_get_state()),
+                                 aerr == ESP_OK ? "ok" : esp_err_to_name(aerr));
+                    } else {
+                        ESP_LOGW(TAG, "Comando no reconocido: %s", cmd_data);
+                    }
+                    free(cmd_data);
+                }
+            }
             else if (strstr(event->topic, "node_cfg") != NULL) {
                 ESP_LOGI(TAG, "📥 Configuración de nodo recibida en %.*s", event->topic_len, event->topic);
                 
@@ -1112,6 +1148,19 @@ static void publish_node_lost(const uint8_t *mac, const char *name)
     }
 }
 
+/* Callback que sm_alarm usa para publicar. Se mantiene por si en el futuro
+ * se integra sm_alarm_process_espnow_data; hoy la ruta de eventos sigue en
+ * publish_event_to_mqtt, que es el formato que Node-RED ya consume. */
+static void sm_alarm_publish(const char *json_payload)
+{
+    if (mqtt_client == NULL || !mqtt_is_connected || json_payload == NULL) {
+        return;
+    }
+    char topic[128];
+    get_mqtt_topic(topic, sizeof(topic), "event");
+    esp_mqtt_client_publish(mqtt_client, topic, json_payload, 0, 1, 0);
+}
+
 static void node_watchdog_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Vigilancia de nodos activa: umbral %d s (%d heartbeats de %d s)",
@@ -1227,6 +1276,18 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
+    /* Particiones propias de nvs_manager (nvs_state, nvs_nodes, config).
+     * Sin esto, nvs_manager_set_alarm_state() falla con
+     * ESP_ERR_NVS_PART_NOT_FOUND: la particion existe en partitions.csv pero
+     * nadie la habia inicializado. */
+    esp_err_t nvs_err = nvs_manager_init();
+    if (nvs_err != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_manager_init fallo: %s. El estado de alarma no se "
+                      "persistira entre reinicios.", esp_err_to_name(nvs_err));
+    } else {
+        ESP_LOGI(TAG, "Particiones NVS propias inicializadas");
+    }
+
     // 2. Cargar configuración (con migración automática si es legacy)
     load_config();
 
@@ -1244,6 +1305,18 @@ void app_main(void) {
     gpio_reset_pin(INDICATOR_LED_PIN);
     gpio_set_direction(INDICATOR_LED_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(INDICATOR_LED_PIN, 0);
+
+    /* FSM de alarma: restaura el estado guardado en NVS y deja el LED
+     * reflejandolo, para que sobreviva a un reinicio (AT-006). */
+    if (sm_alarm_init(sm_alarm_publish) == ESP_OK) {
+        gpio_set_level(INDICATOR_LED_PIN,
+                       sm_alarm_get_state() == SM_ALARM_STATE_ARMED ? 1 : 0);
+        ESP_LOGI(TAG, "Alarma: %s | LED %s",
+                 sm_alarm_state_str(sm_alarm_get_state()),
+                 sm_alarm_get_state() == SM_ALARM_STATE_ARMED ? "ON" : "OFF");
+    } else {
+        ESP_LOGE(TAG, "No se pudo inicializar la FSM de alarma");
+    }
 
     // 6. Inicializar Red y Wi-Fi (APSTA)
     ESP_ERROR_CHECK(esp_netif_init());

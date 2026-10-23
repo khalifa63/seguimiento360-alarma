@@ -38,23 +38,47 @@ esp_err_t sm_alarm_init(sm_alarm_publish_cb_t publish_cb) {
     // Obtener MAC del HUB para incluir en el JSON
     esp_read_mac(s_hub_mac, ESP_MAC_WIFI_STA);
     
-    // TODO: Restaurar estado desde NVS (nvs_manager_get_alarm_state)
-    s_state = SM_ALARM_STATE_DISARMED; 
-    
+    /* Restaurar el estado guardado. Si no hay lectura valida se arranca
+     * desarmado, que es el lado seguro: tras un corte de luz el hub no debe
+     * quedar armado sin que nadie lo sepa. */
+    uint8_t saved = 0;
+    esp_err_t err = nvs_manager_get_alarm_state(&saved);
+    if (err == ESP_OK && saved <= (uint8_t)SM_ALARM_STATE_ALARMING) {
+        s_state = (sm_alarm_state_t)saved;
+        ESP_LOGI(TAG, "Estado restaurado de NVS: %s", sm_alarm_state_str(s_state));
+    } else {
+        s_state = SM_ALARM_STATE_DISARMED;
+        ESP_LOGW(TAG, "Sin estado previo en NVS (%s). Se arranca desarmado.",
+                 esp_err_to_name(err));
+    }
+
     ESP_LOGI(TAG, "Iniciado. Estado inicial: %s", sm_alarm_state_str(s_state));
     return ESP_OK;
 }
 
 esp_err_t sm_alarm_process_cmd(sm_alarm_cmd_t cmd) {
+    sm_alarm_state_t prev = s_state;
+
     if (cmd == SM_ALARM_CMD_ARM) {
         s_state = SM_ALARM_STATE_ARMED;
-        ESP_LOGI(TAG, "Comando: ARMED");
     } else if (cmd == SM_ALARM_CMD_DISARM) {
         s_state = SM_ALARM_STATE_DISARMED;
-        ESP_LOGI(TAG, "Comando: DISARMED");
+    } else {
+        return ESP_ERR_INVALID_ARG;
     }
-    // TODO: Persistir en NVS aquí
-    return ESP_OK;
+
+    /* Persistir para que el estado sobreviva a un reinicio (AT-006).
+     * Se guarda el valor entero del enum, que ocupa un byte. */
+    esp_err_t err = nvs_manager_set_alarm_state((uint8_t)s_state);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo persistir el estado: %s", esp_err_to_name(err));
+    }
+
+    ESP_LOGI(TAG, "Comando aplicado: %s -> %s (%s)",
+             sm_alarm_state_str(prev), sm_alarm_state_str(s_state),
+             err == ESP_OK ? "guardado en NVS" : "SIN guardar");
+
+    return err;
 }
 
 esp_err_t sm_alarm_notify_event(sm_alarm_event_t evt) {

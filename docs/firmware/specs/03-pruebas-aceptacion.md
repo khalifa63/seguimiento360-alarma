@@ -135,45 +135,58 @@ Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0).
 ## AT-006 (HUB-F-010)
 Pasos: armar via PWA; reiniciar hub.
 PASS: tras reboot, LED refleja armed sin mediar command.
-Resultado: FAIL (2026-10-23, hub 37bff1e).
+Resultado: PASS (2026-10-23, hub 3c:dc:75:62:c2:b0).
 
-  **La funcionalidad no esta conectada de extremo a extremo.**
+  **Implementado y verificado en esta sesion.** Habia tres brechas.
 
-  1. El componente sm_alarm SI esta compilado (aparece en REQUIRES de
-     main/CMakeLists.txt) y expone una API completa:
+  **1. Los TODO de sm_alarm.** El componente no restauraba ni persistia el
+  estado:
 
-         esp_err_t sm_alarm_init(sm_alarm_publish_cb_t publish_cb);
-         esp_err_t sm_alarm_process_cmd(sm_alarm_cmd_t cmd);
-         esp_err_t sm_alarm_notify_event(sm_alarm_event_t evt);
-         esp_err_t sm_alarm_tick(void);
+      // TODO: Restaurar estado desde NVS (nvs_manager_get_alarm_state)
+      // TODO: Persistir en NVS aqui
 
-  2. Pero main.c **no lo invoca en ningun sitio**: cero referencias a
-     sm_alarm, alarm_fsm o ALARM_ en todo el archivo. Es codigo muerto.
+  Resueltos con los helpers que ya existian en nvs_manager. Al arrancar, si
+  no hay lectura valida se parte de DISARMED, que es el lado seguro: tras un
+  corte de luz el hub no debe quedar armado sin que nadie lo sepa.
 
-  3. No existe endpoint de armado/desarmado. Los http in de Node-RED son:
+  **2. sm_alarm no se invocaba.** Ahora main.c lo inicializa, se suscribe a
+  .../command, procesa arm/disarm y deja el LED (GPIO 48) fijo si esta
+  armado.
 
-         post /api/auth/login          post /api/nodes
-         post /api/auth/register       put  /api/nodes/:id
-         post /api/register            delete /api/nodes/:id
-         post /api/ota/trigger         get  /api/events
-         get  /api/nodes               get  /api/overview
-         get  /api/auth/nodes          get  /api/auth/profile
+  **3. nvs_manager_init() nunca se llamaba.** Las particiones nvs_state y
+  nvs_nodes existen en partitions.csv, pero nadie las inicializaba, asi que
+  el guardado fallaba:
 
-     Ninguno arma ni desarma.
+      E sm_alarm: No se pudo persistir el estado: ESP_ERR_NVS_PART_NOT_FOUND
 
-  4. El LED de indicacion (GPIO 48) solo se usa para parpadeos
-     (blink_indicator); no refleja ningun estado de alarma.
+  Es un bug latente: el estado de alarma no se habria guardado nunca aunque
+  sm_alarm hubiera estado integrado. main.c solo usaba la NVS por defecto
+  con un namespace propio ("pairing").
 
-  5. La tabla alarm_state de PostgreSQL tiene un unico registro del
-     2026-08-08, apuntando al hub 10 en estado "disarmed". Es un resto
-     huerfano: nada lo actualiza hoy.
+  **Evidencia.** Comando por MQTT en .../command:
 
-  La PWA menciona una vista de control de alarma (fase 3.2.3b del
-  RESUMEN_FASES), pero no hay backend detras que la sostenga.
+      Comando de alarma recibido: {"action":"arm"}
+      Comando aplicado: armed -> armed (guardado en NVS)
+      Estado de alarma: armed (ok)
 
-  **Trabajo pendiente:** integrar sm_alarm en main.c, exponer los endpoints
-  de armado/desarmado en Node-RED y publicar el comando por MQTT.
+  Tras reiniciar el hub, capturando desde el arranque:
 
+      Particiones NVS propias inicializadas
+      Estado restaurado de NVS: armed
+      Iniciado. Estado inicial: armed
+      Alarma: armed | LED ON
+
+  El estado sobrevivio al reinicio y el LED quedo encendido sin recibir
+  ningun comando nuevo.
+
+  **No se integro sm_alarm_process_espnow_data** a proposito: genera un JSON
+  con estructura measurement/tags/fields (InfluxDB), incompatible con el
+  formato plano que Node-RED ya consume y que verifica AT-003. La ruta de
+  eventos sigue en publish_event_to_mqtt.
+
+  **Limitacion:** el LED solo distingue armed (fijo) de disarmed (apagado).
+  Los estados TRIGGERED y ALARMING de la FSM no tienen representacion visual
+  todavia.
 ## AT-007 (HUB-F-011) — fase 5.2
 PASS: hub sin config -> SoftAP + portal -> active.
 Resultado: _pendiente_
@@ -230,11 +243,11 @@ extremo y sin intervención manual.
 | AT | Que verifica | Resultado |
 |---|---|---|
 | AT-001 | Boot a MQTT <= 10 s | **PASS** (4,85 s) |
-| AT-002 | Armado/desarmado desde la PWA | **FAIL** (no existe la API) |
+| AT-002 | Armado/desarmado desde la PWA | PARCIAL (hub listo; falta la API) |
 | AT-003 | Frame v1 de nodo a hub | **PASS** |
 | AT-004 | `node_lost` tras 3 heartbeats | **PASS** |
 | AT-005 | LWT offline al caer | **FAIL** (no implementado) |
-| AT-006 | Persistencia del estado de alarma | **FAIL** (no conectado) |
+| AT-006 | Persistencia del estado de alarma | **PASS** |
 | AT-007+ | Provisioning y OTA | pendiente |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no

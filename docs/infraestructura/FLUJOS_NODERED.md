@@ -2,6 +2,89 @@
 
 Actualizada: 2026-08-08
 
+## Incidente: la ingesta de eventos no funcionaba (2026-10-23)
+
+El hub publicaba, pero ningun evento llegaba a PostgreSQL. No era un fallo
+unico: eran cuatro, encadenados, y cada uno ocultaba al siguiente.
+
+### Fallo 1 — Node-RED no conectaba al broker MQTT
+
+**Sintoma:** `Connection failed to broker: nodered-s360-unified@mqtt://mosquitto:1883`
+
+**Causa:** las credenciales del broker viven cifradas en `flows_cred.json`, no
+en `flows.json`. Las del archivo cifrado eran las del usuario `s360_hub`
+—rotadas poco antes—, no las del usuario `nodered` que Node-RED debe usar.
+
+**Por que engana:** editar `credentials` en `flows.json` no sirve. Node-RED
+ignora ese campo al arrancar y lee siempre el archivo cifrado.
+
+**Solucion:** regenerar `flows_cred.json` con el `credentialSecret` del
+`settings.js`:
+
+    algoritmo: aes-256-ctr
+    clave:     sha256(credentialSecret)
+    IV:        16 bytes aleatorios, al inicio del campo "$" en hexadecimal
+    contenido: base64 del JSON cifrado, tras el IV
+
+### Fallo 2 — Node-RED no conectaba a PostgreSQL
+
+**Sintoma:** `password authentication failed for user "admin"`
+
+**Causa:** el campo `dbConfig.password` del `settings.js` contenia un **hash
+bcrypt** en lugar de la contrasena. Era el mismo hash de `adminAuth`, copiado
+por error en el bloque equivocado durante una edicion anterior.
+
+**Solucion:** sustituir el hash por la contrasena real, leida del entorno:
+
+    password: process.env.PG_PASSWORD || '<contrasena>',
+
+`adminAuth` no se toca: su hash si es correcto.
+
+### Fallo 3 — El nodo postgresql fallaba en silencio
+
+**Sintoma:** ningun error visible; el nodo parecia no ejecutarse.
+
+**Causa doble:**
+
+1. El nodo `postgresql` **no usa `settings.js`**. Tiene su propia configuracion
+   con `passwordFieldType: 'env'`, que resuelve `process.env.PG_PASSWORD`.
+2. Esa variable existia y era correcta, pero **nunca se habia aplicado** al
+   usuario de PostgreSQL: el contenedor se creo hacia 46 horas con otra
+   contrasena y el `.env` se edito despues.
+
+**Por que engana:** comprobarlo desde dentro del contenedor de Postgres
+*siempre* da OK, porque `pg_hba.conf` tiene `trust` para `127.0.0.1` y no
+valida la contrasena. La unica prueba valida es conectar desde otro contenedor.
+
+**Solucion:** aplicar la contrasena del `.env` al rol:
+
+    ALTER USER admin WITH PASSWORD '<la del .env>';
+
+**Aviso:** esto no persiste si se recrea el contenedor de Postgres. Para que
+sea permanente hay que fijar `POSTGRES_PASSWORD` antes del primer arranque.
+
+### Fallo 4 — Tres brokers MQTT huerfanos
+
+**Sintoma:** cuatro configuraciones de broker en la pestana, dos con el mismo
+nombre.
+
+**Causa:** configuraciones creadas durante pruebas y nunca eliminadas. Ningun
+nodo las usaba.
+
+**Solucion:** eliminarlas. Solo una tiene nodos: `Mosquitto S360`
+(`6fbb1b5b4df3541f`), con cinco.
+
+### Como diagnosticar un fallo silencioso
+
+El nodo `postgresql` no registra nada cuando falla si no hay un `catch` que lo
+escuche. Para ver el error real, anadir temporalmente un nodo `catch` con
+`scope` vacio y un `function` que registre `msg.error`:
+
+    node.warn("DEBUG-CATCH " + JSON.stringify(msg.error || msg));
+
+Sin eso, el mensaje se pierde y el sintoma se vuelve indistinguible de "el
+nodo no se ejecuta".
+
 ## Tabs activos
 - Autenticacion (id 1a2b3c4d5e6f7001)
 - S360 - Panel (id s360_panel_001)

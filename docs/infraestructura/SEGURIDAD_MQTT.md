@@ -176,6 +176,13 @@ definirla en `secrets.h` y reiniciar el ciclo de rotación.
    el tráfico interno viaja en claro por la red Docker.
 4. **Las contraseñas antiguas siguen en el historial de git.** Rotarlas
    neutraliza su uso, pero quien tenga acceso al repositorio puede leerlas.
+5. **`pg_hba.conf` usa `trust` para `127.0.0.1`.** Las conexiones locales a
+   PostgreSQL no validan contraseña, así que una prueba desde dentro del
+   contenedor siempre da OK aunque la credencial sea incorrecta. Verificar
+   siempre desde otro contenedor.
+6. **La contraseña de PostgreSQL no persiste.** El rol se corrigió con
+   `ALTER USER`, que se pierde si se recrea el contenedor. Para que sea
+   permanente hay que fijar `POSTGRES_PASSWORD` antes del primer arranque.
 
 
 ## Operación

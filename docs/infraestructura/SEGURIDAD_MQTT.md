@@ -93,6 +93,40 @@ suscribirse y verificar que no llega nada.
 | **BOM en el ACL** | El archivo llevaba marca de orden de bytes. Mosquitto rechaza la primera línea y no arranca. |
 | **Permisos incorrectos** | `passwd` y `acl` necesitan `0700` y propietario `mosquitto`. Mosquitto 2.1 avisa y las versiones futuras se negarán a cargarlos. |
 
+## Rotación de credenciales (2026-10-23)
+
+Las credenciales del hub estuvieron en el historial de git desde septiembre.
+Se rotaron ambas.
+
+| Credencial | Estado |
+|---|---|
+| MQTT (`S360_MQTT_PASSWORD`) | Rotada y en uso |
+| Portal cautivo (`S360_AP_PASSWORD`) | Rotada y en uso |
+
+La contraseña MQTT antigua **ya no autentica** contra el broker. Se verificó
+explícitamente después del cambio.
+
+### Procedimiento aplicado
+
+El orden importa: si se cambia el broker antes de flashear, el hub queda fuera
+hasta que termine el flasheo.
+
+1. Generar las contraseñas con `openssl rand -base64 32`.
+2. Escribirlas en `firmware/hub/main/secrets.h` (no versionado).
+3. Compilar y flashear el hub **preservando la NVS**.
+4. Actualizar el broker con `mosquitto_passwd -b`.
+5. Reiniciar Mosquitto y verificar que la antigua ya no sirve.
+6. Confirmar que el hub reconecta solo.
+
+Entre los pasos 3 y 4 el hub queda sin conectar: es esperado. El firmware
+reintenta con backoff y vuelve solo.
+
+### Verificación
+
+El hub reconectó sin intervención y quedó autenticado:
+
+    New client connected as hub_3cdc7562c2b0 (u's360_hub')
+
 ## Riesgos abiertos
 
 1. **`passwd` y `acl` no están versionados ni respaldados.** Una reinstalación
@@ -101,8 +135,9 @@ suscribirse y verificar que no llega nada.
    una, hay que rotarla en todos y reflashear.
 3. **Los hubs no usan TLS.** El listener `8883` existe pero está sin configurar;
    el tráfico interno viaja en claro por la red Docker.
-4. **Rotación pendiente.** `hub_password_2026` estuvo publicado en GitHub y debe
-   rotarse (ver [SECURITY.md](../../SECURITY.md)).
+4. **Las contraseñas antiguas siguen en el historial de git.** Rotarlas
+   neutraliza su uso, pero quien tenga acceso al repositorio puede leerlas.
+
 
 ## Operación
 

@@ -14,6 +14,8 @@
 #include "esp_netif.h"
 #include "esp_mac.h"
 #include "cJSON.h"
+#include "esp_ota_ops.h"
+#include "esp_app_desc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -99,6 +101,18 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     snprintf(macs, sizeof(macs), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     cJSON_AddStringToObject(root, "device_mac", macs);
+
+    /* Version en ejecucion y particion activa: sin esto no hay forma de saber
+     * que firmware corre un hub, y por tanto a cuales hay que actualizar. */
+    const esp_app_desc_t *desc = esp_app_get_description();
+    if (desc != NULL) {
+        cJSON_AddStringToObject(root, "version", desc->version);
+        cJSON_AddStringToObject(root, "build_date", desc->date);
+    }
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running != NULL) {
+        cJSON_AddStringToObject(root, "partition", running->label);
+    }
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");

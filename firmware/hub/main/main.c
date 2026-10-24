@@ -27,10 +27,11 @@
 #include "driver/gpio.h"
 #include "mqtt_client.h"
 #include "ota_manager.h"
+#include "esp_ota_ops.h"
+#include "esp_app_desc.h"
 #include "espnow_protocol.h"
 #include "sm_alarm.h"
 #include "nvs_manager.h"
-#include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_sntp.h"
 #include <time.h>
@@ -130,6 +131,11 @@ static httpd_handle_t server = NULL;
  * firmware del nodo y con el canal en que queda el AP del hub.
  * Estaba a 0 y nunca se asignaba: los peers se registraban en el canal 0
  * mientras los nodos transmiten en el 5, asi que no se escuchaban. */
+/* Unico origen desde el que se acepta firmware (HUB-F-012).
+ * Debe coincidir con el host del broker: si el certificado y el dominio ya
+ * estan validados ahi, no tiene sentido admitir otro origen para OTA. */
+#define S360_OTA_HOST   "seguimiento360.com"
+
 /* Presupuestos del enlace, en milisegundos: los valores no funcionales que
  * fija SPEC-01. Se usan para clasificar cada medida como dentro o fuera. */
 #define S360_BUDGET_ACK_MS      50
@@ -316,6 +322,18 @@ static esp_err_t load_config(void) {
             wifi_configured = true;
         }
     }
+
+    /* hub_name nunca se asignaba en ningun sitio, asi que HUB_ONLINE y
+     * HUB_OFFLINE lo publicaban vacio. Si no hay nombre configurado se
+     * deriva uno de la MAC: asi el hub es identificable en el broker sin
+     * exigir configuracion adicional. */
+    if (strlen(active_config.hub_name) == 0) {
+        uint8_t m[6];
+        esp_read_mac(m, ESP_MAC_WIFI_STA);
+        snprintf(active_config.hub_name, sizeof(active_config.hub_name),
+                 "Hub-%02X%02X%02X", m[3], m[4], m[5]);
+        ESP_LOGI(TAG, "hub_name derivado de la MAC: %s", active_config.hub_name);
+    }
     return ESP_OK;
 }
 
@@ -399,10 +417,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     
-    char online_payload[256];
-    snprintf(online_payload, sizeof(online_payload), 
-        "{\"event\":\"HUB_ONLINE\",\"mac\":\"%s\",\"hub_name\":\"%s\"}", 
-        mac_str, active_config.hub_name);
+    /* La version viaja en HUB_ONLINE para que el backend sepa que firmware
+     * corre cada hub sin necesitar acceso a su red local. Es la base para
+     * decidir a cuales mandar un ota_cmd. */
+    const esp_app_desc_t *app = esp_app_get_description();
+    const char *running_ver = (app != NULL) ? app->version : "desconocida";
+    const esp_partition_t *part = esp_ota_get_running_partition();
+    const char *part_label = (part != NULL) ? part->label : "?";
+
+    char online_payload[320];
+    snprintf(online_payload, sizeof(online_payload),
+        "{\"event\":\"HUB_ONLINE\",\"mac\":\"%s\",\"hub_name\":\"%s\","
+        "\"version\":\"%s\",\"partition\":\"%s\"}",
+        mac_str, active_config.hub_name, running_ver, part_label);
     
     esp_mqtt_client_publish(mqtt_client, "seguimiento360/hub/status", online_payload, 0, 1, 0);
     ESP_LOGI(TAG, "📡 Publicado HUB_ONLINE al servidor central");
@@ -414,6 +441,29 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         get_mqtt_topic(ota_cmd_topic, sizeof(ota_cmd_topic), "ota_cmd");
         esp_mqtt_client_subscribe(mqtt_client, ota_cmd_topic, 1);
         ESP_LOGI(TAG, "Suscrito a comandos OTA: %s", ota_cmd_topic);
+
+        /* Cancelacion del rollback (HUB-F-012).
+         *
+         * Con CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE, una imagen recien
+         * flasheada arranca en estado PENDING_VERIFY y el bootloader la
+         * revierte si nadie la confirma. Sin esta llamada toda actualizacion
+         * OTA se desharia sola a los 30 s.
+         *
+         * Se confirma aqui, al conectar MQTT, y no al final de app_main: asi
+         * el rollback protege tambien el caso en que la imagen nueva arranca
+         * pero es incapaz de alcanzar el broker. */
+        esp_ota_img_states_t ota_state;
+        if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &ota_state) == ESP_OK) {
+            if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+                esp_err_t merr = esp_ota_mark_app_valid_cancel_rollback();
+                if (merr == ESP_OK) {
+                    const esp_app_desc_t *d = esp_app_get_description();
+                    ESP_LOGW(TAG, "Imagen %s confirmada: rollback cancelado.", d->version);
+                } else {
+                    ESP_LOGE(TAG, "No se pudo confirmar la imagen: %s", esp_err_to_name(merr));
+                }
+            }
+        }
 
         // Suscribirse a configuración de nodos
         char node_cfg_topic[128];
@@ -466,12 +516,22 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                         memmove(url_buffer, start, clean_len);
                         url_buffer[clean_len] = '\0'; // Asegurar null-termination
 
-                        ESP_LOGI(TAG, "🔗 URL limpia para OTA: '%s' (longitud: %d)", url_buffer, clean_len);
-                        ESP_LOG_BUFFER_HEX("OTA_URL_HEX", url_buffer, clean_len);
-                        
-                        esp_err_t ret = ota_manager_start(url_buffer);
-                        if (ret != ESP_OK) {
-                            ESP_LOGE(TAG, "Error al iniciar tarea OTA: %s", esp_err_to_name(ret));
+                        /* La URL llega por MQTT y decide que firmware se
+                         * instala, asi que no se acepta cualquiera: solo
+                         * HTTPS y solo el origen propio. Antes bastaba con
+                         * que el payload contuviera "http" en algun sitio,
+                         * de modo que un ota_cmd podia apuntar a un servidor
+                         * ajeno y el hub lo instalaba. */
+                        if (strncmp(url_buffer, "https://", 8) != 0) {
+                            ESP_LOGE(TAG, "OTA rechazada: la URL no es HTTPS.");
+                        } else if (strncmp(url_buffer + 8, S360_OTA_HOST, strlen(S360_OTA_HOST)) != 0) {
+                            ESP_LOGE(TAG, "OTA rechazada: origen distinto de %s.", S360_OTA_HOST);
+                        } else {
+                            ESP_LOGI(TAG, "URL de OTA validada: '%s'", url_buffer);
+                            esp_err_t ret = ota_manager_start(url_buffer);
+                            if (ret != ESP_OK) {
+                                ESP_LOGE(TAG, "Error al iniciar tarea OTA: %s", esp_err_to_name(ret));
+                            }
                         }
                         
                     }

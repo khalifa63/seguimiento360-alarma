@@ -19,7 +19,11 @@ static void ota_task(void *pvParameters) {
     esp_http_client_config_t http_config = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 10000,
+        /* 1,1 MB de firmware no se descargan en 10 s con una conexion
+         * modesta: el timeout cortaba la descarga a mitad. 60 s por lectura
+         * da margen sin dejar la tarea colgada indefinidamente. */
+        .timeout_ms = 60000,
+        .keep_alive_enable = true,
     };
 
     // 2. Configurar el gestor OTA
@@ -36,11 +40,24 @@ static void ota_task(void *pvParameters) {
         return;
     }
 
-    // 3. Bucle de descarga
+    // 3. Bucle de descarga, informando del avance
+    int last_pct = -1;
     while (1) {
         err = esp_https_ota_perform(ota_handle);
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
             break;
+        }
+
+        /* Progreso cada 10%: un OTA que falla sin decir por donde iba es
+         * practicamente indiagnosticable en un equipo remoto. */
+        int total = esp_https_ota_get_image_size(ota_handle);
+        int done  = esp_https_ota_get_image_len_read(ota_handle);
+        if (total > 0) {
+            int pct = (done * 100) / total;
+            if (pct >= last_pct + 10) {
+                last_pct = pct;
+                ESP_LOGI(TAG, "Descarga %d%% (%d/%d bytes)", pct, done, total);
+            }
         }
     }
 

@@ -107,3 +107,18 @@ bool pairing_mac_changed(const uint8_t mac[6])
     }
     return memcmp(s_hub_mac, mac, sizeof(s_hub_mac)) != 0;
 }
+
+esp_err_t pairing_forget_hub_mac(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NS_NODE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_erase_key(h, NVS_KEY_HUBMAC);
+    if (err == ESP_OK) {
+        nvs_commit(h);
+    }
+    nvs_close(h);
+    return err;
+}

@@ -54,6 +54,11 @@ static const char *TAG = "NODE_ULTRASONIC";
 // tenga que llegar sembrada. Ver docs/firmware/specs/02-interfaces.md.
 // ============================================================================
 #define PAIR_RETRY_SEC      30      // reintento de PAIR si no hay ACK
+/* Si el hub vinculado deja de responder, el nodo se desvincula solo y
+ * vuelve a buscar. Sin esto, un hub sustituido dejaba al nodo enviando
+ * eventos a una MAC que ya no existe, sin forma de recuperarse. */
+#define ACK_LOST_MAX        6       // ACKs perdidos seguidos antes de desvincular
+#define LINK_CHECK_SEC      10      // cada cuanto se comprueba el enlace
 #define UNLINKED_BLINK_MS   2000    // parpadeo del LED sin vincular
 
 /* MAC SEMILLA. No es la MAC definitiva del hub: es solo el destino del
@@ -79,8 +84,11 @@ static uint8_t  own_mac[6] = {0};
 static uint8_t  hub_mac[6] = {0};   // destino actual; se carga de NVS
 static esp_now_peer_info_t peerInfo;
 static uint32_t last_measurement = 0;
+static uint32_t last_heartbeat = 0;
 static float    last_distance = 0;
 static uint32_t last_pair_attempt = 0;
+static uint8_t  ack_lost = 0;   // ACKs consecutivos sin recibir
+static uint32_t last_link_check = 0;
 static bool     peer_registered = false;
 
 // ============================================================================
@@ -164,6 +172,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
     }
 
     ESP_LOGI(TAG, "ACK del hub recibido (seq=%u)", frame.seq);
+    ack_lost = 0;
 
     /* La MAC de destino que usa el nodo es la del SoftAP del hub, pero el
      * ACK viaja desde la interfaz por la que el hub responde. Si el hub
@@ -356,6 +365,8 @@ void app_main(void)
      * si no, es lo que arranca el descubrimiento. */
     send_pair_request();
     last_pair_attempt = esp_timer_get_time() / 1000000;
+    last_link_check   = last_pair_attempt;
+    last_heartbeat    = last_pair_attempt;
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     while (1) {
@@ -392,9 +403,25 @@ void app_main(void)
             }
         }
 
-        if (now - last_measurement >= HEARTBEAT_INTERVAL_SEC) {
+        if (now - last_heartbeat >= HEARTBEAT_INTERVAL_SEC) {
             send_event("HEAR", (uint8_t)last_distance);
-            last_measurement = now;
+            last_heartbeat = now;
+        }
+
+        /* Vigilancia del enlace. Va con temporizador propio y no con el del
+         * heartbeat, que dura 10 min: de otro modo la desvinculacion
+         * tardaria horas. Se envia un PAIR para forzar respuesta del hub;
+         * si el que responde es otro, el ACK reensena la MAC. */
+        if (now - last_link_check >= LINK_CHECK_SEC) {
+            last_link_check = now;
+            if (++ack_lost >= ACK_LOST_MAX) {
+                ESP_LOGW(TAG, "El hub no responde (%u comprobaciones sin ACK). Desvinculando para volver a buscar.", ack_lost);
+                pairing_forget_hub_mac();
+                ack_lost = 0;
+                peer_registered = false;
+            } else {
+                send_pair_request();
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(1000));

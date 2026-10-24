@@ -134,6 +134,16 @@ static httpd_handle_t server = NULL;
 static uint8_t router_channel = S360_ESPNOW_CHANNEL;
 static char hub_mac_str[18];
 static uint8_t hub_mac[6];   /* MAC STA; el frame v1 la lleva como src_mac */
+/* MAC del SoftAP. El nodo dirige el PAIR a esta interfaz, y el hub debe
+ * reconocerla como propia: sin esto el filtro de destinatario rechazaria
+ * los PAIR legitimos. */
+static uint8_t hub_ap_mac[6];
+
+/* true si la MAC dada es de este hub (STA o SoftAP). */
+static bool mac_es_de_este_hub(const uint8_t *mac)
+{
+    return memcmp(mac, hub_mac, 6) == 0 || memcmp(mac, hub_ap_mac, 6) == 0;
+}
 
 /* Payload del testamento (LWT). Debe sobrevivir mientras viva el cliente
  * MQTT: ESP-IDF no copia el string, solo guarda el puntero. */
@@ -727,6 +737,17 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
     ESP_LOGI(TAG, "ESP-NOW RX (v1): Code=%s, MAC=%s, Seq=%d, Bat=%d%%",
              event_str, mac_str, payload->seq, payload->battery_level);
 
+    /* Filtro de destinatario. ESP-NOW entrega a este hub cualquier trama
+     * que su radio oiga, incluidas las de nodos de otros hubs cercanos.
+     * Un PAIR solo se atiende si va dirigido a una MAC de este hub: de lo
+     * contrario dos instalaciones vecinas se emparejarian entre si. */
+    if (!mac_es_de_este_hub(frame.dst_mac)) {
+        ESP_LOGW(TAG, "Trama para %02x:%02x:%02x:%02x:%02x:%02x, no para este hub. Descartada.",
+                 frame.dst_mac[0], frame.dst_mac[1], frame.dst_mac[2],
+                 frame.dst_mac[3], frame.dst_mac[4], frame.dst_mac[5]);
+        return;
+    }
+
     // --- LÓGICA DE VINCULACIÓN (PAIRING) ---
     if (memcmp(payload->event_code, "PAIR", 4) == 0) {
         ESP_LOGI(TAG, "Solicitud de PAIRING recibida de: %s", mac_str);
@@ -1295,8 +1316,14 @@ void app_main(void) {
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     memcpy(hub_mac, mac, sizeof(hub_mac));
+    /* El SoftAP lleva la STA + 1 en el ultimo octeto. Se guarda para que el
+     * filtro de destinatario reconozca los PAIR que el nodo dirige a la AP. */
+    esp_read_mac(hub_ap_mac, ESP_MAC_WIFI_SOFTAP);
     snprintf(hub_mac_str, sizeof(hub_mac_str), "%02x%02x%02x%02x%02x%02x", 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI(TAG, "MAC STA %02x:%02x:%02x:%02x:%02x:%02x | AP %02x:%02x:%02x:%02x:%02x:%02x",
+             hub_mac[0], hub_mac[1], hub_mac[2], hub_mac[3], hub_mac[4], hub_mac[5],
+             hub_ap_mac[0], hub_ap_mac[1], hub_ap_mac[2], hub_ap_mac[3], hub_ap_mac[4], hub_ap_mac[5]);
 
     // 4. Inicializar Event Group
     wifi_event_group = xEventGroupCreate();

@@ -33,6 +33,11 @@ bool pairing_is_linked(void);
 /* Marca que la MAC recibida es distinta de la guardada. */
 bool pairing_mac_changed(const uint8_t mac[6]);
 
+/* Olvida el hub guardado y deja el nodo como recien salido de fabrica.
+ * Lo usa la vigilancia del enlace cuando el hub deja de responder: sin
+ * esto un hub sustituido dejaba al nodo enviando a una MAC inexistente. */
+esp_err_t pairing_forget_hub_mac(void);
+
 #ifdef __cplusplus
 }
 #endif

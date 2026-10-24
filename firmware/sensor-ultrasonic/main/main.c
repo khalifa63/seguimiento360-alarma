@@ -19,6 +19,7 @@
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_random.h"
 #include "esp_mac.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
@@ -56,7 +57,15 @@ static const char *TAG = "NODE_ULTRASONIC";
 // ESP-NOW no admite broadcast (reinicia el nodo), de ahí que la primera MAC
 // tenga que llegar sembrada. Ver docs/firmware/specs/02-interfaces.md.
 // ============================================================================
-#define PAIR_RETRY_SEC      30      // reintento de PAIR si no hay ACK
+/* Reintento del PAIR con espera creciente (HUB-NF-005).
+ *
+ * Antes era un intervalo fijo de 30 s. Con un hub averiado eso son 2880
+ * intentos al dia, y si varios nodos pierden su hub a la vez —un corte de
+ * luz— todos transmiten en el mismo instante. La espera se dobla hasta un
+ * techo de 10 min y lleva jitter para repartir los intentos. */
+#define PAIR_RETRY_BASE_SEC 30      // primer reintento tras perder el hub
+#define PAIR_RETRY_MAX_SEC 600      // techo: 10 min entre intentos
+#define PAIR_RETRY_JITTER_SEC 10    // dispersion para no sincronizar nodos
 /* Si el hub vinculado deja de responder, el nodo se desvincula solo y
  * vuelve a buscar. Sin esto, un hub sustituido dejaba al nodo enviando
  * eventos a una MAC que ya no existe, sin forma de recuperarse. */
@@ -92,6 +101,8 @@ static float    last_distance = 0;
 static uint32_t last_pair_attempt = 0;
 static uint8_t  ack_lost = 0;   // ACKs consecutivos sin recibir
 static uint32_t last_link_check = 0;
+/* Intentos de PAIR fallidos seguidos. Se pone a cero en cuanto llega un ACK. */
+static uint32_t pair_retry_count = 0;
 static bool     peer_registered = false;
 
 // ============================================================================
@@ -202,6 +213,8 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 
     ESP_LOGI(TAG, "ACK del hub recibido (seq=%u)", frame.seq);
     ack_lost = 0;
+    /* El enlace funciona: se olvida el backoff acumulado. */
+    pair_retry_count = 0;
 
     /* La MAC de destino que usa el nodo es la del SoftAP del hub, pero el
      * ACK viaja desde la interfaz por la que el hub responde. Si el hub
@@ -293,6 +306,29 @@ static void send_event(const char *event_code, uint8_t distance_cm)
 
 /* Envia una solicitud de emparejamiento. Se usa al arrancar sin vincular y
  * como reintento periodico. */
+/* Intervalo hasta el siguiente PAIR, segun los fallos acumulados.
+ *
+ * Se calcula desde el contador en vez de ir doblando una variable: asi el
+ * jitter no se acumula y la espera no deriva por encima del techo. */
+static uint32_t pair_retry_interval_sec(void)
+{
+    uint32_t base = PAIR_RETRY_BASE_SEC;
+    for (uint32_t i = 0; i < pair_retry_count && base < PAIR_RETRY_MAX_SEC; i++) {
+        base *= 2;
+    }
+    if (base > PAIR_RETRY_MAX_SEC) {
+        base = PAIR_RETRY_MAX_SEC;
+    }
+
+    /* Jitter hacia abajo: reparte los intentos de varios nodos sin alargar
+     * la espera por encima del techo. */
+    uint32_t jitter = 0;
+    if (base > PAIR_RETRY_JITTER_SEC) {
+        jitter = (uint32_t)(esp_random() % PAIR_RETRY_JITTER_SEC);
+    }
+    return base - jitter;
+}
+
 static void send_pair_request(void)
 {
     espnow_payload_v1_t payload = {0};
@@ -437,9 +473,16 @@ void app_main(void)
          * envian porque no hay destino conocido. El LED parpadea para que
          * se vea a simple vista que el nodo esta buscando hub. */
         if (!pairing_is_linked()) {
-            if ((now - last_pair_attempt) >= PAIR_RETRY_SEC) {
+            uint32_t intervalo = pair_retry_interval_sec();
+            if ((now - last_pair_attempt) >= intervalo) {
                 send_pair_request();
                 last_pair_attempt = now;
+                if (pair_retry_count < 32) {
+                    pair_retry_count++;
+                }
+                ESP_LOGI(TAG, "Sin hub: proximo intento en %lu s (fallo %lu).",
+                         (unsigned long)pair_retry_interval_sec(),
+                         (unsigned long)pair_retry_count);
             }
             gpio_set_level(LED_PIN, (now % (UNLINKED_BLINK_MS / 1000)) < 1);
             vTaskDelay(pdMS_TO_TICKS(200));
@@ -473,13 +516,26 @@ void app_main(void)
          * heartbeat, que dura 10 min: de otro modo la desvinculacion
          * tardaria horas. Se envia un PAIR para forzar respuesta del hub;
          * si el que responde es otro, el ACK reensena la MAC. */
-        if (now - last_link_check >= LINK_CHECK_SEC) {
+        /* La comprobacion se espacia cuando el hub lleva rato sin responder:
+         * insistir cada 10 s con un hub averiado son 8640 intentos al dia.
+         * Los primeros siguen siendo rapidos, para no tardar en detectar una
+         * caida breve. */
+        if (now - last_link_check >= (uint32_t)LINK_CHECK_SEC + pair_retry_count * 10) {
             last_link_check = now;
+            if (ack_lost > 0 && pair_retry_count < 32) {
+                pair_retry_count++;
+            }
+            if (ack_lost > 0) {
+                ESP_LOGI(TAG, "Hub sin responder: proxima comprobacion en %lu s.",
+                         (unsigned long)(LINK_CHECK_SEC + pair_retry_count * 10));
+            }
             if (++ack_lost >= ACK_LOST_MAX) {
                 ESP_LOGW(TAG, "El hub no responde (%u comprobaciones sin ACK). Desvinculando para volver a buscar.", ack_lost);
                 pairing_forget_hub_mac();
                 ack_lost = 0;
                 peer_registered = false;
+                /* Se empieza a contar desde el primer fallo real. */
+                pair_retry_count = 0;
             } else {
                 send_pair_request();
             }

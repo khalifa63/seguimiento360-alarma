@@ -24,7 +24,7 @@ HUB-NF-001 | Boot -> MQTT conectado <= 10 s (RF buena)                     | cum
 HUB-NF-002 | Latencia RX ESP-NOW -> publish /event <= 250 ms               | cumplido  | AT-013 (ACK 14 ms, publish 46-92 ms)
 HUB-NF-003 | Operacion 24/7: watchdog habilitado, sin reset manual 30 d    | pendiente | AT-009
 HUB-NF-004 | Sin secretos quemados en firmware (credenciales via NVS/prov) | cumplido  | review
-HUB-NF-005 | Backoff exponencial 1s->60s con jitter (WiFi y MQTT)          | parcial   | AT-010
+HUB-NF-005 | Backoff exponencial 1s->60s con jitter (WiFi y MQTT)          | nodo-verif | AT-010
 
 ## Retirados
 (none)

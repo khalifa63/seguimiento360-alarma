@@ -337,7 +337,7 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-018 | OTA del nodo (con firma verificada) | **PASS** |
 | AT-007 | Provisioning SoftAP + portal | pendiente |
 | AT-009 | Operacion 24/7 sin reset 30 dias | pendiente (prueba de calendario) |
-| AT-010 | Backoff exponencial con jitter | pendiente |
+| AT-010 | Backoff exponencial con jitter | **PASS** en nodo; hub sin verificar |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
 existe**, aunque la documentacion la daba por hecha en varios casos:
@@ -766,3 +766,53 @@ De ahi salio una teoria equivocada sobre claves no embebidas que costo varias
 rondas. La prueba que resolvio el asunto no depende de interpretar binarios ni
 de como se llame un archivo: **firmar con otra clave y comprobar que se
 rechaza**.
+
+## AT-010 (HUB-NF-005) — Reintento con espera creciente
+
+Antes, un fallo de enlace se reintentaba a intervalo fijo: el nodo cada 30 s
+contra un hub averiado (2880 intentos al dia) y el hub sin reintentar en
+absoluto. Si varios equipos pierden el enlace a la vez —un corte de luz, el
+router reiniciado— todos transmiten en el mismo instante.
+
+Ahora la espera se dobla hasta un techo y lleva jitter para repartir los
+intentos entre equipos.
+
+### Nodo: verificado
+
+El nodo espacia la comprobacion del enlace segun los fallos acumulados.
+Medido con el hub silenciado (dejado en el bootloader, sin aplicacion):
+
+```text
+NODO: Sin hub: proximo intento en 55 s (fallo 1).
+NODO: Sin hub: proximo intento en 117 s (fallo 2).
+NODO: Sin hub: proximo intento en 473 s (fallo 4).
+```
+
+Al volver el hub:
+
+```text
+NODO: ACK del hub recibido (seq=4)
+NODO: Nodo VINCULADO con el hub 3c:dc:75:62:c2:b0
+NODO: Distancia: 194.7 cm
+```
+
+El contador se pone a cero con el primer ACK, asi que una caida breve no deja
+al nodo esperando 8 minutos para siempre.
+
+**Un fallo de implementacion que la prueba destapo:** el backoff se puso
+inicialmente en la rama "sin vincular" del bucle. Pero un nodo que ya tiene
+hub en NVS nunca entra ahi: sigue por la vigilancia de enlace, que era quien
+insistia cada 10 s. La prueba mostro intervalos constantes en vez de
+crecientes; el codigo compilaba y parecia correcto.
+
+### Hub: implementado, sin verificar
+
+El hub tiene una tarea de reconexion que se dispara desde el handler de
+desconexion de WiFi y desde el de MQTT. Sustituye al comportamiento anterior,
+en el que la desconexion solo ponia un bit que nadie leia: una caida dejaba
+el hub aislado hasta el siguiente reinicio.
+
+**No se ha podido probar.** Haria falta forzar una caida del enlace del hub, y
+en este servidor no hay forma: no tiene interfaz WiFi, el router no expone
+administracion y no hay permisos para bloquear el trafico. Queda pendiente
+verificarlo en un banco donde se pueda apagar el AP o el router.

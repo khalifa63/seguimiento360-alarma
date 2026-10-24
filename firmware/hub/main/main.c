@@ -136,6 +136,19 @@ static httpd_handle_t server = NULL;
  * estan validados ahi, no tiene sentido admitir otro origen para OTA. */
 #define S360_OTA_HOST   "seguimiento360.com"
 
+/* Reintento de conexion con espera creciente (HUB-NF-005).
+ *
+ * Sin esto, una caida de WiFi o de MQTT dejaba el hub desconectado hasta el
+ * siguiente reinicio: el handler de desconexion solo ponia un bit que nadie
+ * leia, y esp_wifi no reintenta por su cuenta.
+ *
+ * Se dobla la espera en cada fallo, de 1 s a 60 s, y se anade jitter: si
+ * varios hubs pierden el enlace a la vez (corte de luz, router reiniciado),
+ * sin jitter todos reintentarian en el mismo instante y saturarian el AP. */
+#define S360_BACKOFF_MIN_MS      1000
+#define S360_BACKOFF_MAX_MS      60000
+#define S360_BACKOFF_JITTER_MS   1000
+
 /* Presupuestos del enlace, en milisegundos: los valores no funcionales que
  * fija SPEC-01. Se usan para clasificar cada medida como dentro o fuera. */
 #define S360_BUDGET_ACK_MS      50
@@ -189,6 +202,7 @@ static void start_mqtt_client(const char *broker_uri);
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, 
                                int32_t event_id, void *event_data);
 esp_err_t hub_send_ota_config(const uint8_t *node_mac, const char *ota_url);
+static void reconnect_request(void);
 static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload,
                                   int64_t rx_us);
 static void format_mac(const uint8_t *mac, char *out, size_t out_size);
@@ -481,6 +495,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
             
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "❌ MQTT_EVENT_DISCONNECTED");
+            mqtt_is_connected = false;
+            /* El cliente MQTT reintenta por su cuenta, pero si la causa es el
+             * enlace, quien tiene que actuar es la reconexion de WiFi. */
+            reconnect_request();
             mqtt_is_connected = false;
             break;
             
@@ -989,6 +1007,91 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 // WIFI EVENT HANDLER
 // ============================================================================
 
+/* Espera para el intento numero `intento` (1 = primero), con jitter.
+ *
+ * Se calcula en lugar de guardar el valor para que el jitter no se acumule:
+ * si se aplicara sobre el valor anterior, la espera derivaria. */
+static uint32_t backoff_ms(int intento)
+{
+    uint32_t base = S360_BACKOFF_MIN_MS;
+    for (int i = 1; i < intento && base < S360_BACKOFF_MAX_MS; i++) {
+        base *= 2;
+    }
+    if (base > S360_BACKOFF_MAX_MS) {
+        base = S360_BACKOFF_MAX_MS;
+    }
+
+    /* Jitter hacia abajo, hasta un segundo: reparte los reintentos de varios
+     * equipos sin alargar la espera por encima del maximo. */
+    uint32_t jitter = 0;
+    if (base > S360_BACKOFF_JITTER_MS) {
+        jitter = (uint32_t)(esp_random() % S360_BACKOFF_JITTER_MS);
+    }
+    return base - jitter;
+}
+
+/* Tarea de reconexion WiFi con espera creciente.
+ *
+ * Se avisa desde el handler de desconexion y desde el de MQTT: ambos modos
+ * de fallo dejan al hub aislado, y el mismo reintento sirve para los dos.
+ * Una sola tarea evita que dos avisos simultaneos lancen dos reconexiones. */
+static TaskHandle_t s_reconnect_task = NULL;
+
+static void reconnect_task(void *arg)
+{
+    int intento = 0;
+
+    while (1) {
+        /* Espera ilimitada hasta que alguien pida reconectar. Asi la tarea no
+         * consume CPU cuando todo va bien. */
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        if (!wifi_configured) {
+            ESP_LOGW(TAG, "Sin credenciales WiFi: no hay nada que reconectar.");
+            continue;
+        }
+
+        intento++;
+        uint32_t espera = backoff_ms(intento);
+        ESP_LOGW(TAG, "Reconexion WiFi intento %d en %lu ms", intento,
+                 (unsigned long)espera);
+        vTaskDelay(pdMS_TO_TICKS(espera));
+
+        /* Si mientras esperabamos llego la conexion, no se reintenta: evita
+         * una reconexion innecesaria sobre un enlace ya sano. */
+        EventBits_t bits = xEventGroupGetBits(wifi_event_group);
+        if (bits & WIFI_CONNECTED_BIT) {
+            ESP_LOGI(TAG, "Enlace recuperado durante la espera.");
+            intento = 0;
+            continue;
+        }
+
+        esp_err_t err = esp_wifi_connect();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "esp_wifi_connect: %s", esp_err_to_name(err));
+        }
+
+        /* Se comprueba si el intento sirvio. Si no, el bucle vuelve a
+         * notificarse a si mismo para el siguiente intento. */
+        vTaskDelay(pdMS_TO_TICKS(8000));
+        bits = xEventGroupGetBits(wifi_event_group);
+        if (bits & WIFI_CONNECTED_BIT) {
+            ESP_LOGI(TAG, "WiFi reconectado tras %d intento(s).", intento);
+            intento = 0;
+        } else {
+            xTaskNotifyGive(s_reconnect_task);
+        }
+    }
+}
+
+/* Pide una reconexion. Se puede llamar desde cualquier tarea o callback. */
+static void reconnect_request(void)
+{
+    if (s_reconnect_task != NULL) {
+        xTaskNotifyGive(s_reconnect_task);
+    }
+}
+
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, 
                                 int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -997,6 +1100,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupSetBits(wifi_event_group, WIFI_FAIL_BIT);
+        xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+        /* Aqui solo se ponia el bit, y nadie lo leia: el hub se quedaba sin
+         * WiFi hasta el siguiente reinicio. */
+        ESP_LOGW(TAG, "WiFi desconectado. Se programara la reconexion.");
+        reconnect_request();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "Obtenida IP: " IPSTR, IP2STR(&event->ip_info.ip));
@@ -1509,6 +1617,14 @@ void app_main(void) {
 
     // 4. Inicializar Event Group
     wifi_event_group = xEventGroupCreate();
+
+    /* Tarea de reconexion (HUB-NF-005). Se crea antes de arrancar WiFi para
+     * que el primer evento de desconexion ya encuentre quien lo atienda. */
+    if (xTaskCreate(reconnect_task, "wifi_reconn", 4096, NULL, 4,
+                    &s_reconnect_task) != pdPASS) {
+        ESP_LOGE(TAG, "No se pudo crear la tarea de reconexion.");
+        s_reconnect_task = NULL;
+    }
 
     // 5. Configurar GPIO 48 (LED RGB) como salida para indicador
     gpio_reset_pin(INDICATOR_LED_PIN);

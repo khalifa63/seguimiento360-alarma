@@ -27,7 +27,22 @@
 - [Manual general v1.2](01-manual-general.md)
 - [Estado por fases](fases/RESUMEN_FASES.md)
 
-### 2. Hardware
+### 2. Manuales de los dispositivos
+
+Para el usuario final, sin tecnicismos, pensados para la caja del producto y
+para publicarse en el sitio web.
+
+- [Indice de manuales](manuales/README.md)
+- [Hub — guia de usuario](manuales/usuario/hub.md)
+- [Sensor ultrasonico — guia de usuario](manuales/usuario/sensor-ultrasonico.md)
+
+Para quien instala y mantiene:
+
+- [Hub — manual tecnico](manuales/tecnico/hub.md)
+- [Sensor ultrasonico — manual tecnico](manuales/tecnico/sensor-ultrasonico.md)
+- [Protocolo ESP-NOW](manuales/tecnico/protocolo-comun.md)
+
+### 3. Hardware
 
 - [Índice de hardware](hardware/README.md)
 - [Arquitectura del hub](hardware/ARQUITECTURA_HUB.md)
@@ -36,13 +51,13 @@
 - [Infraestructura real](hardware/INFRA-REAL.md)
 - Diseño A1–A8: [tareas FreeRTOS](hardware/A1-TAREAS-FREERTOS.md), [máquinas de estado](hardware/A2-MAQUINAS-ESTADO.md), [presupuesto de memoria](hardware/A3-PRESUPUESTO-MEMORIA.md), [modelo de seguridad](hardware/A4-MODELO-SEGURIDAD.md), [secuencias de integración](hardware/A5-SECUENCIAS-INTEGRACION.md), [registro de riesgos](hardware/A6-REGISTRO-RIESGOS.md), [hitos M1–M7](hardware/A7-HITOS-M1-M7.md), [preguntas abiertas](hardware/A8-PREGUNTAS-ABIERTAS.md)
 
-### 3. Firmware
+### 4. Firmware
 
 - [Índice de firmware](firmware/README.md)
 - [Hub ESP32-S3](firmware/hub.md)
 - Specs SDD: [gobierno](firmware/specs/00-gobierno-sdd.md), [requisitos](firmware/specs/01-requisitos.md), [interfaces](firmware/specs/02-interfaces.md), [pruebas de aceptación](firmware/specs/03-pruebas-aceptacion.md)
 
-### 4. Backend y datos
+### 5. Backend y datos
 
 - [Índice de backend](backend/README.md)
 - [Base de datos PostgreSQL](backend/database.md)
@@ -50,7 +65,7 @@
 - [API de autenticación y usuarios](backend/api-auth.md)
 - [Plantilla de `settings.js`](../nodered/data/settings.js.example)
 
-### 5. Infraestructura y operación
+### 6. Infraestructura y operación
 
 - [Estado actual](infraestructura/ESTADO_ACTUAL.md)
 - [Flujos Node-RED y MQTT](infraestructura/FLUJOS_NODERED.md)
@@ -58,11 +73,11 @@
 - [Rutas de Cloudflare](infraestructura/CLOUDFLARE_RUTAS.md)
 - [Seguridad del broker MQTT](infraestructura/SEGURIDAD_MQTT.md)
 
-### 6. Patrones y decisiones
+### 7. Patrones y decisiones
 
 - [Patrones de diseño](patrones/PATRONES_DISENO.md)
 
-### 7. Marco teórico
+### 8. Marco teórico
 
 - [Marco teórico del firmware](marco-teorico/marco-teorico-firmware.md) — documento único de referencia para el desarrollo
 - [Portada](marco-teorico/portada.md)
@@ -79,19 +94,19 @@
 - [Conclusiones](marco-teorico/10_conclusiones.md)
 - [Referencias](marco-teorico/referencias.md)
 
-### 8. Gobernanza
+### 9. Gobernanza
 
 - [Prompts SDD](gobernanza/README.md)
 - [Prompt maestro de firmware](gobernanza/PROMPT-SDD-MASTER.md)
 - [Prompt maestro de servidor](gobernanza/PROMPT-SDD-SERVER.md)
 
-### 9. Desarrollo
+### 10. Desarrollo
 
 - [Plan de arranque](desarrollo/PLAN-DE-ARRANQUE.md)
 - [Índice de desarrollo](desarrollo/README.md)
 - [Roles de IA](desarrollo/AI-ROLES.md)
 
-### 10. Archivo
+### 11. Archivo
 
 - [Documentos históricos](_archivo/README.md)
 

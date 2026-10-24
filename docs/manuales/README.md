@@ -38,8 +38,35 @@ En `firmware/` hay carpetas reservadas para sensor de movimiento PIR, humo,
 inundacion, magnetico de puertas, temperatura, boton de panico, sirena y
 rastreador de vehiculo. **Estan vacias**: son sitios reservados, no productos.
 
-No se documentan aqui porque no existe nada que documentar. Cuando alguno tenga
+No tienen manual porque no existe nada que documentar. Cuando alguno tenga
 firmware, se le anaden sus dos manuales.
+
+### Lo que el sistema ya espera de ellos
+
+Aunque el firmware no exista, el contrato **ya reserva un codigo de evento**
+para cada tipo de nodo futuro:
+
+| Codigo | Que seria |
+|---|---|
+| `ALRM` | deteccion generica (el ultrasonico lo usa) |
+| `GAS` | fuga de gas |
+| `SMOKE` | humo |
+| `FIRE` | fuego |
+| `PANIC` | boton de panico |
+| `MOV` | movimiento (PIR) |
+| `DOOR` | apertura de puerta o ventana |
+| `SEIS` | sismo o vibracion |
+| `SOS` | emergencia |
+| `HUM` | humedad o inundacion |
+
+La nube **ya los trata como criticos**: cuando llegue uno, lo notifica por
+push ademas de guardarlo. Es decir, un nodo nuevo que emita uno de estos
+codigos funciona sin tocar el backend.
+
+Eso importa para el manual de cada nodo futuro: el codigo que emita tiene que
+estar en esta lista, o la alerta se guardara pero no avisara a nadie.
+
+Los codigos salen de `docs/firmware/specs/02-interfaces.md`, no de suposiciones.
 
 ## Como se mantiene esto
 

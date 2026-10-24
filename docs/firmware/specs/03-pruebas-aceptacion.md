@@ -636,3 +636,129 @@ ruta absoluta si la clave vive fuera del proyecto.
 La firma cubre la **app**, no el bootloader. Un atacante con acceso físico
 podría reemplazar el bootloader y saltarse la verificación. Cerrarlo exige
 Secure Boot por hardware, que sí quema eFuses y por tanto es irreversible.
+
+## AT-018 (FW-012) — OTA del nodo
+
+Un nodo ya instalado no se podía actualizar sin ir a buscarlo con un cable:
+usaba la tabla de particiones por defecto de IDF, sin `ota_0`/`ota_1`, y su
+`main` no incluía `esp_https_ota`. Para un equipo en campo eso es quedarse sin
+posibilidad de corregir un fallo.
+
+**Procedimiento.** Se publica en `node_cfg` un JSON con la MAC del nodo y la
+URL del firmware. El hub reenvía al nodo, por ESP-NOW, las credenciales WiFi
+de la casa y esa URL. El nodo se asocia, descarga por HTTPS, verifica la firma
+y escribe en la partición inactiva.
+
+**Resultado: PASS.**
+
+```text
+HUB:  OTA solicitada para a0:f2:62:f1:d0:f0: https://.../node_2.0.0-signed.bin
+HUB:  Config OTA enviada al nodo (SSID 'KHALIFA_R', clave de 8 bytes, URL ...)
+NODO: Config recibida del hub: SSID 'KHALIFA_R', URL ...
+NODO: AP 'KHALIFA_R' en canal 5, compatible con ESP-NOW.
+NODO: Conectado a 'KHALIFA_R'
+NODO: Descarga 19% (188416/987136)
+      ... 39%, 59%, 79%, 99%
+NODO: OTA aplicado. Reiniciando en 3 s...
+BOOT: Loaded app from partition at offset 0x120000
+BOOT: cpu_start: App version:      2.0.0-ota
+NODO: Imagen 2.0.0-ota confirmada: rollback cancelado.
+```
+
+987 KB en ~24 s, con la misma firma RSA-3072 y el mismo rollback que el hub.
+
+### Tabla de particiones
+
+    nvs       0x9000   0x6000
+    otadata   0xf000   0x2000
+    phy_init  0x11000  0x1000
+    ota_0     0x20000  0x100000
+    ota_1     0x120000 0x100000
+
+La `nvs` **conserva su offset**: es donde el nodo guarda la MAC del hub. Al
+moverla habría que re-emparejar cada nodo ya instalado. Verificado que tras
+flashear la tabla nueva el nodo siguió vinculado.
+
+Las apps van en `0x20000` y `0x120000` porque las particiones de tipo app deben
+empezar en un múltiplo de `0x10000`. `gen_esp32part` rechaza lo demás.
+
+### Por qué la imagen no viaja por ESP-NOW
+
+Es la pregunta obvia, y la respuesta está en los números: el payload útil de un
+frame son 229 bytes, así que 700 KB son **3075 fragmentos**. ESP-NOW no tiene
+retransmisión por fragmento, de modo que con una pérdida del 0,01% por
+fragmento la probabilidad de recibir el binario entero es del 74%; con 0,1%,
+del 4,6%. Haría falta un protocolo de fragmentación con ACK y reenvío. Darle
+WiFi al nodo es bastante más simple, y ya tenía `esp_wifi` para ESP-NOW.
+
+### Dos fallos encontrados al probarlo
+
+**1. Faltaba la interfaz de red de la STA.** El nodo llamaba a
+`esp_netif_init()` pero nunca a `esp_netif_create_default_wifi_sta()`. No se
+notaba porque hasta ahora el radio solo servía para ESP-NOW, que no necesita
+interfaz de red. `esp_wifi_connect()` fallaba siempre con `ESP_ERR_TIMEOUT`.
+
+**2. El comando OTA no llegaba al handler.** Estaba dentro del bloque que el
+handler de `node_cfg` exige para la configuración normal (nombre, ubicación,
+habitación y umbral). Un comando de actualización solo trae MAC y URL, así que
+nunca se alcanzaba.
+
+### Comprobación del canal
+
+El nodo se asocia a un AP, lo que mueve el radio al canal de ese AP y
+rompería ESP-NOW si no coincidiera. El nodo **escanea primero y aborta si el
+AP no está en el canal de ESP-NOW**:
+
+```text
+OTA_NODE: AP 'KHALIFA_R' en canal 5, compatible con ESP-NOW.
+```
+
+### Firma y rollback del nodo
+
+Mismo esquema que el hub: `SECURE_SIGNED_APPS_NO_SECURE_BOOT` con RSA-3072 y
+la misma clave. Una imagen sin firma válida se rechaza con
+`ESP_ERR_OTA_VALIDATE_FAILED`. La confirmación se hace al arrancar, después de
+inicializar sensor, LED y NVS.
+
+### Verificacion de la firma
+
+Probada en las dos direcciones, igual que en el hub.
+
+Imagen firmada con **otra clave** (era la prueba concluyente):
+
+```text
+NODO:   clave[0] sha256=444dfa588ecaf9cb889abe4d124c6f59...
+NODO:   Conectado a 'KHALIFA_R'
+NODO:   Descarga 99% (977920/987136)
+esp_image: Secure boot signature verification failed
+esp_image: image valid, signature bad
+NODO:   OTA rechazado: ESP_ERR_OTA_VALIDATE_FAILED
+BOOT:   cpu_start: App version:      1.0.0-ota     <- sigue en la anterior
+```
+
+Imagen firmada con la clave propia:
+
+```text
+esp_image: Verifying image signature...
+secure_boot_v2_rsa: Signature verified successfully!
+NODO:   OTA aplicado. Reiniciando en 3 s...
+BOOT:   cpu_start: App version:      2.0.0-ota
+```
+
+Para el diagnostico, el nodo registra con que clave va a verificar. Con
+`SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT` no hay clave compilada: la
+verificacion usa los digests de la **app en ejecucion**, y si esta no
+estuviera firmada `esp_secure_boot_init_checks()` aborta al arrancar.
+
+### Una prueba que engano
+
+La primera version de esta AT daba la firma del nodo por no verificada. El
+motivo fue un error de metodo, no del firmware: el archivo publicado como
+`node_2.0.0-unsigned.bin` era en realidad la salida **ya firmada** (el
+`-unsigned.bin` es el artefacto intermedio que el build firma despues). El
+nodo decia `Signature verified successfully!` porque la imagen era legitima.
+
+De ahi salio una teoria equivocada sobre claves no embebidas que costo varias
+rondas. La prueba que resolvio el asunto no depende de interpretar binarios ni
+de como se llame un archivo: **firmar con otra clave y comprobar que se
+rechaza**.

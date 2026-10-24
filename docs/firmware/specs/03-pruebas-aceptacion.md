@@ -325,15 +325,19 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-002 | Armado/desarmado desde la PWA | **PASS** |
 | AT-003 | Frame v1 de nodo a hub | **PASS** |
 | AT-004 | `node_lost` tras 3 heartbeats | **PASS** |
-| AT-005 | LWT offline al caer | **FAIL** (no implementado) |
+| AT-005 | LWT offline al caer | **PASS** (5 s) |
 | AT-006 | Persistencia del estado de alarma | **PASS** |
 | AT-011 | Pairing del nodo con el hub | **PASS** |
+| AT-012 | Recuperacion ante hub ausente | **PASS** |
 | AT-013 | Presupuesto de ACK y RX->publish | **PASS** (ACK 14 ms, publish 46-92 ms) |
 | AT-014 | Build reproducible desde clon limpio (CI) | **PASS** |
 | AT-015 | OTA de punta a punta | **PASS** |
 | AT-016 | Rollback ante imagen que no confirma | **PASS** |
 | AT-017 | Firma de imagen: acepta firmada, rechaza sin firmar | **PASS** |
-| AT-007+ | Provisioning y OTA | pendiente |
+| AT-018 | OTA del nodo (con firma verificada) | **PASS** |
+| AT-007 | Provisioning SoftAP + portal | pendiente |
+| AT-009 | Operacion 24/7 sin reset 30 dias | pendiente (prueba de calendario) |
+| AT-010 | Backoff exponencial con jitter | pendiente |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
 existe**, aunque la documentacion la daba por hecha en varios casos:

@@ -1,0 +1,94 @@
+/* Estilo de los manuales publicados y de los PDF de las cajas.
+ * Fuente unica: si cambia la marca, cambia aqui y se regenera todo. */
+:root {
+  --principal: #1a5fb4;
+  --texto: #1a1a1a;
+  --gris: #6c757d;
+  --fondo-caja: #f6f8fa;
+  --borde: #d8dee4;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  color: var(--texto);
+  line-height: 1.7;
+  max-width: 46em;
+  margin: 0 auto;
+  padding: 2em 1.2em 4em;
+  font-size: 17px;
+}
+h1 {
+  font-size: 1.9em;
+  border-bottom: 3px solid var(--principal);
+  padding-bottom: .3em;
+  margin-bottom: .6em;
+}
+h2 {
+  font-size: 1.35em;
+  color: var(--principal);
+  margin-top: 2em;
+  border-bottom: 1px solid var(--borde);
+  padding-bottom: .2em;
+}
+h3 { font-size: 1.1em; margin-top: 1.5em; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.2em 0;
+  font-size: .95em;
+}
+th, td {
+  border: 1px solid var(--borde);
+  padding: .5em .7em;
+  text-align: left;
+}
+th { background: var(--fondo-caja); font-weight: 600; }
+code {
+  background: var(--fondo-caja);
+  padding: .15em .4em;
+  border-radius: 4px;
+  font-size: .9em;
+}
+pre {
+  background: var(--fondo-caja);
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--borde);
+}
+pre code { background: none; padding: 0; }
+blockquote {
+  border-left: 4px solid var(--principal);
+  margin: 1.2em 0;
+  padding: .3em 1em;
+  background: var(--fondo-caja);
+  color: #333;
+}
+blockquote p { margin: .5em 0; }
+hr { border: none; border-top: 1px solid var(--borde); margin: 2.5em 0; }
+img { max-width: 100%; height: auto; }
+a { color: var(--principal); }
+/* Indice de manuales */
+.indice { list-style: none; padding: 0; }
+.indice li {
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 1em 1.2em;
+  margin-bottom: .8em;
+}
+.indice a { font-size: 1.1em; font-weight: 600; text-decoration: none; }
+.indice p { margin: .3em 0 0; color: var(--gris); font-size: .92em; }
+/* Pie de pagina de los PDF */
+.pie {
+  margin-top: 3em;
+  padding-top: 1em;
+  border-top: 1px solid var(--borde);
+  color: var(--gris);
+  font-size: .85em;
+  text-align: center;
+}
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; }
+  h2 { page-break-after: avoid; }
+  table, pre, blockquote { page-break-inside: avoid; }
+}

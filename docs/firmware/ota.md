@@ -40,6 +40,46 @@ Vive en `~/seguimiento360-claves-ota/` del servidor, con permisos 600. **No
 esta en el repo** y no debe estarlo: `SECURITY.md` lo prohibe, y el
 `.gitignore` ya bloquea `*.pem`.
 
+Su huella SHA-256, que identifica la instalacion:
+
+    d06f4a6db961d007e42bf60325037d02
+
+Se obtiene con:
+
+    openssl rsa -in ota_signing_key.pem -pubout -outform DER 2>/dev/null \
+      | sha256sum | cut -c1-32
+
+### Respaldo de la clave
+
+**Si se pierde la privada, ningun dispositivo acepta ya una actualizacion por
+el aire.** La publica va embebida en el firmware desplegado, asi que los
+equipos siguen funcionando, pero quedan congelados en su version y solo se
+recuperan con un cable USB, uno a uno.
+
+El respaldo es un paquete cifrado con GPG (AES-256) que se genera aparte:
+
+    ota-claves.tar.gz.gpg          claves + manifiesto + procedimiento
+    ota-claves.tar.gz.sha256.gpg   huella para comprobar la integridad
+
+Contiene `MANIFIESTO.txt` (que es y para que sirve) y `RESTAURACION.md` (como
+devolverlo a un servidor y como comprobar que quedo bien).
+
+Dos reglas:
+
+- **El paquete debe salir del servidor.** Una copia en el mismo equipo no
+  protege contra perder el equipo, que es el caso que cubre el respaldo.
+- **La frase de cifrado no se guarda junto al paquete.** Si viajan juntas, el
+  cifrado no aporta nada.
+
+El respaldo se ha probado descifrandolo, comparando la huella de la clave
+restaurada con la de produccion y firmando una imagen con ella: el binario
+resultante lo valida la clave publica que ya tienen los dispositivos.
+
+### Rotar la clave
+
+Exige reflashear **todos** los dispositivos por cable: cada uno lleva la clave
+vieja embebida y rechaza lo firmado con la nueva. No se puede hacer por OTA.
+
     espsecure.py generate_signing_key --version 2 --scheme rsa3072 ota_signing_key.pem
     espsecure.py extract_public_key --version 2 \
       --keyfile ota_signing_key.pem ota_signing_key.pub.pem

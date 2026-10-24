@@ -249,3 +249,41 @@ binario ocupa el 94% de `ota_0`.
 atacante con acceso fisico podria reemplazarlo y saltarse la verificacion.
 Cerrarlo exige Secure Boot por hardware, que quema eFuses y es irreversible:
 hay que decidirlo con cuidado.
+
+## Estado tras la sesion del 2026-10-24
+
+**Hecho y verificado en esta sesion**
+
+| Tarea | AT | Como se verifico |
+|---|---|---|
+| HUB-NF-005 backoff (nodo) | AT-010 | Espera creciente medida: 55 s, 117 s, 473 s |
+| HUB-F-011 provisioning condicional | AT-019 | SoftAP solo sin configuracion, en ambos estados |
+| HUB-F-016 claim code en el portal | - | 11 casos unitarios, 5 codigos reales de la base |
+
+**Hecho pero sin verificar**
+
+- **HUB-NF-005 en el hub.** La tarea de reconexion con backoff esta
+  implementada, pero no se ha podido forzar una caida de su enlace: el
+  servidor no tiene interfaz WiFi, el router no expone administracion y no hay
+  permisos para bloquear trafico. Hace falta un banco donde se pueda apagar el
+  AP o el router.
+
+**Pendiente con trabajo real**
+
+- **HUB-F-016 de punta a punta.** El backend esta completo, pero las tres
+  partes usan convenciones de serial distintas (`SN-`+codigo, `HUB-`+fecha,
+  MAC). El vinculo no cierra para dar de alta un equipo nuevo. Ver
+  `docs/firmware/HALLAZGO-claim-code.md`: necesita change request sobre
+  SPEC-02 porque es un cambio de contrato.
+- **AT-009 operacion 24/7.** Requiere un mes de calendario. El watchdog esta
+  activo; conviene dejar un registro de uptime y revisarlo despues.
+- **Unificar los dos sistemas de configuracion.** `sm_prov` tiene su FSM con
+  `nvs_manager_has_credentials()`, y el arranque lo gobierna `active_config`.
+  `sm_prov` sigue sin invocarse desde `main.c`.
+
+**Herramientas nuevas**
+
+- `tests/firmware/` compila y ejecuta logica de firmware en el PC. La prueba
+  extrae la funcion de `main.c` para no validar una copia.
+- La configuracion del hub se respalda copiando tres particiones
+  (`nvs`, `nvs_state`, `nvs_nodes`); probado borrando y restaurando.

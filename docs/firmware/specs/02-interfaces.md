@@ -250,6 +250,35 @@ y escribir en cada uno desgastaría la flash.
 Si la MAC del ACK difiere de la guardada, el nodo borra el peer anterior
 (`esp_now_del_peer`) y registra el nuevo: es la ruta de sustitución de hub.
 
+### Vigilancia del enlace
+
+Aprender la MAC nueva exige que el ACK llegue. Si el hub se sustituye por otro,
+el nodo sigue enviando a la MAC vieja y **nunca recibe ese ACK**: la ruta de
+sustitución queda inalcanzable y el nodo envía eventos al vacío sin síntoma.
+
+El nodo comprueba el enlace por su cuenta cada `LINK_CHECK_SEC` (10 s) enviando
+un `PAIR`. Un ACK recibido pone el contador a cero. Al acumular `ACK_LOST_MAX`
+comprobaciones sin respuesta (6, es decir **60 s**), el nodo borra la MAC de NVS
+con `pairing_forget_hub_mac()` y vuelve al modo sin vincular, donde el LED
+parpadea y sigue insistiendo. Cuando el hub reaparece se re-vincula solo.
+
+Esto **no** usa el temporizador del heartbeat: `HEARTBEAT_INTERVAL_SEC` es de
+10 minutos y la desvinculación habría tardado horas.
+
+### Filtro de destinatario en el hub
+
+ESP-NOW entrega al hub cualquier trama que su radio oiga, incluidas las de
+nodos de hubs cercanos. `on_data_recv()` procesaba todas sin mirar el
+destinatario, de modo que un nodo ajeno podía emparejarse con este hub.
+
+El hub atiende una trama solo si `frame.dst_mac` es una MAC propia —STA o
+SoftAP— según `mac_es_de_este_hub()`. Se aceptan ambas porque el nodo dirige el
+`PAIR` al SoftAP y recibe los ACK desde la STA.
+
+**Pendiente:** el ACK no lleva firma, así que un hub ajeno podría responder a
+un `PAIR` y el nodo adoptaría su MAC. Cerrarlo requiere un token compartido en
+el `PAIR`, que es un cambio de contrato y necesita change request.
+
 ### NVS del nodo
 
 | Partición | Namespace | Clave | Contenido |
@@ -266,6 +295,8 @@ nodo vuelve al modo sin vincular sin intervención.
 | Sin vincular | Parpadea | "Sin hub en NVS... semilla..." | No se envían |
 | Vinculado | Apagado | "Hub vinculado en NVS: ..." | Sí |
 | Hub cambiado | Apagado | "El hub ha cambiado..." | Sí, al nuevo |
+| Hub ausente 60 s | Parpadea | "El hub no responde (6 comprobaciones sin ACK). Desvinculando..." | No se envían |
+| Hub repuesto | Apagado | "Nodo VINCULADO con el hub ..." | Sí, se reanudan |
 
 ## Fallos del enlace ESP-NOW (2026-10-23)
 

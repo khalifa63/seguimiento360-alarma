@@ -15,6 +15,8 @@ HUB-F-010 | NVS: persistir config y estado de alarma                         | i
 HUB-F-011 | Provisioning SoftAP + portal (WiFi + claim code)                 | pendiente    | AT-007
 HUB-F-012 | OTA seguro (HTTPS, firma, rollback)                              | pendiente    | AT-008
 HUB-F-013 | Pairing del nodo: aprende la MAC del hub y la guarda en NVS     | implementado | AT-011
+HUB-F-014 | Recuperacion ante hub ausente: el nodo se desvincula solo a los 60 s y se re-vincula al reaparecer | implementado | AT-012
+HUB-F-015 | El hub solo atiende tramas dirigidas a sus propias MAC (STA o SoftAP) | implementado | AT-012
 
 ## No funcionales
 ID         | Requisito                                                     | Estado    | AT

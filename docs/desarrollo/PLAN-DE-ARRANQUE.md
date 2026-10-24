@@ -235,18 +235,15 @@ Una tarea se cierra cuando:
 
 ## Tareas abiertas de OTA
 
-**FW-012 — OTA del nodo.** El nodo no tiene OTA: usa la tabla de particiones
-por defecto de IDF, sin `ota_0`/`ota_1`, y su `main` no incluye
-`esp_https_ota`. Solo se actualiza por cable, asi que un nodo ya instalado en
-campo no se puede corregir sin ir fisicamente. Es un trabajo distinto al del
-hub y necesita decisiones propias:
+**FW-012 — OTA del nodo.** Hecho (2026-10-24), verificado en AT-018. El nodo
+tiene tabla de particiones propia con `ota_0`/`ota_1`, recibe del hub las
+credenciales WiFi y la URL por ESP-NOW, descarga por HTTPS, verifica la firma
+RSA-3072 y confirma el rollback al arrancar. La firma esta probada en las dos
+direcciones, incluida una imagen firmada con otra clave.
 
-- Tabla de particiones nueva. El binario del nodo es de ~700 KB, cabe en una
-  particion OTA de 1 MB con la flash de 4 MB.
-- Transporte de la imagen. ESP-NOW no sirve para 700 KB; el nodo tendria que
-  descargarla por WiFi o recibirla del hub por trozos.
-- El nodo no tiene pila de red propia: solo ESP-NOW. Darle WiFi para OTA
-  cambia su consumo y su modelo de seguridad.
+Sigue pendiente de decision si la clave debe rotarse por nodo o seguir siendo
+unica para toda la instalacion, y conviene vigilar el margen de particion: el
+binario ocupa el 94% de `ota_0`.
 
 **Firma del bootloader.** La firma actual cubre la app, no el bootloader. Un
 atacante con acceso fisico podria reemplazarlo y saltarse la verificacion.

@@ -44,24 +44,36 @@ Se descartaron:
 - **El claim code como identificador.** Ataria la identidad del equipo a un
   codigo de un solo uso: al canjearlo dejaria de servir para identificarlo.
 
-## Formato canonico
+## Formato
 
-    xxxxxxxxxxxx
+La MAC tiene **dos formas**, y cual se usa depende del contexto:
 
-Doce digitos hexadecimales en minusculas, **sin separadores**. Ejemplo:
-`3cdc7562c2b0`.
+| Contexto | Forma | Ejemplo |
+|---|---|---|
+| Topics MQTT | compacta | `3cdc7562c2b0` |
+| Datos, payloads y consola | legible | `3c:dc:75:62:c2:b0` |
 
-Es la forma que ya usan la tabla `hubs` (`serial_number = 3cdc7562c2b0`) y los
-topics MQTT. Se eligio esa y no la de dos puntos porque era la que ya estaba en
-uso en los dos sitios donde el dato se persiste y se compara.
+La forma compacta es **solo para construir topics**: los dos puntos parten el
+topic en niveles aparentes y complican las suscripciones con comodines. En todo
+lo demas se usa la legible.
 
-**Presentacion para humanos:** en payloads legibles y en la consola la MAC
-aparece como `3c:dc:75:62:c2:b0`. El hub ya lo hace asi: publica `mac` con
-separadores en `HUB_ONLINE` y usa la forma compacta para los topics.
+Que usa cada sitio, medido en el sistema:
 
-**Normalizacion:** el backend acepta mayusculas, guiones, dos puntos y el
-formato compacto, y **siempre guarda la forma canonica sin separadores**.
-Normalizar en un solo sitio evita que cada consumidor tenga que hacerlo.
+| Sitio | Forma | Valor real |
+|---|---|---|
+| `hubs.serial_number` | compacta | `3cdc7562c2b0` |
+| `nodes.mac_address` | legible | `a0:f2:62:f1:d0:f0` |
+| `events.hub_mac` | compacta | `3cdc7562c2b0` |
+| `events.node_mac` | legible | `a0:f2:62:f1:d0:f0` |
+| `HUB_ONLINE.mac` | legible | `3c:dc:75:62:c2:b0` |
+
+Validacion, que ya existia en el backend y ahora esta escrita:
+
+    serial_number   ^[0-9a-f]{12}$
+    mac_address     ^([0-9a-f]{2}:){5}[0-9a-f]{2}$
+
+Se normaliza a minusculas antes de comparar, asi que una MAC escrita en
+mayusculas se acepta y se guarda en forma canonica.
 
 ## Contrato nuevo de `POST /api/claim`
 
@@ -74,7 +86,8 @@ Despues:
     { "code": "S3-AZJH86-M", "site_id": 1, "hub_mac": "3c:dc:75:62:c2:b0" }
 
 `hub_mac` es **obligatorio**: sin el, el backend no sabe a que equipo vincular
-el codigo. El serial del hub pasa a ser la MAC normalizada, no `SN-` + codigo.
+el codigo. Se acepta en cualquier forma y se guarda en la que corresponde al
+dato: compacta para `hubs.serial_number`.
 
 ## Compatibilidad
 

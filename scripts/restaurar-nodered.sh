@@ -38,7 +38,10 @@ listar() {
         [ -d "$d" ] || continue
         n=$(cat "$d/nodos.txt" 2>/dev/null || echo "?")
         f=$(stat -c%y "$d" 2>/dev/null | cut -d. -f1)
-        printf '  %-42s %5s nodos   %s\n' "$(basename "$d")" "$n" "$f"
+        etq=$(cat "$d/etiqueta.txt" 2>/dev/null || echo "")
+        # Sin ancho fijo: los nombres con etiqueta son largos y desalinean.
+        printf '  %s\n' "$(basename "$d")"
+        printf '      %s nodos, %s%s\n' "$n" "$f" "${etq:+, $etq}"
     done
     echo
     echo "Para restaurar uno:   $0 <nombre-o-ruta>"

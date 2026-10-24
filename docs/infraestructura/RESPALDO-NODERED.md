@@ -20,16 +20,20 @@ conectar y el sintoma no aparece hasta que algo intenta publicar.
 
 ## Hacer un respaldo
 
-    FECHA=$(date +%Y%m%d-%H%M%S)
-    D=~/backups-nodered/restaurable-$FECHA
-    mkdir -p "$D"
-    docker cp nodered:/data/flows.json      "$D/flows.json"
-    docker cp nodered:/data/flows_cred.json "$D/flows_cred.json"
-    docker cp nodered:/data/settings.js     "$D/settings.js"
-    md5sum "$D"/* > "$D/MD5SUMS"
+    scripts/respaldar-nodered.sh
+    scripts/respaldar-nodered.sh --etiqueta antes-de-probar-ota
+    scripts/respaldar-nodered.sh --listar
+    scripts/respaldar-nodered.sh --podar 5      # conservar los 5 ultimos
 
-Conviene generar los md5 en el momento: son los que permiten comprobar despues
-que la copia es buena.
+Copia los tres archivos y **verifica cada uno con md5 contra el contenedor**
+antes de dar el respaldo por bueno. Si algo no coincide, lo elimina y avisa:
+un respaldo a medias es peor que no tenerlo, porque da confianza sin motivo.
+
+La etiqueta es para acordarse de para que era. Restaurar un respaldo llamado
+`...-antes-de-probar-ota` es mas facil de elegir que uno con solo la fecha.
+
+Conviene respaldar **antes de cada prueba que toque el flujo**. El respaldo
+solo sirve para volver al estado *anterior* a la prueba.
 
 ## Restaurar
 
@@ -70,14 +74,21 @@ editar a mano, en cuyo caso hay que reiniciar para que tome efecto.
 
 ## Comprobado
 
-El procedimiento se probo rompiendo el flujo a proposito:
+Los dos scripts se probaron con una rotura real, no simulada:
 
-- Se elimino el endpoint `/api/overview` del archivo y se reinicio: 0 nodos.
-- Se restauro con `scripts/restaurar-nodered.sh --ultimo`.
-- El md5 de `flows.json` volvio a ser **identico** al original
-  (`b1aff918e6dc8f06`), 117 nodos, y los tres endpoints responden 401.
+1. Respaldo con `respaldar-nodered.sh --etiqueta prueba-real`.
+2. Rotura: se paro el contenedor, se elimino el endpoint `/api/events` del
+   archivo y se arranco. Quedo en 116 nodos y `/api/events` devolvia **404**.
+3. Restauracion con `restaurar-nodered.sh --ultimo`.
+4. Resultado: **117 nodos**, `/api/events` de vuelta en **401**, y el md5 de
+   `flows.json` identico al original (`b1aff918e6dc8f06`).
 
 La restauracion devuelve el sistema al estado exacto, credenciales incluidas.
+
+**Para romperlo hubo que parar el contenedor primero.** Editando el archivo
+con Node-RED en marcha, el cambio desaparece al reiniciar: lo sobrescribe con
+lo que tiene en memoria. Es la misma trampa que obliga a parar antes de
+restaurar.
 
 ## Backups completos
 
@@ -90,3 +101,22 @@ documento.
 El script **ya no deja copias dentro del contenedor**. Antes creaba una por
 ejecucion y no limpiaba las anteriores; en octubre de 2026 habia siete
 acumuladas.
+
+## Cuantos respaldos guardar
+
+No hay limite automatico. Los respaldos ocupan unos 80 KB cada uno, asi que no
+es un problema de espacio, pero si de claridad: con veinte, elegir el correcto
+se vuelve adivinacion.
+
+    scripts/respaldar-nodered.sh --podar 5
+
+Conserva los cinco mas recientes y elimina el resto. Conviene ejecutarlo de vez
+en cuando, no en cada respaldo: si se poda automaticamente se corre el riesgo
+de perder justo el que hacia falta.
+
+## Volver atras de una restauracion
+
+Cada restauracion guarda el estado anterior en `antes-de-restaurar-<fecha>`.
+Si se restauro el respaldo equivocado, se deshace restaurando ese:
+
+    scripts/restaurar-nodered.sh antes-de-restaurar-20261024-114810

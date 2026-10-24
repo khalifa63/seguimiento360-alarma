@@ -199,6 +199,51 @@ publicación MQTT) no cambió.
 
 El presupuesto de A7 para RX→publicación es ≤ 250 ms: se cumple con margen.
 
+## HUB-IF-012: Provisioning condicional (HUB-F-011)
+
+El hub solo levanta su SoftAP de provisioning si le falta configuracion.
+
+### Por que
+
+Antes arrancaba siempre en `WIFI_MODE_APSTA`, de modo que un hub **ya
+configurado y funcionando** mantenia su AP abierto. Cualquiera dentro del
+alcance podia conectarse y reconfigurarlo. El portal se cierra a los 10
+minutos sin actividad, pero eso no impide la reconfiguracion durante esa
+ventana.
+
+### Comportamiento
+
+| Estado al arrancar | Modo de radio | Portal |
+|---|---|---|
+| Con credenciales en NVS | `WIFI_MODE_STA` | No se inicia |
+| Sin credenciales | `WIFI_MODE_APSTA` | `http://192.168.4.1` |
+
+Para reconfigurar un hub ya provisionado hay que borrar su configuracion
+(boton de fabrica o `/factory_reset` estando cerca). Es intencionado: evita
+que un equipo en produccion quede expuesto de forma permanente.
+
+### Los dos sistemas de configuracion
+
+Conviene tenerlo presente porque es una fuente de confusion:
+
+- El **hub** usa `active_config` (NVS namespace `pairing`, clave
+  `hub_config`) y el indicador `wifi_configured`. Es lo que decide el modo de
+  radio.
+- El componente **`sm_prov`** tiene su propia FSM con
+  `nvs_manager_has_credentials()`, sobre las particiones `nvs_state` y
+  `nvs_nodes`.
+
+Hoy el arranque lo gobierna `active_config`. `sm_prov` no se invoca desde
+`main.c`: su FSM esta implementada y sin usar. Unificarlos es trabajo
+pendiente, anotado en FW-013.
+
+### Claim code
+
+El requisito HUB-F-011 pide vincular el hub con la cuenta mediante un claim
+code. **No existe**: el portal actual recoge SSID, contrasena, tenant y site,
+y el tenant se escribe a mano. Es lo que falta para desplegar hubs en serie
+sin configurarlos uno a uno.
+
 ## HUB-IF-011: Vinculación del nodo (FW-008)
 
 Cómo aprende un nodo a qué hub dirigirse, sin llevar la MAC compilada.

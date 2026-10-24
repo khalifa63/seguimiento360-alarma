@@ -126,6 +126,9 @@ _Static_assert(sizeof(security_payload_t) == 7,
 // ============================================================================
 static nvs_handle_t nvs_handle_pairing;
 static bool wifi_configured = false;
+/* true solo si el SoftAP de provisioning esta levantado. Lo usa el arranque
+ * del portal para no abrirlo en un hub ya configurado. */
+static bool s_portal_habilitado = false;
 static httpd_handle_t server = NULL;
 /* Canal compartido con los nodos. Debe coincidir con WIFI_CHANNEL del
  * firmware del nodo y con el canal en que queda el AP del hub.
@@ -1685,9 +1688,25 @@ void app_main(void) {
     strncpy((char *)ap_config.ap.ssid, ap_ssid, sizeof(ap_config.ap.ssid) - 1);
     ap_config.ap.ssid_len = strlen(ap_ssid);
     strncpy((char *)ap_config.ap.password, ap_pass, sizeof(ap_config.ap.password) - 1);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
-    
+
+    /* El SoftAP solo se levanta si al hub le falta configuracion.
+     *
+     * Antes arrancaba siempre en APSTA, y su AP quedaba abierto incluso en un
+     * hub ya configurado y funcionando. Cualquiera dentro del alcance podia
+     * conectarse y reconfigurarlo. Un equipo que ya tiene credenciales no
+     * necesita portal: si hay que reconfigurarlo, se borra con el boton o con
+     * /factory_reset estando cerca. */
+    bool necesita_portal = !(wifi_configured && strlen(active_config.ssid) > 0);
+    if (necesita_portal) {
+        ESP_LOGW(TAG, "Sin configuracion: SoftAP de provisioning activo.");
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+    } else {
+        ESP_LOGI(TAG, "Hub configurado: modo STA, sin SoftAP de provisioning.");
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    }
+    s_portal_habilitado = necesita_portal;
+
     // 8. Conectar STA si hay credenciales guardadas
     if (wifi_configured && strlen(active_config.ssid) > 0) {
         wifi_config_t sta_config = {0};
@@ -1725,8 +1744,12 @@ void app_main(void) {
 
     // 11. MQTT se iniciará automáticamente en el evento IP_EVENT_STA_GOT_IP (cuando ya tengamos IP)
 
-    // 12. Iniciar Portal Cautivo
-    start_captive_portal();
+    // 12. Portal Cautivo, solo si falta configuracion
+    if (s_portal_habilitado) {
+        start_captive_portal();
+    } else {
+        ESP_LOGI(TAG, "Portal no iniciado: el hub ya esta configurado.");
+    }
     
     // Feedback visual de inicio exitoso (2 parpadeos)
     blink_indicator(2, 200);
@@ -1739,7 +1762,11 @@ void app_main(void) {
     ESP_LOGI(TAG, "Tenant: %s | Site: %s", active_config.tenant_id, active_config.site_id);
     ESP_LOGI(TAG, "Nodos vinculados: %d/%d", node_registry.count, MAX_NODES);
     ESP_LOGI(TAG, "Broker MQTT: %s", MQTT_BROKER_URI);
-    ESP_LOGI(TAG, "Portal Cautivo: http://192.168.4.1 (timeout: 10 min)");
-    ESP_LOGI(TAG, "  Red WiFi: %s  |  Clave: %s", ap_ssid, ap_pass);
+    if (s_portal_habilitado) {
+        ESP_LOGI(TAG, "Portal Cautivo: http://192.168.4.1 (timeout: 10 min)");
+        ESP_LOGI(TAG, "  Red WiFi: %s  |  Clave: %s", ap_ssid, ap_pass);
+    } else {
+        ESP_LOGI(TAG, "Sin portal de provisioning (hub ya configurado).");
+    }
     ESP_LOGI(TAG, "============================================================");
 }

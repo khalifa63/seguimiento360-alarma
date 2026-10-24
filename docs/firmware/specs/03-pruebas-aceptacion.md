@@ -335,7 +335,8 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-016 | Rollback ante imagen que no confirma | **PASS** |
 | AT-017 | Firma de imagen: acepta firmada, rechaza sin firmar | **PASS** |
 | AT-018 | OTA del nodo (con firma verificada) | **PASS** |
-| AT-007 | Provisioning SoftAP + portal | pendiente |
+| AT-019 | Provisioning condicional (SoftAP solo si falta config) | **PASS** |
+| AT-007 | Claim code y vinculacion con la cuenta | pendiente |
 | AT-009 | Operacion 24/7 sin reset 30 dias | pendiente (prueba de calendario) |
 | AT-010 | Backoff exponencial con jitter | **PASS** en nodo; hub sin verificar |
 
@@ -816,3 +817,53 @@ el hub aislado hasta el siguiente reinicio.
 en este servidor no hay forma: no tiene interfaz WiFi, el router no expone
 administracion y no hay permisos para bloquear el trafico. Queda pendiente
 verificarlo en un banco donde se pueda apagar el AP o el router.
+
+## AT-019 (HUB-F-011) — Provisioning condicional
+
+Comprueba que el hub solo expone su SoftAP de provisioning cuando le falta
+configuracion.
+
+**Procedimiento.** Se arranca el hub en los dos estados y se compara. El
+estado "sin configurar" se obtiene borrando la particion de configuracion
+(`erase_region 0x9000 0x6000`), despues de respaldarla.
+
+**Resultado: PASS** en ambas direcciones.
+
+Hub con credenciales:
+
+```text
+I: Hub configurado: modo STA, sin SoftAP de provisioning.
+I: Portal no iniciado: el hub ya esta configurado.
+I: Sin portal de provisioning (hub ya configurado).
+I: Obtenida IP: 192.168.10.12
+I: MQTT_EVENT_CONNECTED
+```
+
+Hub sin credenciales:
+
+```text
+W: Sin configuracion: SoftAP de provisioning activo.
+I: Portal Cautivo v2 iniciado en http://192.168.4.1
+I:   Red WiFi: S360-C2B0  |  Clave: S360-C2B0
+```
+
+Tras la prueba se restauro la configuracion desde el respaldo y el hub volvio
+a tenant 2 / site 1 con MQTT conectado.
+
+### Por que importa
+
+Un hub ya configurado mantenia su AP abierto de forma permanente: cualquiera
+dentro del alcance podia conectarse y reconfigurarlo. El portal se cierra a
+los 10 minutos sin actividad, pero la ventana seguia existiendo en cada
+arranque.
+
+### La configuracion del hub se puede respaldar
+
+Al hacer esta prueba se comprobo que basta con copiar tres particiones:
+
+    0x9000  0x6000   nvs        configuracion (SSID, tenant, site)
+    0xf000  0x4000   nvs_state  estado de alarma
+    0x13000 0x8000   nvs_nodes  registro de nodos
+
+Restaurarlas devuelve el hub a su estado anterior sin reconfigurarlo. Es util
+antes de tocar la configuracion y como respaldo de un equipo en produccion.

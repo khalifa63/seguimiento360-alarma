@@ -1,0 +1,37 @@
+name: firmware
+
+# Compila el hub y el nodo en cada PR que toque firmware. Sin esto, una
+# ruptura del frame v1 o de la API compartida solo se descubre al flashear.
+on:
+  pull_request:
+    paths:
+      - "firmware/hub/**"
+      - "firmware/sensor-ultrasonic/**"
+      - "firmware/shared/**"
+      - ".github/workflows/firmware.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: firmware/hub
+            target: esp32s3
+            name: hub
+          - project: firmware/sensor-ultrasonic
+            target: esp32s3
+            name: sensor-ultrasonic
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Misma version de IDF que el entorno de desarrollo, para que el CI no
+      # valide algo distinto de lo que se flashea.
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.2.2
+          target: ${{ matrix.target }}
+          path: ${{ matrix.project }}

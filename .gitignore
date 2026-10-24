@@ -18,7 +18,6 @@ nodered/data/.config.json.backup*
 **/build/
 **/sdkconfig
 **/sdkconfig.old
-**/sdkconfig.defaults
 **/sdkconfig.ci.*
 
 # Backups de Base de Datos
@@ -99,7 +98,11 @@ plantillas-probadas/
 **/backups/flash/
 *.sha256
 
-# Configuracion local de compilacion
+# Configuracion local de compilacion.
+# sdkconfig y sdkconfig.old los genera idf.py y son de cada maquina.
+# sdkconfig.defaults NO: es configuracion del producto (target, particiones,
+# PSRAM, WSS, OTA) y debe estar en el repo. Estaba ignorado, asi que el CI
+# compilaba con los valores por defecto y validaba algo distinto de lo que
+# se flashea.
 **/sdkconfig
 **/sdkconfig.old
-**/sdkconfig.defaults

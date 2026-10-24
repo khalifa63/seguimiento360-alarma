@@ -312,3 +312,93 @@ Esta directiva al inicio de `mosquitto.conf` permite que cada listener tenga su 
 - **Puerto 1883**: Conexiones anónimas permitidas (Node-RED, scripts internos)
 - **Puertos 8083/9001**: Requieren autenticación (ESP32 remotos vía Cloudflare)
 - **Seguridad por capas**: Red Docker interna confiable + acceso externo con auth fuerte
+
+## Archivos de flujo en el volumen de Node-RED
+
+Actualizada: 2026-10-24
+
+### Cual se carga
+
+Uno solo. Esta declarado en `settings.js` del contenedor:
+
+    flowFile: 'flows.json'
+
+Node-RED **no lee ningun otro archivo** de `/data`. Todo lo demas son restos
+que se acumulaban ahi.
+
+### Limpieza del 2026-10-24
+
+Se encontraron **ocho archivos** en `/data` y se elimino siete. Solo quedaron
+los dos que el contenedor usa.
+
+Eliminados:
+
+| Archivo | Nodos | Que era |
+|---|---|---|
+| `flows.json.SAVE` | 215 | GhostKey, producto anterior |
+| `flows.json.pre-prune-bak` | 225 | GhostKey, producto anterior |
+| `flows.json.backup-pre-limpieza-20261019-154320` | 136 | copia intermedia |
+| `flows.json.backup_20261020_093536` | 74 | copia automatica |
+| `flows.json.backup_20261020_094210` | 74 | copia automatica |
+| `.flows.json.backup` | 107 | copia automatica |
+| `flows_cred.json.corrupt.1792621138` | — | credenciales corruptas |
+
+Conservados:
+
+| Archivo | Que es |
+|---|---|
+| `flows.json` | el flujo en uso (117 nodos) |
+| `flows_cred.json` | credenciales cifradas |
+| `.flows_cred.json.backup` | copia de esas credenciales |
+
+### GhostKey
+
+Los dos archivos grandes eran de **GhostKey**, un producto anterior al sistema
+de alarma. Tenian 17 pestañas propias (activacion, comandos pendientes,
+configuracion de dispositivos, sync Traccar...) y **nada** de Seguimiento 360.
+
+Se comprobo que ya no se usa: ningun endpoint responde, no hay contenedor ni
+servicio, y el repositorio ya lo tenia archivado en
+`backend/nodered-flows/archive/flows-legacy-ghostkey-20260807.json`.
+
+### Donde estan las copias
+
+Antes de borrar, los siete se copiaron fuera del contenedor y se verifico que
+el md5 coincidiera con el original:
+
+    ~/backups-nodered/legacy-ghostkey/    los dos de GhostKey
+    ~/backups-nodered/huerfanos-s360/     las copias intermedias
+
+Y los `tar.gz` de `~/backups/seguimiento360/` ya contenian un `flows.json`
+completo, asi que habia respaldo por partida doble.
+
+### Por que se acumulaban
+
+El script `scripts/backup-completo.sh` dejaba una copia **dentro** del
+contenedor en cada ejecucion:
+
+    docker exec nodered cp /data/flows.json /data/flows.json.backup_${TIMESTAMP}
+
+Y nunca borraba las anteriores. De ahi que hubiera dos copias del 20 de octubre
+con siete minutos de diferencia: dos ejecuciones seguidas.
+
+Esa linea se elimino. El backup externo que ya hacia la linea siguiente es
+suficiente y no ensucia el volumen.
+
+### Antes de analizar o cambiar flujos
+
+El `flows.json` del repositorio (`backend/nodered-flows/flows.json`) **puede no
+coincidir con lo desplegado**. En octubre de 2026 el del repo tenia 87 nodos y
+el desplegado 117, con endpoints distintos: analizar el equivocado llevo a
+conclusiones falsas.
+
+Comprobar que version corre:
+
+    docker exec nodered python3 -c \
+      "import json;print(len(json.load(open('/data/flows.json'))),'nodos')"
+
+Y exportar produccion antes de tocarla:
+
+    docker cp nodered:/data/flows.json /tmp/flows_activo.json
+
+Ver `backend/nodered-flows/README.md`.

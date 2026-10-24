@@ -91,7 +91,11 @@ fi
 log "🔧 Respaldando flujos de Node-RED..."
 
 if docker ps --format '{{.Names}}' | grep -q "^nodered$"; then
-    docker exec nodered cp /data/flows.json /data/flows.json.backup_${TIMESTAMP}
+    # El backup externo basta. Antes se dejaba ademas una copia dentro del
+    # contenedor (/data/flows.json.backup_<fecha>) que nunca se borraba: en
+    # octubre de 2026 habia siete acumuladas, tres de ellas de un producto
+    # anterior (GhostKey). Confundian mas que ayudaban, porque cual es el
+    # archivo vivo no se ve a simple vista.
     docker cp nodered:/data/flows.json "${BACKUP_DIR}/nodered/flows.json"
     
     if [ -f ~/iot-alarma/nodered/data/settings.js ]; then

@@ -23,7 +23,7 @@ HUB-F-015 | El hub solo atiende tramas dirigidas a sus propias MAC (STA o SoftAP
 ID         | Requisito                                                     | Estado    | AT
 HUB-NF-001 | Boot -> MQTT conectado <= 10 s (RF buena)                     | cumplido  | AT-001 (4,85 s)
 HUB-NF-002 | Latencia RX ESP-NOW -> publish /event <= 250 ms               | cumplido  | AT-013 (ACK 14 ms, publish 46-92 ms)
-HUB-NF-003 | Operacion 24/7: watchdog habilitado, sin reset manual 30 d    | pendiente | AT-009
+HUB-NF-003 | Operacion 24/7: watchdog habilitado, sin reset manual 30 d    | parcial      | AT-009
 HUB-NF-004 | Sin secretos quemados en firmware (credenciales via NVS/prov) | cumplido  | review
 HUB-NF-005 | Backoff exponencial 1s->60s con jitter (WiFi y MQTT)          | nodo-verif | AT-010
 

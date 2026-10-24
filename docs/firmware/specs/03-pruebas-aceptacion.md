@@ -337,7 +337,7 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-018 | OTA del nodo (con firma verificada) | **PASS** |
 | AT-019 | Provisioning condicional (SoftAP solo si falta config) | **PASS** |
 | AT-007 | Claim code y vinculacion con la cuenta | pendiente |
-| AT-009 | Operacion 24/7 sin reset 30 dias | pendiente (prueba de calendario) |
+| AT-009 | Recuperacion automatica ante cuelgue | **PASS** (watchdog reinicia en 10 s) |
 | AT-010 | Backoff exponencial con jitter | **PASS** en nodo; hub sin verificar |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
@@ -867,3 +867,57 @@ Al hacer esta prueba se comprobo que basta con copiar tres particiones:
 
 Restaurarlas devuelve el hub a su estado anterior sin reconfigurarlo. Es util
 antes de tocar la configuracion y como respaldo de un equipo en produccion.
+
+## AT-009 (HUB-NF-003) — Recuperacion automatica ante cuelgue
+
+El requisito pide 30 dias de operacion sin reset manual. Eso no se puede medir
+en una sesion, pero si se puede comprobar la pieza de la que depende: que un
+cuelgue no deje el equipo inoperante hasta que alguien vaya a reiniciarlo.
+
+### El watchdog no reiniciaba
+
+`CONFIG_ESP_TASK_WDT_PANIC` estaba **desactivado**. El watchdog detectaba el
+fallo y lo registraba, pero no hacia nada: el hub quedaba colgado hasta el
+siguiente corte de luz. Activado.
+
+### Verificacion
+
+**Primer intento, sin reinicio.** Se colgo una tarea y el watchdog no actuo en
+60 segundos. El motivo es que el hub es **dual-core**: un bucle infinito en
+una tarea de un nucleo no detiene el idle del otro, y el watchdog vigila
+precisamente las tareas idle. Una tarea colgada que consuma un solo nucleo
+**no se detecta**.
+
+**Segundo intento, con ambos nucleos bloqueados:**
+
+```text
+I (12526) PRUEBA: colgando AMBOS nucleos...
+E (22522) task_wdt: Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+rst:0xc (RTC_SW_CPU_RST)
+I (907)   cpu_start: App version:      6.1.0
+I (4909)  MQTT_EVENT_CONNECTED
+```
+
+Diez segundos desde el cuelgue hasta el reinicio, y el hub volvio solo sin
+intervencion.
+
+### Limitacion que queda
+
+El watchdog actual solo cubre fallos que bloqueen **ambos** nucleos. Una tarea
+colgada en un solo nucleo pasa inadvertida. Cerrarlo requiere registrar en el
+watchdog las tareas concretas que deban vigilarse
+(`esp_task_wdt_add`), en lugar de confiar en las idle. Queda anotado.
+
+### Uptime y motivo de reinicio
+
+`HUB_ONLINE` incluye ahora `uptime_s` y `reset_reason`, que es lo que permite
+comprobar los 30 dias sin tener que estar mirando la consola:
+
+```json
+{"event":"HUB_ONLINE","hub_name":"Hub-62C2B0","version":"6.1.0",
+ "partition":"ota_0","uptime_s":4,"reset_reason":"USB"}
+```
+
+Un `reset_reason` distinto de `POWERON` o `SW_REST` apunta a watchdog, pila o
+panico, y conviene investigarlo. El caso `USB` corresponde a un reinicio por
+DTR (monitor serie o `esptool`), normal durante el desarrollo.

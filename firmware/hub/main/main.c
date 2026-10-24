@@ -448,11 +448,45 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     const esp_partition_t *part = esp_ota_get_running_partition();
     const char *part_label = (part != NULL) ? part->label : "?";
 
-    char online_payload[320];
+    /* Uptime y motivo del ultimo reinicio (HUB-NF-003).
+     *
+     * El requisito pide 30 dias sin reset manual, y eso no se puede medir en
+     * una sesion. Lo que si se puede es dejar el dato: con el uptime, quien
+     * consulte el broker sabe cuanto lleva en pie este hub, y con el motivo
+     * distingue un reinicio previsto de uno por fallo. Un motivo distinto de
+     * SW_REST o POWERON apunta a watchdog, pila o pánico. */
+    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    esp_reset_reason_t rr = esp_reset_reason();
+    const char *rr_str = "OTRO";
+    switch (rr) {
+        case ESP_RST_POWERON:  rr_str = "POWERON";  break;
+        case ESP_RST_SW:       rr_str = "SW_REST";  break;
+        case ESP_RST_PANIC:    rr_str = "PANIC";    break;
+        case ESP_RST_INT_WDT:  rr_str = "INT_WDT";  break;
+        case ESP_RST_TASK_WDT: rr_str = "TASK_WDT"; break;
+        case ESP_RST_WDT:      rr_str = "WDT";      break;
+        case ESP_RST_BROWNOUT: rr_str = "BROWNOUT"; break;
+        case ESP_RST_DEEPSLEEP:rr_str = "DEEPSLEEP";break;
+        case ESP_RST_EXT:      rr_str = "EXT";      break;
+        /* El hub va por USB nativo: un reinicio lanzado con DTR (idf.py
+         * monitor, esptool) sale como USB, no como SW. Sin este caso el
+         * motivo mas frecuente en desarrollo aparecia como "OTRO". */
+        case ESP_RST_USB:      rr_str = "USB";      break;
+        case ESP_RST_JTAG:     rr_str = "JTAG";     break;
+        case ESP_RST_SDIO:     rr_str = "SDIO";     break;
+        case ESP_RST_PWR_GLITCH: rr_str = "PWR_GLITCH"; break;
+        case ESP_RST_EFUSE:    rr_str = "EFUSE";    break;
+        case ESP_RST_UNKNOWN:  rr_str = "UNKNOWN";  break;
+        default: break;
+    }
+
+    char online_payload[420];
     snprintf(online_payload, sizeof(online_payload),
         "{\"event\":\"HUB_ONLINE\",\"mac\":\"%s\",\"hub_name\":\"%s\","
-        "\"version\":\"%s\",\"partition\":\"%s\"}",
-        mac_str, active_config.hub_name, running_ver, part_label);
+        "\"version\":\"%s\",\"partition\":\"%s\","
+        "\"uptime_s\":%lu,\"reset_reason\":\"%s\"}",
+        mac_str, active_config.hub_name, running_ver, part_label,
+        (unsigned long)uptime_s, rr_str);
     
     esp_mqtt_client_publish(mqtt_client, "seguimiento360/hub/status", online_payload, 0, 1, 0);
     ESP_LOGI(TAG, "📡 Publicado HUB_ONLINE al servidor central");

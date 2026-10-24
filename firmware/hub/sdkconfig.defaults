@@ -18,6 +18,12 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_UNICORE=n
 CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=4096
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+# Reiniciar ante un watchdog expirado (HUB-NF-003).
+#
+# Sin esto, el watchdog solo registraba el fallo: una tarea colgada dejaba el
+# hub inoperante hasta que alguien fuese a reiniciarlo a mano, que es
+# justo lo que el requisito de operacion 24/7 excluye.
+CONFIG_ESP_TASK_WDT_PANIC=y
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
 # === NVS ===

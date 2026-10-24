@@ -1008,7 +1008,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 
         esp_now_peer_info_t new_peer = { 
             .channel = router_channel, 
-            .ifidx = ESP_IF_WIFI_AP, 
+            .ifidx = ESP_IF_WIFI_STA, 
             .encrypt = false 
         };
         memcpy(new_peer.peer_addr, sender_mac, 6);
@@ -1840,7 +1840,7 @@ void app_main(void) {
     for (int i = 0; i < node_registry.count; i++) {
         esp_now_peer_info_t peer = { 
             .channel = router_channel, 
-            .ifidx = ESP_IF_WIFI_AP, 
+            .ifidx = ESP_IF_WIFI_STA, 
             .encrypt = false 
         };
         memcpy(peer.peer_addr, node_registry.nodes[i].mac, 6);

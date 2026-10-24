@@ -81,12 +81,21 @@ static const char *TAG = "NODE_ULTRASONIC";
  * esta semilla deja de usarse: si el hub cambia, el nodo lo aprende solo.
  *
  * Para sembrar otra MAC sin recompilar, ver scripts/sembrar-mac-hub.sh. */
+/* Semilla del primer PAIR: la MAC STA del hub.
+ *
+ * Apuntaba a la MAC del SoftAP (...c2:b1), que solo existe cuando el hub
+ * levanta su AP de provisioning. Un hub ya configurado va en modo STA y no
+ * tiene esa interfaz, asi que el envio fallaba con ESP_ERR_ESPNOW_NOT_FOUND y
+ * el nodo no podia emparejarse. La STA existe siempre.
+ *
+ * Es solo el destino de la primera pregunta: en cuanto el hub contesta, el
+ * nodo guarda la MAC real de la respuesta y deja de usar la semilla. */
 #define HUB_MAC_SEED_0  0x3c
 #define HUB_MAC_SEED_1  0xdc
 #define HUB_MAC_SEED_2  0x75
 #define HUB_MAC_SEED_3  0x62
 #define HUB_MAC_SEED_4  0xc2
-#define HUB_MAC_SEED_5  0xb1
+#define HUB_MAC_SEED_5  0xb0
 
 // ============================================================================
 // 2. VARIABLES GLOBALES

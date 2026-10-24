@@ -921,3 +921,24 @@ comprobar los 30 dias sin tener que estar mirando la consola:
 Un `reset_reason` distinto de `POWERON` o `SW_REST` apunta a watchdog, pila o
 panico, y conviene investigarlo. El caso `USB` corresponde a un reinicio por
 DTR (monitor serie o `esptool`), normal durante el desarrollo.
+
+### Regresion: el SoftAP condicional rompio el emparejamiento
+
+Al pasar el hub a `WIFI_MODE_STA` cuando ya esta configurado (HUB-IF-012) se
+rompio el enlace con los nodos, y de dos formas:
+
+1. **Los peers de ESP-NOW se registraban con `ESP_IF_WIFI_AP`.** Sin interfaz
+   AP, esa referencia deja de existir. Corregido a `ESP_IF_WIFI_STA`, que esta
+   en los dos modos.
+
+2. **La semilla del nodo apuntaba a la MAC del SoftAP** (`...c2:b1`). Un hub
+   configurado ya no levanta ese AP, asi que esa MAC no responde y el envio
+   fallaba con `ESP_ERR_ESPNOW_NOT_FOUND` (`Error al enviar: 1`). La semilla
+   pasa a ser la MAC STA (`...c2:b0`), que existe siempre.
+
+El sintoma no aparecio al hacer el cambio, porque las pruebas de entonces solo
+comprobaban si el portal arrancaba o no. Se detecto despues, al verificar el
+estado del nodo: llevaba rato sin emparejarse y acumulaba fallos de backoff.
+
+Verificado tras la correccion: el nodo se empareja al primer intento (0,5 s) y
+vuelve a medir.

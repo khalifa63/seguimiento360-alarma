@@ -270,11 +270,21 @@ hay que decidirlo con cuidado.
 
 **Pendiente con trabajo real**
 
-- **HUB-F-016 de punta a punta.** El backend esta completo, pero las tres
-  partes usan convenciones de serial distintas (`SN-`+codigo, `HUB-`+fecha,
-  MAC). El vinculo no cierra para dar de alta un equipo nuevo. Ver
-  `docs/firmware/HALLAZGO-claim-code.md`: necesita change request sobre
-  SPEC-02 porque es un cambio de contrato.
+- **HUB-F-016: el claim code no existe en produccion.** Aqui decia que el
+  backend estaba completo y solo faltaba alinear los seriales. **Era falso**:
+  se habia analizado la copia del repo, no el flujo desplegado. Produccion
+  (117 nodos) **no tiene** `/api/claim` ni `/api/admin/generate-codes`; esos
+  endpoints solo existen en `backend/nodered-flows/flows.json`, que no es lo
+  que corre.
+
+  Antes de retomar esto hay que **decidir si el claim code debe existir**. Si
+  el alta de hubs se hace hoy de otra forma, el requisito cambia de alcance.
+  Ver `docs/firmware/HALLAZGO-claim-code.md` y
+  `docs/firmware/change-requests/CR-001-serial-mac.md`.
+
+- **La brecha de seriales ya no aplica.** El CR-001 comprobo que produccion
+  usa la MAC como identificador en todas sus consultas. Lo que faltaba era el
+  contrato escrito, y ya esta en HUB-IF-013.
 - **AT-009 operacion 24/7.** Requiere un mes de calendario. El watchdog esta
   activo; conviene dejar un registro de uptime y revisarlo despues.
 - **Unificar los dos sistemas de configuracion.** `sm_prov` tiene su FSM con

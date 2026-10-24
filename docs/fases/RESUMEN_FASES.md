@@ -41,6 +41,13 @@ Estado: Fase 3.2.2b completada. Siguiente: 3.2.3 (armado/desarmado MQTT).
 - Tabla claim_codes: code (XX-YYYYYY-Z), device_type, status active/used,
   created_by, tenant_id, site_id, claimed_device_id, claimed_at, expires_at
 - CHARSET 31 chars (sin 0/1/I/L/O/U); checksum = suma ASCII mod 31
+> **Nota (2026-10-24).** Lo que sigue describe el desarrollo del flujo que
+> esta en `backend/nodered-flows/flows.json`. Ese flujo **no es el
+> desplegado**: produccion corre otra version, con 117 nodos, que no incluye
+> `/api/claim` ni `/api/admin/generate-codes`. Se conserva como registro del
+> trabajo, pero no describe el sistema en produccion. Ver
+> `backend/nodered-flows/README.md`.
+
 - POST /api/admin/generate-codes {prefix, quantity} -> 201 + codes[]
 - POST /api/claim {code, site_id}:
   formato -> checksum -> SELECT sin filtro de status -> check en JS

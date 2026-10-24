@@ -1,5 +1,19 @@
 # El claim code no cierra de punta a punta
 
+> **CORRECCION (2026-10-24).** Este documento se escribio analizando
+> `backend/nodered-flows/flows.json`, que **no es el flujo desplegado**.
+> Produccion tiene 117 nodos y **no incluye** `/api/claim` ni
+> `/api/admin/generate-codes`. La brecha de seriales que se describe aqui
+> aplica a una version que no corre.
+>
+> Se conserva porque el analisis del flujo del repo es correcto y porque
+> documenta un error de metodo que conviene no repetir: **verificar siempre
+> que version esta desplegada antes de sacar conclusiones**. Ver
+> `backend/nodered-flows/README.md` y el CR-001.
+>
+> Produccion ya usa la MAC como identificador; el contrato esta en HUB-IF-013.
+
+
 Estado del flujo de vinculación de un hub con su cuenta. Documenta una brecha
 encontrada al revisar HUB-F-016, no una funcionalidad terminada.
 

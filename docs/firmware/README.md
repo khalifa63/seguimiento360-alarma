@@ -10,6 +10,7 @@ Documentación de implementación y contratos del firmware. El código vive en `
 | [Spec 02 · Interfaces](specs/02-interfaces.md) | Contratos entre firmware, hub y nube |
 | [Spec 03 · Pruebas de aceptación](specs/03-pruebas-aceptacion.md) | Criterios AT-01 a AT-07 |
 | [Banco de pruebas de dos hubs](banco-dos-hubs.md) | Hub falso para probar el pairing sin un segundo hub |
+| [OTA del hub](ota.md) | Actualizacion por el aire, firma de imagen y rollback |
 
 ## Estructura del código
 

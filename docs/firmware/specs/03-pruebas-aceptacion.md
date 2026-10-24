@@ -330,6 +330,9 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-011 | Pairing del nodo con el hub | **PASS** |
 | AT-013 | Presupuesto de ACK y RX->publish | **PASS** (ACK 14 ms, publish 46-92 ms) |
 | AT-014 | Build reproducible desde clon limpio (CI) | **PASS** |
+| AT-015 | OTA de punta a punta | **PASS** |
+| AT-016 | Rollback ante imagen que no confirma | **PASS** |
+| AT-017 | Firma de imagen: acepta firmada, rechaza sin firmar | **PASS** |
 | AT-007+ | Provisioning y OTA | pendiente |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
@@ -481,3 +484,155 @@ pines de ESP32 clasico. Su `sdkconfig.defaults` declara `esp32c3` mientras su
 `sdkconfig` local dice `esp32`. Se versiono el archivo para no dejarlo
 huerfano, pero el proyecto no entra en el CI ni se ha corregido: conviene
 decidir si se archiva en `docs/_archivo/`.
+
+## AT-015 (HUB-F-012) — OTA de punta a punta
+
+Actualización completa por MQTT, verificada en hardware.
+
+**Procedimiento.** Se publica la URL en el topic `ota_cmd` del hub y se
+observa su consola. Antes hay que subir la imagen a
+`~/iot-alarma/website/ota/` del servidor, que se sirve por
+`https://seguimiento360.com/ota/` a través de Cloudflare Tunnel.
+
+**Resultado: PASS.**
+
+```text
+I: Comando OTA recibido. Longitud: 49
+I: URL de OTA validada: 'https://seguimiento360.com/ota/firmware_6.2.0.bin'
+I: esp_https_ota: Writing to partition subtype 17 at offset 0x1a0000
+I: Descarga 9% (101376/1124080 bytes)
+   ... 19%, 29%, ... 99%
+I: ✅ OTA exitoso. Reiniciando en 3 segundos...
+I: boot: Loaded app from partition at offset 0x1a0000
+I: cpu_start: App version:      6.2.0
+I: ✅ MQTT_EVENT_CONNECTED
+```
+
+1,1 MB en ~28 s. La imagen va a la partición inactiva (`ota_1`) y el
+bootloader conmuta. `HUB_ONLINE` confirma la versión nueva y la partición.
+
+### Cuatro fallos que impedían que funcionara
+
+**1. El rollback anulaba toda actualización.** Nadie llamaba a
+`esp_ota_mark_app_valid_cancel_rollback()`. Con
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, cada imagen nueva arranca en
+`PENDING_VERIFY` y el bootloader la revierte. Cualquier OTA se deshacía sola.
+
+**2. La URL no se validaba.** Bastaba con que el payload del `ota_cmd`
+contuviera `"http"` en cualquier parte, así que un comando podía apuntar a un
+servidor ajeno y el hub lo instalaba. Ahora exige HTTPS y el origen
+`S360_OTA_HOST`.
+
+**3. Timeout de 10 s** para un binario que tarda ~28 s: cortaba la descarga a
+mitad. Ahora 60 s con keep-alive.
+
+**4. Versión incomparable.** ESP-IDF usaba `git describe` y producía
+`v6.0.0-pre-ota-59-gbb71bbb-dirt`. Sin una versión legible no se puede decidir
+a qué hubs actualizar. Fijada con `PROJECT_VER`.
+
+Además, la versión y la partición activa viajan ahora en `HUB_ONLINE` y en
+`/status`, y la descarga informa del progreso cada 10%.
+
+### Nota de infraestructura
+
+El `nginx` propio escucha en el puerto **8088**; el 80 lo ocupa otro
+contenedor (`docker-nginx-1`, del sandbox de Dify). Consultar el puerto
+equivocado devuelve 404 y parece que la ruta no existe. La ruta `/ota/` sí
+está publicada, y por HTTPS público funciona sin tocar infraestructura.
+
+## AT-016 (HUB-F-012) — Rollback ante imagen que no confirma
+
+Comprueba que una actualización que se instala pero no llega a funcionar se
+revierte sola.
+
+**Procedimiento.** Se compila una imagen deliberadamente no confirmada: arranca
+y hace algo visible, pero nunca llama a
+`esp_ota_mark_app_valid_cancel_rollback()`. Se instala por OTA y se reinicia.
+
+**Resultado: PASS.**
+
+```text
+I: boot: Loaded app from partition at offset 0x1a0000
+I: cpu_start: App version:      6.3.0-roto
+W: IMAGEN SIN CONFIRMAR: 6.3.0-roto
+W: Particion: ota_1 | estado: 1          <- ESP_OTA_IMG_PENDING_VERIFY
+W: sigo sin confirmar...
+```
+
+Tras reiniciar, el bootloader revirtió:
+
+```text
+I: cpu_start: App version:      6.1.0
+```
+
+### El rollback no usa temporizador
+
+La imagen sin confirmar se quedó corriendo **indefinidamente** sin revertir.
+El bootloader solo evalúa en el arranque siguiente. Esto tiene una
+consecuencia que conviene tener presente: un firmware que arranca y se queda
+vivo sin funcionar **no se revierte solo**; la reversión depende de que el
+equipo se reinicie (watchdog, caída de tensión o reset).
+
+`CONFIG_BOOTLOADER_APP_ROLLBACK_TIME=30` no existe en IDF v5.2: era una opción
+inventada en el `sdkconfig.defaults` que nunca tuvo efecto.
+
+### Un fallo de configuración que ocultaba todo esto
+
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` estaba en `sdkconfig.defaults` pero no
+en el `sdkconfig` local, generado antes. Es decir: **el rollback estaba
+desactivado en el binario real**, y el primer OTA pasó sin ninguna protección.
+`sdkconfig.defaults` solo se lee al crear el `sdkconfig`; un archivo ya
+existente conserva sus valores.
+
+## AT-017 (HUB-F-012) — Firma de la imagen
+
+Verifica que el hub solo instala firmware firmado con la clave del servidor.
+
+**Diseño.** Se usa `SECURE_SIGNED_APPS_NO_SECURE_BOOT` con RSA-3072, y no
+Secure Boot por hardware. Cubre el riesgo real —un servidor o un DNS
+comprometidos sirviendo firmware ajeno— **sin quemar eFuses**, así que perder
+la clave no deja el hub inservible. No protege contra acceso físico.
+
+La clave privada vive en `~/seguimiento360-claves-ota/` del servidor (permisos
+600) y **no está en el repo**: el `.gitignore` ya bloqueaba `*.pem`.
+
+**Resultado: PASS** en ambas direcciones.
+
+Binario sin firma:
+
+```text
+I: esp_image: Verifying image signature...
+E: esp_image: Secure boot signature verification failed
+W: esp_image: image valid, signature bad
+E: ❌ Error al finalizar OTA: ESP_ERR_OTA_VALIDATE_FAILED
+```
+
+El hub descartó la imagen y siguió en la versión anterior.
+
+Binario firmado:
+
+```text
+I: esp_image: Verifying image signature...
+I: secure_boot_v2_rsa: Signature verified successfully!
+I: ✅ OTA exitoso. Reiniciando en 3 segundos...
+I: cpu_start: App version:      6.4.0
+```
+
+### Cómo firmar
+
+```bash
+espsecure.py generate_signing_key --version 2 --scheme rsa3072 ota_signing_key.pem
+espsecure.py extract_public_key --version 2 --keyfile ota_signing_key.pem ota_signing_key.pub.pem
+```
+
+`extract_public_key` recibe el archivo de salida como **argumento posicional**,
+no como `--public_key_file`.
+
+La clave se pasa al build con `CONFIG_SECURE_BOOT_SIGNING_KEY`. Debe ser una
+ruta absoluta si la clave vive fuera del proyecto.
+
+### Pendiente
+
+La firma cubre la **app**, no el bootloader. Un atacante con acceso físico
+podría reemplazar el bootloader y saltarse la verificación. Cerrarlo exige
+Secure Boot por hardware, que sí quema eFuses y por tanto es irreversible.

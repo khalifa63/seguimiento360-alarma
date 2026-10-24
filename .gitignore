@@ -58,6 +58,10 @@ mosquitto/data/
 
 # Certificados SSL (si se generan localmente)
 *.pem
+# Paquetes de respaldo de claves. No deberian estar aqui, pero si alguien
+# deja uno en el arbol de trabajo es mejor que git lo ignore a que lo suba.
+*.gpg
+ota-claves*
 *.key
 *.crt
 *.cert

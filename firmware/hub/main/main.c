@@ -130,10 +130,18 @@ static httpd_handle_t server = NULL;
  * firmware del nodo y con el canal en que queda el AP del hub.
  * Estaba a 0 y nunca se asignaba: los peers se registraban en el canal 0
  * mientras los nodos transmiten en el 5, asi que no se escuchaban. */
+/* Presupuestos del enlace, en milisegundos: los valores no funcionales que
+ * fija SPEC-01. Se usan para clasificar cada medida como dentro o fuera. */
+#define S360_BUDGET_ACK_MS      50
+#define S360_BUDGET_PUBLISH_MS  250
+
 #define S360_ESPNOW_CHANNEL  5
 static uint8_t router_channel = S360_ESPNOW_CHANNEL;
 static char hub_mac_str[18];
 static uint8_t hub_mac[6];   /* MAC STA; el frame v1 la lleva como src_mac */
+/* Eventos que no llegaron a publicarse. Se reporta en cada publicacion
+ * fallida para que una perdida no pase inadvertida. */
+static uint32_t s_events_dropped = 0;
 /* MAC del SoftAP. El nodo dirige el PAIR a esta interfaz, y el hub debe
  * reconocerla como propia: sin esto el filtro de destinatario rechazaria
  * los PAIR legitimos. */
@@ -174,7 +182,8 @@ static EventGroupHandle_t wifi_event_group;
 static void start_mqtt_client(const char *broker_uri);
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, 
                                int32_t event_id, void *event_data);
-static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload);
+static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload,
+                                  int64_t rx_us);
 static void format_mac(const uint8_t *mac, char *out, size_t out_size);
 static void get_mqtt_topic(char *out_buffer, size_t buffer_size, const char *suffix);
 
@@ -592,6 +601,10 @@ static void start_mqtt_client(const char *broker_uri) {
 
    esp_mqtt_client_config_t mqtt_cfg = {
        .broker.address.uri = broker_uri,
+       /* Cola de salida. Con el valor por defecto se llenaba en rafaga: la
+        * publicacion bloqueaba hasta 10 s (medido en AT-004) y los eventos
+        * siguientes se perdian. 4 KB dan holgura para rafagas de alarma. */
+       .buffer.out_size = 4096,
        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
        .credentials.client_id = client_id_str,
        // ✅ NUEVAS LÍNEAS DE SEGURIDAD:
@@ -621,9 +634,11 @@ static void start_mqtt_client(const char *broker_uri) {
     }
 }
 
-static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload) {
+static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload,
+                                  int64_t rx_us) {
     if (mqtt_client == NULL || !mqtt_is_connected) {
         ESP_LOGW(TAG, "MQTT no está conectado. Evento descartado.");
+        s_events_dropped++;
         return;
     }
 
@@ -678,7 +693,26 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
     if (msg_id > 0) {
         ESP_LOGI(TAG, "✅ Evento publicado exitosamente (msg_id=%d)", msg_id);
     } else {
-        ESP_LOGE(TAG, "❌ Error al publicar evento MQTT");
+        /* msg_id <= 0 significa que el cliente no acepto el mensaje: la cola
+         * esta llena o no hay conexion. Antes se registraba y ya; ahora se
+         * cuenta, porque un evento perdido no debe ser invisible. */
+        s_events_dropped++;
+        ESP_LOGE(TAG, "❌ Evento MQTT descartado (msg_id=%d). Perdidos desde el arranque: %lu",
+                 msg_id, (unsigned long)s_events_dropped);
+    }
+
+    /* Latencia RX->publish. Se mide hasta la entrega al cliente MQTT, no
+     * hasta la confirmacion del broker: esp_mqtt_client_publish es
+     * asincrono y esperar el PUBACK mediria otra cosa. */
+    if (rx_us > 0) {
+        uint32_t ms = (uint32_t)((esp_timer_get_time() - rx_us) / 1000);
+        if (ms > S360_BUDGET_PUBLISH_MS) {
+            ESP_LOGW(TAG, "RX->publish en %lu ms (presupuesto %d ms SUPERADO)",
+                     (unsigned long)ms, S360_BUDGET_PUBLISH_MS);
+        } else {
+            ESP_LOGI(TAG, "RX->publish en %lu ms (presupuesto %d ms)",
+                     (unsigned long)ms, S360_BUDGET_PUBLISH_MS);
+        }
     }
 }
 
@@ -686,10 +720,14 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
 // ESP-NOW: RECEPCIÓN DE DATOS Y VINCULACIÓN
 // ============================================================================
 
-/* Responde al nodo con un frame v1 de tipo ACK.
- * El ACK se envia antes de procesar el evento para cumplir el presupuesto
- * de 50 ms (AT-02). */
-static void send_ack_v1(const uint8_t *dst_mac, uint16_t seq) {
+/* Envia el ACK al nodo y reporta la latencia RX->ACK.
+ *
+ * `rx_us` es el instante de recepcion, tomado lo antes posible en
+ * on_data_recv(). La medida se toma tras esp_now_send() porque el coste
+ * relevante es el que percibe el nodo: el que espera su confirmacion.
+ * Un ACK fuera de presupuesto se registra como advertencia, no como log
+ * normal, para que destaque en la consola. */
+static void send_ack_v1(const uint8_t *dst_mac, uint16_t seq, int64_t rx_us) {
     espnow_frame_t ack;
     if (espnow_build_frame(&ack, ESPNOW_FT_ACK, seq,
                            hub_mac, dst_mac, NULL, 0) != ESP_OK) {
@@ -700,10 +738,26 @@ static void send_ack_v1(const uint8_t *dst_mac, uint16_t seq) {
                                  espnow_frame_size(0));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "ACK no enviado: %s", esp_err_to_name(err));
+        return;
+    }
+
+    if (rx_us > 0) {
+        uint32_t ms = (uint32_t)((esp_timer_get_time() - rx_us) / 1000);
+        if (ms > S360_BUDGET_ACK_MS) {
+            ESP_LOGW(TAG, "ACK seq=%u en %lu ms (presupuesto %d ms SUPERADO)",
+                     seq, (unsigned long)ms, S360_BUDGET_ACK_MS);
+        } else {
+            ESP_LOGI(TAG, "ACK seq=%u en %lu ms (presupuesto %d ms)",
+                     seq, (unsigned long)ms, S360_BUDGET_ACK_MS);
+        }
     }
 }
 
 static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+    /* Instante de recepcion, lo primero que se ejecuta: todo lo que se haga
+     * antes se imputaria al presupuesto del ACK. */
+    const int64_t rx_us = esp_timer_get_time();
+
     /* Frame v1: magic, version y CRC16. Un paquete que no valide se descarta. */
     espnow_frame_t frame;
     esp_err_t verr = espnow_validate_frame(data, (size_t)len, &frame);
@@ -754,7 +808,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 
         if (is_mac_registered(sender_mac)) {
             ESP_LOGI(TAG, "El nodo %s ya está vinculado. Enviando ACK.", mac_str);
-            send_ack_v1(sender_mac, payload->seq);
+            send_ack_v1(sender_mac, payload->seq, rx_us);
             return;
         }
 
@@ -786,7 +840,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             
             blink_indicator(3, 100); 
 
-            send_ack_v1(sender_mac, payload->seq);
+            send_ack_v1(sender_mac, payload->seq, rx_us);
         }
         return;
     }
@@ -797,7 +851,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         // Actualizar last_ping y guardar en NVS
         node_registry.nodes[node_idx].last_ping = get_unix_now();
         save_node_registry();
-        publish_event_to_mqtt(sender_mac, payload);
+        publish_event_to_mqtt(sender_mac, payload, rx_us);
     } else {
         ESP_LOGW(TAG, "Paquete ignorado: MAC %s no registrada.", mac_str);
     }

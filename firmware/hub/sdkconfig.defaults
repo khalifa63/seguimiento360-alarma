@@ -54,6 +54,23 @@ CONFIG_HTTPD_MAX_URI_LEN=512
 # APP_PROJECT_VER_FROM_CONFIG el valor solo aplica a configs nuevos, y el
 # sdkconfig existente seguia produciendo cadenas de git describe.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# === Firma de la imagen (HUB-F-012) ===
+# Exige que toda app este firmada con la clave RSA-3072 del servidor. Un
+# binario sin firma valida no arranca, aunque se instale por OTA o por cable.
+#
+# Se usa SECURE_SIGNED_APPS_NO_SECURE_BOOT y no Secure Boot por hardware:
+# cubre el riesgo real (servidor o DNS comprometidos sirviendo un firmware
+# ajeno) sin quemar eFuses, asi que no hay riesgo de dejar el hub inservible
+# si la clave se pierde. No protege contra acceso fisico.
+#
+# La clave privada NO esta en el repo: vive en ~/seguimiento360-claves-ota
+# del servidor y se pasa con la variable S360_OTA_KEY.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+CONFIG_SECURE_BOOT_SIGNING_KEY="/home/antonio/seguimiento360-claves-ota/ota_signing_key.pem"
 # CONFIG_BOOTLOADER_APP_ROLLBACK_TIME no existe en IDF v5.2: se elimino.
 # El rollback no usa temporizador; la app nueva arranca en PENDING_VERIFY y
 # el bootloader la revierte si nadie la confirma. Confirmar tarda lo que

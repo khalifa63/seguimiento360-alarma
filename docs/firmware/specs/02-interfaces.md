@@ -129,57 +129,73 @@ de la MAC, de modo que varios hubs en la misma casa son distinguibles.
 El portal guarda en NVS la red WiFi de destino, el broker MQTT, el `tenant_id`
 y el `site_id`. El AP se cierra tras 10 minutos de inactividad.
 
-## HUB-IF-013: Identificador del hub (CR-001)
+## HUB-IF-013: Identificadores de hub y nodo (CR-001)
 
-El identificador de un hub es **su MAC**, en formato canonico. Sustituye a las
-tres convenciones que convivian antes.
+El identificador de un hub **es su MAC**. Un nodo se identifica por la suya. No
+hay numeros de serie inventados.
 
-### Formato
+### Dos formas, un solo dato
 
-    xxxxxxxxxxxx
+La MAC aparece de dos maneras, y cual se usa depende del contexto:
 
-Doce digitos hexadecimales en minusculas, **sin separadores**. Ejemplo:
-`3cdc7562c2b0`.
-
-Es la forma que ya usan la base de datos (`hubs.serial_number`) y los topics
-MQTT:
-
-    seguimiento360/tenant/2/site/1/hub/3cdc7562c2b0/...
-
-### Donde si lleva dos puntos
-
-En los payloads legibles y en la consola, la MAC se presenta como
-`3c:dc:75:62:c2:b0` porque es mas facil de leer y de comparar a ojo. El hub ya
-lo hace asi: publica `mac` con separadores en `HUB_ONLINE` y usa la forma
-compacta para los topics.
-
-La regla es: **el identificador almacenado y el de los topics van sin
-separadores**; la presentacion para humanos puede llevarlos. Mezclarlas obliga
-a normalizar en cada consumidor, que es justo lo que este contrato evita.
-
-### Convenciones anteriores
-
-| Quien | Formato | Estado |
+| Contexto | Forma | Ejemplo |
 |---|---|---|
-| `/api/claim` | `SN-` + codigo | en la copia del repo, no desplegado |
-| `/api/hubs` | `HUB-` + marca de tiempo | en la copia del repo, no desplegado |
-| Hub fisico | su MAC | **vigente** |
+| Topics MQTT | compacta, sin separadores | `3cdc7562c2b0` |
+| Datos, payloads y consola | legible, con dos puntos | `3c:dc:75:62:c2:b0` |
 
-Produccion ya usa la MAC: trata `hub_mac` y `serial_number` como el mismo dato
-y construye los topics con la MAC sin dos puntos. Este contrato lo formaliza.
+La regla: **la forma compacta es solo para construir topics.** En todo lo demas
+—lo que se guarda, lo que viaja entre dispositivos, lo que se lee— se usa la
+forma legible.
+
+El motivo de la compacta en topics es que los dos puntos son validos en MQTT
+pero incomodos: parten el topic en niveles aparentes y complican las
+suscripciones con comodines.
+
+### Que usa cada sitio
+
+| Sitio | Forma | Comprobado |
+|---|---|---|
+| `hubs.serial_number` | compacta | `3cdc7562c2b0`, 12 caracteres |
+| `nodes.mac_address` | legible | `a0:f2:62:f1:d0:f0`, 17 caracteres |
+| `events.hub_mac` | compacta | hereda el serial del hub |
+| `events.node_mac` | legible | `a0:f2:62:f1:d0:f0` |
+| Topic MQTT del hub | compacta | `.../hub/3cdc7562c2b0/...` |
+| `HUB_ONLINE.mac` | legible | `3c:dc:75:62:c2:b0` |
+| Frame ESP-NOW | 6 bytes en crudo | `src_mac` / `dst_mac` |
+
+**Nota:** el hub guarda su serial en forma compacta porque es la misma columna
+que usa para resolver los eventos. El nodo guarda la suya en forma legible
+porque es la que intercambia con el hub por ESP-NOW y la que aparece en los
+comandos `node_cfg`.
+
+### Validacion
+
+Cada forma se valida con su patron, y no se acepta otra:
+
+    hubs.serial_number   ^[0-9a-f]{12}$                     (12 hex)
+    nodes.mac_address    ^([0-9a-f]{2}:){5}[0-9a-f]{2}$     (17 con dos puntos)
+
+El backend ya lo hace asi al registrar un nodo:
+
+    if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(macAddress)) {
+      msg.payload = { error: 'mac_address debe tener formato xx:xx:xx:xx:xx:xx' };
+    }
+
+Se normaliza a minusculas antes de comparar, de modo que una MAC escrita en
+mayusculas se acepta y se guarda en la forma canonica.
 
 ### Normalizacion
 
-Quien reciba una MAC de fuera (formulario, API) **acepta** mayusculas,
-guiones, dos puntos y el formato compacto, y **guarda siempre la forma
-canonica sin separadores**. Normalizar en un solo sitio evita que cada
-consumidor tenga que hacerlo.
+Quien reciba una MAC de fuera (formulario, API) normaliza antes de validar:
+pasa a minusculas y comprueba contra el patron de la forma que corresponda al
+dato, segun la tabla anterior. Normalizar y validar en un solo sitio evita que
+cada consumidor tenga que hacerlo.
 
 ### Por que la MAC y no otra cosa
 
 - Ya es unica y viene grabada de fabrica.
-- El firmware ya la reporta en `HUB_ONLINE`.
-- La tabla `hubs` ya la usa.
+- El firmware ya la reporta.
+- Las tablas `hubs` y `nodes` ya la usan.
 - Un serial grabado en NVS exigiria un paso de produccion que no existe; el
   claim code ataria la identidad del equipo a un codigo de un solo uso.
 

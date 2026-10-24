@@ -55,14 +55,14 @@ Lo que falta no es “empezar de cero”: es **cerrar brechas concretas** y demo
 | **FW-001** — Cerrar payload v1 por tipo de nodo | `docs/firmware/specs/02-interfaces.md`, `shared/espnow_protocol/` | ✅ Hecho (2026-10-23) | 1 | — |
 | **FW-002** — Migrar nodo ultrasónico a frame v1 | `firmware/sensor-ultrasonic/main/main.c` | ✅ Hecho (2026-10-23) | 2 | FW-001 |
 | **FW-003** — Integrar el frame v1 en el hub | `firmware/hub/main/main.c` | ✅ Hecho (2026-10-23) | 2 | FW-002 |
-| **FW-004** — Instrumentar ACK y RX→publish | `espnow_link.c`, `main.c` | Parcial: RX→publish medido en 25 ms | 1 | FW-003 |
+| **FW-004** — Instrumentar ACK y RX→publish | `espnow_link.c`, `main.c` | ✅ Hecho (2026-10-23): ACK 14 ms, publish 46-92 ms | 1 | FW-003 |
 | **FW-005** — NVS: configuración y estado | `main.c`, `components/hub_core` | Reinicio conserva alarma y tenant | 2 | FW-003 |
 | **FW-006** — Tabla de nodos y `node_lost` | `main.c`, `t_node_mgr` | 3 heartbeats perdidos → evento | 2 | FW-005 |
 | **FW-007** — MQTT auth + ACL | `mosquitto.conf`, `passwd`, `acl` | Anónimo rechazado; dispositivo solo su tenant | 2 | FW-003 |
 | **FW-008** — Provisioning claim completo | `components/sm_prov`, `web_config` | Hub sin config → SoftAP → claim → active | 3 | FW-005 |
 | **FW-011** — Pairing del nodo con el hub | `sensor-ultrasonic/main/pairing.{c,h}` | ✅ Hecho (2026-10-23) | 2 | FW-003 |
 | **FW-009** — OTA con firma y rollback | `ota_manager.c` | Firma válida actualiza; inválida rechaza; rollback | 3 | FW-007 |
-| **FW-010** — CI de firmware | `.github/workflows/firmware.yml` | Build de hub y nodo en cada PR | 2 | FW-003 |
+| **FW-010** — CI de firmware | `.github/workflows/firmware.yml` | ✅ Hecho (2026-10-23): build de hub y nodo en cada PR | 2 | FW-003 |
 
 ## 5. Sprint 1: próximos 10 días
 

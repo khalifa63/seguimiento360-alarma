@@ -329,6 +329,7 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-006 | Persistencia del estado de alarma | **PASS** |
 | AT-011 | Pairing del nodo con el hub | **PASS** |
 | AT-013 | Presupuesto de ACK y RX->publish | **PASS** (ACK 14 ms, publish 46-92 ms) |
+| AT-014 | Build reproducible desde clon limpio (CI) | **PASS** |
 | AT-007+ | Provisioning y OTA | pendiente |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
@@ -421,3 +422,62 @@ El evento restante seguia en cola al cerrar la captura; no se perdio.
 El cronometraje de `publish` termina al entregar el mensaje al cliente MQTT,
 no al recibir el PUBACK del broker: esperar la confirmacion mediria otra cosa
 (el viaje completo a Mosquitto) y bloquearia el callback de recepcion.
+
+## AT-014 (FW-010) — Build reproducible desde un clon limpio
+
+El CI compila hub y nodo en cada PR que toque firmware
+(`.github/workflows/firmware.yml`, IDF v5.2.2). Para que sirva de algo, la
+compilacion debe partir de lo mismo que vera GitHub: un checkout **sin**
+`build/` ni `sdkconfig`, que estan ignorados.
+
+La prueba se hace clonando el repo y compilando ahi, no en el arbol de
+trabajo, porque el arbol local tiene un `sdkconfig` ya generado que enmascara
+los errores de configuracion.
+
+### Resultado: PASS, con dos fallos destapados
+
+**1. `sdkconfig.defaults` no estaba versionado.** El `.gitignore` lo capturaba
+con `**/sdkconfig.defaults`. Son archivos de configuracion del producto
+—target, particiones de 16 MB, PSRAM, WSS, OTA— y sin ellos el CI compilaba
+con los valores por defecto de IDF: flash de 2 MB, sin `partitions.csv`, sin
+PSRAM ni soporte TLS. El CI habria validado algo distinto de lo que se
+flashea. Corregido en `.gitignore`; `sdkconfig` y `sdkconfig.old` siguen
+ignorados porque los genera `idf.py` en cada maquina.
+
+**2. El target del nodo era el equivocado.** El `sdkconfig.defaults` del nodo
+declaraba:
+
+    CONFIG_IDF_TARGET="esp32"
+
+pero el nodo es un **ESP32-S3** (USB nativo `303a:1001`). IDF tomaba la
+declaracion como cierta y compilaba para el chip equivocado:
+
+```text
+-- IDF_TARGET is not set, guessed 'esp32' from sdkconfig '.../sdkconfig.defaults'
+-- Building ESP-IDF components for target esp32
+```
+
+El build **terminaba sin error**, pero el binario no arranca en el nodo. No se
+veia en el servidor porque el `sdkconfig` local se habia generado con el
+target explicito y decia `esp32s3`; el fallo solo aparecia en un checkout sin
+historial. Es exactamente el tipo de rotura silenciosa que justifica el CI.
+
+Tras corregirlo:
+
+```text
+-- IDF_TARGET is not set, guessed 'esp32s3' from sdkconfig '.../sdkconfig.defaults'
+-- Building ESP-IDF components for target esp32s3
+Project build complete.
+```
+
+El hub ya compilaba correctamente desde limpio, y su salida confirma que los
+defaults se aplican: `flash_size 16MB` con `ota_data_initial.bin`, que solo
+existen con `partitions.csv` activo.
+
+### Fuera de alcance
+
+`firmware/node_sim/` es un simulador legacy ("Compatible con HUB Fase 4") con
+pines de ESP32 clasico. Su `sdkconfig.defaults` declara `esp32c3` mientras su
+`sdkconfig` local dice `esp32`. Se versiono el archivo para no dejarlo
+huerfano, pero el proyecto no entra en el CI ni se ha corregido: conviene
+decidir si se archiva en `docs/_archivo/`.

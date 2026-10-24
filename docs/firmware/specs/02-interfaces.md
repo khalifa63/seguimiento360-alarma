@@ -129,6 +129,66 @@ de la MAC, de modo que varios hubs en la misma casa son distinguibles.
 El portal guarda en NVS la red WiFi de destino, el broker MQTT, el `tenant_id`
 y el `site_id`. El AP se cierra tras 10 minutos de inactividad.
 
+## HUB-IF-013: Identificador del hub (CR-001)
+
+El identificador de un hub es **su MAC**, en formato canonico. Sustituye a las
+tres convenciones que convivian antes.
+
+### Formato
+
+    xxxxxxxxxxxx
+
+Doce digitos hexadecimales en minusculas, **sin separadores**. Ejemplo:
+`3cdc7562c2b0`.
+
+Es la forma que ya usan la base de datos (`hubs.serial_number`) y los topics
+MQTT:
+
+    seguimiento360/tenant/2/site/1/hub/3cdc7562c2b0/...
+
+### Donde si lleva dos puntos
+
+En los payloads legibles y en la consola, la MAC se presenta como
+`3c:dc:75:62:c2:b0` porque es mas facil de leer y de comparar a ojo. El hub ya
+lo hace asi: publica `mac` con separadores en `HUB_ONLINE` y usa la forma
+compacta para los topics.
+
+La regla es: **el identificador almacenado y el de los topics van sin
+separadores**; la presentacion para humanos puede llevarlos. Mezclarlas obliga
+a normalizar en cada consumidor, que es justo lo que este contrato evita.
+
+### Convenciones anteriores
+
+| Quien | Formato | Estado |
+|---|---|---|
+| `/api/claim` | `SN-` + codigo | en la copia del repo, no desplegado |
+| `/api/hubs` | `HUB-` + marca de tiempo | en la copia del repo, no desplegado |
+| Hub fisico | su MAC | **vigente** |
+
+Produccion ya usa la MAC: trata `hub_mac` y `serial_number` como el mismo dato
+y construye los topics con la MAC sin dos puntos. Este contrato lo formaliza.
+
+### Normalizacion
+
+Quien reciba una MAC de fuera (formulario, API) **acepta** mayusculas,
+guiones, dos puntos y el formato compacto, y **guarda siempre la forma
+canonica sin separadores**. Normalizar en un solo sitio evita que cada
+consumidor tenga que hacerlo.
+
+### Por que la MAC y no otra cosa
+
+- Ya es unica y viene grabada de fabrica.
+- El firmware ya la reporta en `HUB_ONLINE`.
+- La tabla `hubs` ya la usa.
+- Un serial grabado en NVS exigiria un paso de produccion que no existe; el
+  claim code ataria la identidad del equipo a un codigo de un solo uso.
+
+### Antes de cambiar flujos, leer
+
+La copia del repo **puede no coincidir con lo desplegado**. En octubre de 2026
+habia tres versiones distintas y analizar la equivocada llevo a conclusiones
+falsas. Ver `backend/nodered-flows/README.md`.
+
 ## Hallazgos v0.1 → v0.2
 
 La v0.1 describía contratos que el firmware nunca implementó. Se conservan aquí

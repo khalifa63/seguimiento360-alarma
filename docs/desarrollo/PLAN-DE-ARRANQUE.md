@@ -61,7 +61,7 @@ Lo que falta no es “empezar de cero”: es **cerrar brechas concretas** y demo
 | **FW-007** — MQTT auth + ACL | `mosquitto.conf`, `passwd`, `acl` | Anónimo rechazado; dispositivo solo su tenant | 2 | FW-003 |
 | **FW-008** — Provisioning claim completo | `components/sm_prov`, `web_config` | Hub sin config → SoftAP → claim → active | 3 | FW-005 |
 | **FW-011** — Pairing del nodo con el hub | `sensor-ultrasonic/main/pairing.{c,h}` | ✅ Hecho (2026-10-23) | 2 | FW-003 |
-| **FW-009** — OTA con firma y rollback | `ota_manager.c` | Firma válida actualiza; inválida rechaza; rollback | 3 | FW-007 |
+| **FW-009** — OTA con firma y rollback | `ota_manager.c` | ✅ Hecho (2026-10-24): AT-015/016/017 | 3 | FW-007 |
 | **FW-010** — CI de firmware | `.github/workflows/firmware.yml` | ✅ Hecho (2026-10-23): build de hub y nodo en cada PR | 2 | FW-003 |
 
 ## 5. Sprint 1: próximos 10 días
@@ -232,3 +232,23 @@ Una tarea se cierra cuando:
 - [Contratos](../firmware/specs/02-interfaces.md)
 - [Pruebas de aceptación](../firmware/specs/03-pruebas-aceptacion.md)
 - [Estado por fases](../fases/RESUMEN_FASES.md)
+
+## Tareas abiertas de OTA
+
+**FW-012 — OTA del nodo.** El nodo no tiene OTA: usa la tabla de particiones
+por defecto de IDF, sin `ota_0`/`ota_1`, y su `main` no incluye
+`esp_https_ota`. Solo se actualiza por cable, asi que un nodo ya instalado en
+campo no se puede corregir sin ir fisicamente. Es un trabajo distinto al del
+hub y necesita decisiones propias:
+
+- Tabla de particiones nueva. El binario del nodo es de ~700 KB, cabe en una
+  particion OTA de 1 MB con la flash de 4 MB.
+- Transporte de la imagen. ESP-NOW no sirve para 700 KB; el nodo tendria que
+  descargarla por WiFi o recibirla del hub por trozos.
+- El nodo no tiene pila de red propia: solo ESP-NOW. Darle WiFi para OTA
+  cambia su consumo y su modelo de seguridad.
+
+**Firma del bootloader.** La firma actual cubre la app, no el bootloader. Un
+atacante con acceso fisico podria reemplazarlo y saltarse la verificacion.
+Cerrarlo exige Secure Boot por hardware, que quema eFuses y es irreversible:
+hay que decidirlo con cuidado.

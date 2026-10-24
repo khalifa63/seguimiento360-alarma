@@ -336,7 +336,6 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-017 | Firma de imagen: acepta firmada, rechaza sin firmar | **PASS** |
 | AT-018 | OTA del nodo (con firma verificada) | **PASS** |
 | AT-019 | Provisioning condicional (SoftAP solo si falta config) | **PASS** |
-| AT-019 | Provisioning condicional (SoftAP solo si falta config) | **PASS** |
 | AT-007 | Claim code de punta a punta | parcial (backend completo; brecha de serial) |
 | AT-009 | Recuperacion automatica ante cuelgue | **PASS** (watchdog reinicia en 10 s) |
 | AT-010 | Backoff exponencial con jitter | **PASS** en nodo; hub sin verificar |

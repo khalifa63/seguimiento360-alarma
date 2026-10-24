@@ -1,6 +1,6 @@
 # CR-001 — El serial del hub pasa a ser su MAC
 
-Estado: **en revision** — la decision es correcta, la aplicacion esta bloqueada por la desincronizacion
+Estado: **aplicado** — la decision ya estaba en produccion; este CR la formaliza
 Afecta a: HUB-IF-003, HUB-IF-004, `/api/claim`, AT-007
 
 ## Que cambia
@@ -135,3 +135,26 @@ CR ya esta aplicada en produccion**, pero por otra via y sin documentar.
 Si alguien canjea un codigo con la MAC de un hub **que ya pertenece a otro
 tenant**, el `ON CONFLICT` lo reasigna. Conviene decidir si debe rechazarse.
 Se anota, no se resuelve aqui.
+
+## Conclusion tras verificar produccion
+
+**No hay codigo que cambiar.** El flujo desplegado ya usa la MAC como
+identificador en todas sus consultas:
+
+    UPDATE hubs SET status='active' ... WHERE serial_number = $1
+    SELECT ... h.serial_number AS hub_mac FROM nodes n JOIN hubs h ...
+    INSERT INTO events (...) VALUES (..., (SELECT id FROM hubs WHERE serial_number = $3), ...)
+
+Y no genera seriales inventados: no queda ningun `SN-` ni `HUB-` + fecha.
+
+Es decir: **la decision de este CR ya estaba tomada en produccion**, aplicada
+sin documentar. Lo que faltaba era el contrato, y eso es lo que anade este CR
+junto con HUB-IF-013.
+
+### Lo que si hacia falta
+
+1. **El contrato escrito.** El formato canonico estaba implicito en el codigo:
+   cada consumidor lo deducia del ejemplo. Ahora esta en SPEC-02.
+2. **Saber que version corre.** El `flows.json` del repo no era el desplegado,
+   y analizar el equivocado llevo a conclusiones falsas sobre el claim code.
+3. **El snapshot de produccion**, para que lo versionado sea lo que corre.

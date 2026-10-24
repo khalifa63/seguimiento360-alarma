@@ -328,6 +328,7 @@ Resultado: PASS (2026-10-23, nodo v2.1, hub 3c:dc:75:62:c2:b0).
 | AT-005 | LWT offline al caer | **FAIL** (no implementado) |
 | AT-006 | Persistencia del estado de alarma | **PASS** |
 | AT-011 | Pairing del nodo con el hub | **PASS** |
+| AT-013 | Presupuesto de ACK y RX->publish | **PASS** (ACK 14 ms, publish 46-92 ms) |
 | AT-007+ | Provisioning y OTA | pendiente |
 
 Cuatro de las cinco pruebas ejecutadas revelaron que la funcionalidad **no
@@ -370,3 +371,53 @@ rato de diagnostico. Conviene anadir un ORDER BY explicito.
    sin el, el backend no puede distinguir un hub caido de uno en silencio.
 3. **node_lost** — requiere una tarea de vigilancia y poder ajustar el
    intervalo de heartbeat por configuracion para no esperar 30 minutos.
+
+## AT-013 (HUB-NF-002) — Presupuestos del enlace
+
+Los dos presupuestos no funcionales del enlace, medidos en el hub con trafico
+real. La instrumentacion toma el instante de recepcion como primera sentencia
+de `on_data_recv()` y lo pasa a `send_ack_v1()` y a
+`publish_event_to_mqtt()`, que reportan la diferencia.
+
+| Medida | Presupuesto | Medido | Resultado |
+|---|---|---|---|
+| RX -> ACK | <= 50 ms | 14 ms (constante, 5 muestras) | **PASS** |
+| RX -> publish | <= 250 ms | 46-92 ms (14 muestras) | **PASS** |
+
+### El presupuesto destapo una perdida de eventos
+
+La primera medicion en rafaga dio un `RX->publish` de **10093 ms**, con
+eventos posteriores que no se publicaban en absoluto:
+
+```text
+I (170870) HUB_S3_MAIN: RX->publish en 47 ms (presupuesto 250 ms)
+W (220685) HUB_S3_MAIN: RX->publish en 10093 ms (presupuesto 250 ms SUPERADO)
+I (221034) HUB_S3_MAIN: ESP-NOW RX (v1): Code=ALRM ... Seq=16
+I (225755) HUB_S3_MAIN: ESP-NOW RX (v1): Code=ALRM ... Seq=17
+```
+
+`esp_mqtt_client_publish` es asincrono: con la cola de salida llena, bloquea
+hasta encontrar hueco y, si no lo hay, devuelve `msg_id <= 0` y el evento se
+pierde. El hub no configuraba `buffer.out_size`, asi que usaba el valor por
+defecto.
+
+Corregido en dos partes:
+
+1. `buffer.out_size = 4096` en `esp_mqtt_client_config_t`, para que una rafaga
+   de alarma no sature la cola.
+2. Un contador `s_events_dropped`. Un evento que no se publica ahora se
+   registra como error con el total acumulado, en vez de desaparecer.
+
+Medicion tras el arreglo, con la misma rafaga:
+
+```text
+ALRM recibidos: 15 | publicados: 14 | latencia: min=46 max=92 ms | descartados: 0
+```
+
+El evento restante seguia en cola al cerrar la captura; no se perdio.
+
+### Nota sobre la medicion
+
+El cronometraje de `publish` termina al entregar el mensaje al cliente MQTT,
+no al recibir el PUBACK del broker: esperar la confirmacion mediria otra cosa
+(el viaje completo a Mosquitto) y bloquearia el callback de recepcion.

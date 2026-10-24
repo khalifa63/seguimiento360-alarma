@@ -110,3 +110,7 @@ plantillas-probadas/
 # se flashea.
 **/sdkconfig
 **/sdkconfig.old
+
+# Binarios generados por las pruebas de firmware en el PC
+tests/firmware/test_claim_code
+tests/firmware/*.o

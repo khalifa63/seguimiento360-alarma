@@ -89,6 +89,11 @@ typedef struct {
     char tenant_id[16];
     char site_id[32];
     char hub_name[32];        // "Hub Entrada Principal"
+    /* Claim code con el que se vinculo el hub (HUB-F-016). Va al final a
+     * proposito: al anadirlo al final, una configuracion ya guardada en NVS
+     * se sigue leyendo bien y este campo queda vacio, que significa "sin
+     * codigo". Los campos anteriores no se desplazan. */
+    char claim_code[16];
 } hub_config_t;
 
 // Estructura de información de cada nodo (versión 3 - con jerarquía)
@@ -1187,6 +1192,14 @@ static esp_err_t provisioning_handler(httpd_req_t *req) {
         "<div class='help'>💡 ID de ubicación/sucursal. Ej: <code>bodega_central</code>, "
         "<code>garage</code>.</div>"
         "<button type='submit'>✅ Validar y Guardar</button>"
+        "<label>Codigo de vinculacion (claim code)</label>"
+        "<input type='text' name='claim_code' id='claim_code' maxlength='11' "
+        "placeholder='XX-YYYYYY-Z' value='%s' "
+        "style='text-transform:uppercase'>"
+        "<p style='font-size:13px;color:#6c757d;margin-top:6px'>"
+        "Opcional. Es el codigo que te dio el administrador: con el, el hub "
+        "queda vinculado a tu cuenta sin escribir identificadores internos. "
+        "Si lo dejas vacio, usa el tenant y site de abajo.</p>"
         "</form>"
         "<script>"
         "function togglePassword(){"
@@ -1198,11 +1211,55 @@ static esp_err_t provisioning_handler(httpd_req_t *req) {
         "</script></body></html>",
         error_banner,
         active_config.ssid, active_config.password,
-        active_config.tenant_id, active_config.site_id
+        active_config.tenant_id, active_config.site_id,
+        active_config.claim_code
     );
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     return httpd_resp_send(req, html, strlen(html));
+}
+
+/* Valida un claim code con el mismo algoritmo que el backend (HUB-F-016).
+ *
+ * Formato XX-YYYYYY-Z, charset 23456789ABCDEFGHJKMNPQRSTUVWXYZ (sin vocales
+ * ni caracteres que se confunden al leerlos: 0/O, 1/I/L) y un caracter de
+ * control que es la suma de los anteriores modulo la longitud del charset.
+ *
+ * Se valida aqui para que un codigo mal tecleado se detecte antes de
+ * enviarlo: si se aceptara sin comprobarlo, el error solo apareceria al
+ * canjearlo en la aplicacion, y el instalador ya no estaria delante. */
+static const char CLAIM_CHARSET[] = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+static bool claim_code_valido(const char *codigo)
+{
+    if (codigo == NULL || strlen(codigo) != 11) {
+        return false;
+    }
+    if (codigo[2] != '-' || codigo[9] != '-') {
+        return false;
+    }
+
+    /* La suma es sobre los OCHO caracteres utiles: prefijo (2) + aleatorio
+     * (6). No entran ni los guiones (posiciones 2 y 9) ni el propio caracter
+     * de control (posicion 10).
+     *
+     * Incluir el control en la suma fue el primer intento, y daba 622 en vez
+     * de 545: rechazaba todos los codigos validos. El backend calcula
+     * `base = prefix + random` y suma solo eso. */
+    int suma = 0;
+    for (int i = 0; i < 10; i++) {
+        if (i == 2 || i == 9) {
+            continue;   /* guiones */
+        }
+        char c = codigo[i];
+        if (strchr(CLAIM_CHARSET, c) == NULL) {
+            return false;
+        }
+        suma += (unsigned char)c;
+    }
+
+    char esperado = CLAIM_CHARSET[suma % (int)(sizeof(CLAIM_CHARSET) - 1)];
+    return codigo[10] == esperado;
 }
 
 static esp_err_t save_config_handler(httpd_req_t *req) {
@@ -1217,15 +1274,33 @@ static esp_err_t save_config_handler(httpd_req_t *req) {
 
     char temp_ssid[33] = {0}, temp_pass[65] = {0};
     char temp_tenant[16] = "0", temp_site[32] = "site0";
+    char temp_claim[16] = {0};
 
     get_form_param(buf, "ssid", temp_ssid, sizeof(temp_ssid));
     get_form_param(buf, "password", temp_pass, sizeof(temp_pass));
     get_form_param(buf, "tenant_id", temp_tenant, sizeof(temp_tenant));
     get_form_param(buf, "site_id", temp_site, sizeof(temp_site));
+    get_form_param(buf, "claim_code", temp_claim, sizeof(temp_claim));
 
     if (strlen(temp_ssid) == 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID requerido");
         return ESP_FAIL;
+    }
+
+    /* El claim code es opcional, pero si viene tiene que ser valido. Se
+     * comprueba aqui y no en la aplicacion: un codigo mal tecleado se
+     * detecta mientras el instalador sigue delante del equipo. */
+    if (strlen(temp_claim) > 0) {
+        for (char *c = temp_claim; *c; c++) {
+            *c = toupper((unsigned char)*c);
+        }
+        if (!claim_code_valido(temp_claim)) {
+            ESP_LOGW(TAG, "Claim code con formato invalido: %s", temp_claim);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "Claim code invalido. Formato XX-YYYYYY-Z");
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "Claim code valido: %s", temp_claim);
     }
 
     // 1. Guardar configuración inmediatamente en NVS
@@ -1238,7 +1313,9 @@ static esp_err_t save_config_handler(httpd_req_t *req) {
     active_config.tenant_id[sizeof(active_config.tenant_id) - 1] = '\0';
     strncpy(active_config.site_id, temp_site, sizeof(active_config.site_id) - 1);
     active_config.site_id[sizeof(active_config.site_id) - 1] = '\0';
-    
+    strncpy(active_config.claim_code, temp_claim, sizeof(active_config.claim_code) - 1);
+    active_config.claim_code[sizeof(active_config.claim_code) - 1] = '\0';
+
     save_config();
     wifi_configured = true;
 

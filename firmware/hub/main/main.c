@@ -188,6 +188,7 @@ static EventGroupHandle_t wifi_event_group;
 static void start_mqtt_client(const char *broker_uri);
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, 
                                int32_t event_id, void *event_data);
+esp_err_t hub_send_ota_config(const uint8_t *node_mac, const char *ota_url);
 static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload,
                                   int64_t rx_us);
 static void format_mac(const uint8_t *mac, char *out, size_t out_size);
@@ -622,7 +623,31 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                     ESP_LOGW(TAG, "⚠️ Nodo con MAC %s no encontrado en el registro", mac_json->valuestring);
                                 }
                             }
+
                         }
+
+                        /* Actualizacion del nodo (FW-012). Va aqui, fuera del
+                         * bloque que exige nombre, ubicacion y umbral: un
+                         * comando de actualizacion solo necesita la MAC y la
+                         * URL, y con la validacion estricta nunca llegaba. */
+                        cJSON *ota_url = cJSON_GetObjectItem(root, "ota_url");
+                        cJSON *mac_only = cJSON_GetObjectItem(root, "node_mac");
+                        if (cJSON_IsString(ota_url) && cJSON_IsString(mac_only)) {
+                            uint8_t ota_mac[6];
+                            if (sscanf(mac_only->valuestring, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                                       &ota_mac[0], &ota_mac[1], &ota_mac[2],
+                                       &ota_mac[3], &ota_mac[4], &ota_mac[5]) == 6) {
+                                if (find_node_index(ota_mac) < 0) {
+                                    ESP_LOGW(TAG, "OTA: el nodo %s no esta vinculado.",
+                                             mac_only->valuestring);
+                                } else {
+                                    ESP_LOGI(TAG, "OTA solicitada para %s: %s",
+                                             mac_only->valuestring, ota_url->valuestring);
+                                    hub_send_ota_config(ota_mac, ota_url->valuestring);
+                                }
+                            }
+                        }
+
                         cJSON_Delete(root);
                     } else {
                         ESP_LOGE(TAG, "❌ Error al parsear JSON de configuración de nodo");
@@ -811,6 +836,49 @@ static void send_ack_v1(const uint8_t *dst_mac, uint16_t seq, int64_t rx_us) {
                      seq, (unsigned long)ms, S360_BUDGET_ACK_MS);
         }
     }
+}
+
+/* Manda al nodo las credenciales WiFi de la casa y la URL del servidor OTA
+ * (FW-012), en un frame ESPNOW_FT_CMD.
+ *
+ * El nodo no tiene pila de red ni forma de conocer la WiFi por si mismo: sin
+ * esto no puede descargar su firmware y sigue dependiendo del cable.
+ * Devuelve ESP_ERR_INVALID_STATE si el hub no tiene credenciales guardadas. */
+esp_err_t hub_send_ota_config(const uint8_t *node_mac, const char *ota_url)
+{
+    if (node_mac == NULL || ota_url == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strlen(active_config.ssid) == 0) {
+        ESP_LOGW(TAG, "Sin SSID configurado en el hub: no hay credenciales que enviar.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    espnow_payload_config_t cfg = {0};
+    cfg.magic = ESPNOW_CONFIG_MAGIC;
+    strncpy(cfg.ssid, active_config.ssid, sizeof(cfg.ssid) - 1);
+    strncpy(cfg.password, active_config.password, sizeof(cfg.password) - 1);
+    strncpy(cfg.ota_url, ota_url, sizeof(cfg.ota_url) - 1);
+
+    espnow_frame_t frame;
+    uint16_t seq = (uint16_t)(esp_timer_get_time() / 1000000);
+    if (espnow_build_frame(&frame, ESPNOW_FT_CMD, seq, hub_mac, node_mac,
+                           (const uint8_t *)&cfg, sizeof(cfg)) != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo construir el frame de configuracion");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = esp_now_send(node_mac, (const uint8_t *)&frame,
+                                 espnow_frame_size(sizeof(cfg)));
+    if (err == ESP_OK) {
+        /* Se registra la longitud y no el valor: la contrasena no debe
+         * aparecer en los logs. Una longitud de 0 delata el problema. */
+        ESP_LOGI(TAG, "Config OTA enviada al nodo (SSID '%s', clave de %u bytes, URL '%s')",
+                 cfg.ssid, (unsigned)strlen(cfg.password), cfg.ota_url);
+    } else {
+        ESP_LOGE(TAG, "No se pudo enviar la config: %s", esp_err_to_name(err));
+    }
+    return err;
 }
 
 static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {

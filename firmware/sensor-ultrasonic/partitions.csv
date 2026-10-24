@@ -1,0 +1,15 @@
+# Particiones del nodo ultrasonico con soporte OTA (FW-012).
+#
+# La nvs conserva su offset (0x9000): es donde el nodo guarda la MAC del hub
+# que aprende en el pairing. Moverla obligaria a re-emparejar cada nodo ya
+# instalado, asi que se deja donde estaba.
+#
+# Las apps van en 0x20000 y 0x120000 porque las particiones de tipo app deben
+# empezar en un multiplo de 0x10000 (gen_esp32part rechaza lo demas).
+# El binario ronda los 900 KB, de modo que 1 MB por app deja margen.
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,       data, nvs,     0x9000,   0x6000,
+otadata,   data, ota,     0xf000,   0x2000,
+phy_init,  data, phy,     0x11000,  0x1000,
+ota_0,     app,  ota_0,   0x20000,  0x100000,
+ota_1,     app,  ota_1,   0x120000, 0x100000,

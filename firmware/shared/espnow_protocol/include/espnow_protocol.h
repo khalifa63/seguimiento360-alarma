@@ -68,6 +68,31 @@ _Static_assert(sizeof(espnow_payload_v1_t) == 7,
                "El payload v1 debe ser de 7 bytes exactos");
 
 /* ---------------------------------------------------------------------------
+ * Payload de configuracion (HUB-IF-012)
+ *
+ * El hub manda al nodo los datos que este necesita para descargar su propio
+ * firmware: credenciales WiFi y la URL base del servidor OTA. Va en un frame
+ * de tipo ESPNOW_FT_CMD, que admite hasta 229 bytes.
+ *
+ * El nodo no tiene forma de conocer la WiFi de la casa por si mismo, y sin
+ * red no puede descargar una actualizacion: hoy solo se actualiza por cable.
+ * ------------------------------------------------------------------------ */
+#define ESPNOW_WIFI_SSID_MAX   33   /* 32 + terminador, limite de la IEEE 802.11 */
+#define ESPNOW_WIFI_PASS_MAX   65   /* 64 + terminador */
+#define ESPNOW_OTA_URL_MAX     96
+#define ESPNOW_CONFIG_MAGIC    0xC0
+
+typedef struct __attribute__((packed)) {
+    uint8_t  magic;                            /* ESPNOW_CONFIG_MAGIC */
+    char     ssid[ESPNOW_WIFI_SSID_MAX];
+    char     password[ESPNOW_WIFI_PASS_MAX];
+    char     ota_url[ESPNOW_OTA_URL_MAX];
+} espnow_payload_config_t;
+
+_Static_assert(sizeof(espnow_payload_config_t) <= ESPNOW_MAX_PAYLOAD,
+               "El payload de configuracion no cabe en un frame ESP-NOW");
+
+/* ---------------------------------------------------------------------------
  * Frame en memoria (packed)
  * ------------------------------------------------------------------------ */
 typedef struct __attribute__((packed)) {

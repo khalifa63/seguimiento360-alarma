@@ -26,6 +26,9 @@
 
 #include "espnow_protocol.h"
 #include "pairing.h"
+#include "ota_node.h"
+#include "esp_ota_ops.h"
+#include "esp_app_desc.h"
 
 static const char *TAG = "NODE_ULTRASONIC";
 
@@ -167,6 +170,32 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         return;
     }
 
+    /* Frame de configuracion (FW-012): el hub manda las credenciales WiFi y
+     * la URL del servidor OTA. Es la unica via por la que el nodo puede
+     * enterarse de la red de la casa, y sin red no puede descargar nada. */
+    if (frame.frame_type == ESPNOW_FT_CMD) {
+        if (frame.payload_len != sizeof(espnow_payload_config_t)) {
+            ESP_LOGW(TAG, "Config de %u bytes, se esperaban %u",
+                     frame.payload_len, (unsigned)sizeof(espnow_payload_config_t));
+            return;
+        }
+        const espnow_payload_config_t *cfg =
+            (const espnow_payload_config_t *)frame.payload;
+        if (cfg->magic != ESPNOW_CONFIG_MAGIC) {
+            ESP_LOGW(TAG, "Config con magic inesperado (0x%02X)", cfg->magic);
+            return;
+        }
+        ESP_LOGI(TAG, "Config recibida del hub: SSID '%s', URL '%s'",
+                 cfg->ssid, cfg->ota_url);
+        esp_err_t oerr = ota_node_start_from_config(cfg->ssid, cfg->password,
+                                                    cfg->ota_url);
+        if (oerr != ESP_OK) {
+            ESP_LOGE(TAG, "No se pudo iniciar la actualizacion: %s",
+                     esp_err_to_name(oerr));
+        }
+        return;
+    }
+
     if (frame.frame_type != ESPNOW_FT_ACK) {
         return;
     }
@@ -304,6 +333,17 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
+    /* Interfaz de red por defecto de la STA.
+     *
+     * Faltaba: se inicializaba esp_netif pero no se creaba ninguna interfaz,
+     * asi que esp_wifi_connect() no tenia donde asociarse y el OTA fallaba
+     * siempre con ESP_ERR_TIMEOUT. Hasta ahora no se notaba porque el nodo
+     * solo usaba el radio para ESP-NOW, que no necesita netif. */
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    if (sta_netif == NULL) {
+        ESP_LOGE(TAG, "No se pudo crear la interfaz STA: el OTA no funcionara.");
+    }
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
@@ -343,6 +383,27 @@ void app_main(void)
                  esp_err_to_name(ret),
                  hub_mac[0], hub_mac[1], hub_mac[2],
                  hub_mac[3], hub_mac[4], hub_mac[5]);
+    }
+
+    /* Confirmacion del rollback (FW-012).
+     *
+     * Una imagen instalada por OTA arranca en PENDING_VERIFY y el bootloader
+     * la revierte si nadie la confirma. Se confirma aqui, cuando el nodo ya
+     * ha inicializado sensor, LED y NVS: si algo de eso hubiera fallado, el
+     * nodo se habria reiniciado y el bootloader habria vuelto a la version
+     * anterior. */
+    const esp_partition_t *part = esp_ota_get_running_partition();
+    esp_ota_img_states_t st;
+    if (part != NULL && esp_ota_get_state_partition(part, &st) == ESP_OK) {
+        if (st == ESP_OTA_IMG_PENDING_VERIFY) {
+            if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+                const esp_app_desc_t *d = esp_app_get_description();
+                ESP_LOGW(TAG, "Imagen %s confirmada: rollback cancelado.",
+                         d ? d->version : "?");
+            } else {
+                ESP_LOGE(TAG, "No se pudo confirmar la imagen.");
+            }
+        }
     }
 
     gpio_reset_pin(LED_PIN);

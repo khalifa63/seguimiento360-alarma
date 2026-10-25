@@ -12,7 +12,16 @@ Microcontrolador ESP32-S3 con doble núcleo Xtensa LX7 a 240 MHz, WiFi 2,4 GHz, 
 
 ### 5.2.2 Periféricos y asignación preliminar de GPIO
 
-    GPIO48  LED RGB WS2812 (estado: WiFi, ESP-NOW, alarma)
+    GPIO48  LED de estado, un color (WiFi, ESP-NOW, alarma)
+
+> **Correccion (2026-10-25).** Este documento decia "LED RGB WS2812". Se
+> comprobo en banco que **no es direccionable**: el LED se enciende con
+> `gpio_set_level()`, y un WS2812 no responde a eso (espera una trama de 24
+> bits). Al intentar controlarlo como WS2812, el LED dejo de encenderse.
+>
+> Es un **LED de un solo color**. La consecuencia practica: solo puede
+> transmitir estados por **patron de parpadeo**, no por color.
+
     GPIO9   I2C SDA  (RTC DS3231)
     GPIO10  I2C SCL  (RTC DS3231)
     GPIO11  Salida sirena (MOSFET hacia relé o sirena externa 12 V)

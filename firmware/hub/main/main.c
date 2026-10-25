@@ -442,6 +442,25 @@ static bool is_mac_registered(const uint8_t *mac) {
     return false;
 }
 
+/* El LED es simple, NO direccionable.
+ *
+ * Se comprobo en el banco: un WS2812 no se enciende con gpio_set_level, y
+ * este si. La documentacion de hardware dice "LED RGB WS2812" en tres sitios,
+ * pero la medicion dice lo contrario: es un LED de un solo color. Conviene
+ * corregir esa documentacion.
+ *
+ * Con un LED asi, la unica forma de transmitir varios estados es usar
+ * PATRONES distintos. Antes todos los eventos hacian "N destellos iguales",
+ * y por eso no se distinguia si el hub estaba emparejando, armado o avisando
+ * de un error.
+ *
+ *   fijo             alarma armada (es un estado, no un aviso)
+ *   parpadeo lento   ventana de emparejamiento abierta
+ *   parpadeo rapido  problema: limite alcanzado
+ *   dos destellos    arranque correcto */
+#define LED_EMPAREJA_MS  700    /* lento: "estoy escuchando" */
+#define LED_ERROR_MS     120    /* rapido: algo va mal */
+
 static void blink_indicator(int times, int delay_ms) {
     for (int i = 0; i < times; i++) {
         gpio_set_level(INDICATOR_LED_PIN, 1);
@@ -1072,7 +1091,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 
         if (node_registry.count >= MAX_NODES) {
             ESP_LOGW(TAG, "Límite de nodos alcanzado (%d). Pairing rechazado.", MAX_NODES);
-            blink_indicator(5, 300);
+            blink_indicator(5, LED_ERROR_MS);
             return;
         }
 
@@ -1279,9 +1298,9 @@ static void pair_window_led_task(void *arg)
         if (pair_window_open()) {
             estaba_abierta = 1;
             gpio_set_level(INDICATOR_LED_PIN, 1);
-            vTaskDelay(pdMS_TO_TICKS(120));
+            vTaskDelay(pdMS_TO_TICKS(LED_EMPAREJA_MS));
             gpio_set_level(INDICATOR_LED_PIN, 0);
-            vTaskDelay(pdMS_TO_TICKS(120));
+            vTaskDelay(pdMS_TO_TICKS(LED_EMPAREJA_MS));
         } else {
             /* Al cerrarse la ventana se devuelve el LED a su estado normal.
              *

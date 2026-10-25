@@ -248,3 +248,46 @@ Lo mismo que la edicion en cuanto a permisos: solo del propio tenant.
 - El ciclo completo de `PUT` -> MQTT -> ESP-NOW -> nodo aplicando el umbral.
   Las piezas existen y estan conectadas en el flujo, pero no se ha probado de
   punta a punta en esta sesion.
+
+## Cuando hay varios hubs en la casa
+
+Hasta la version 6.1.0 el hub adoptaba **cualquier** nodo desconocido que
+pidiera entrar. En una casa con dos hubs —planta alta y planta baja— el nodo
+recien sacado de la caja se vinculaba al hub que antes le respondiera, no al que
+el instalador queria. Los nodos de fabrica comparten la misma semilla de
+emparejamiento, asi que los dos hubs eran igual de validos para el nodo.
+
+### Solucion: ventana de vinculacion
+
+El hub solo adopta nodos desconocidos si la ventana esta abierta. Cerrada es el
+estado normal, y en ese estado ignora cualquier `PAIR` que no venga de un nodo ya
+vinculado.
+
+Se abre de dos maneras:
+
+| Via | Requisito | Como |
+|---|---|---|
+| MQTT | el hub ya tiene red | `{"action":"pairing"}` al topic `command` |
+| Boton | ninguno | pulsar **BOOT** (GPIO 0) |
+
+Dura **120 s**. Volver a pedirla reinicia el plazo.
+
+### Como se sabe
+
+- El LED parpadea **lento** (700 ms), frente al parpadeo rapido de error (120 ms).
+- El hub publica el estado en `.../hub/{mac}/pairing`:
+
+      {"event":"PAIRING_open","seconds":120,"mac":"3cdc7562c2b0"}
+      {"event":"PAIRING_closed","seconds":0,"mac":"3cdc7562c2b0"}
+
+### Sustituir un sensor averiado
+
+Con la ventana cerrada, un nodo de reemplazo no puede entrar. Hay que abrirla. Y
+si el sensor viejo sigue dado de alta, el hub no lo distingue del nuevo: se
+olvida primero.
+
+    {"action":"unpair","mac":"a0:f2:62:f1:d0:f0"}
+
+Respuesta del hub por consola: `Nodo a0:f2:62:f1:d0:f0 olvidado. Quedan 0/20.`
+
+Limite del registro: **20 nodos**.

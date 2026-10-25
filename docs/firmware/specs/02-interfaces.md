@@ -56,6 +56,7 @@ documentación del contrato en el código.
 | Estado del hub | `seguimiento360/hub/status` | hub → broker | 1 |
 | Comando OTA | `seguimiento360/tenant/{tid}/site/{sid}/hub/{mac}/ota_cmd` | broker → hub | 1 |
 | Config de nodo | `seguimiento360/tenant/{tid}/site/{sid}/hub/{mac}/node_cfg` | broker → hub | 1 |
+| Estado de emparejamiento | `seguimiento360/tenant/{tid}/site/{sid}/hub/{mac}/pairing` | hub → broker | 1 |
 
 `{mac}` es la MAC del hub en formato de 12 caracteres hexadecimales sin
 separadores (por ejemplo `3cdc7562c2b0`), no la forma con dos puntos.
@@ -106,6 +107,15 @@ Node-RED considera críticos los que empiezan por `ALRM`, `GAS`, `SMOKE`,
 
     ota_cmd:  {"url":"https://.../firmware.bin"}
     node_cfg: {"mac":"...","name":"...","location":"...","room":"...","distance_threshold":N}
+    command:  {"action":"arm"} | {"action":"disarm"}
+              {"action":"pairing"}                      abre la ventana 120 s
+              {"action":"unpair","mac":"aa:bb:cc:dd:ee:ff"}  olvida un nodo
+
+El topic `pairing` lo publica el hub para que el estado de la ventana se pueda
+consultar sin estar al lado del equipo (ver HUB-IF-014):
+
+    {"event":"PAIRING_open","seconds":120,"mac":"3cdc7562c2b0"}
+    {"event":"PAIRING_closed","seconds":0,"mac":"3cdc7562c2b0"}
 
 ## HUB-IF-007: NVS (namespace s360hub)
 
@@ -204,6 +214,49 @@ cada consumidor tenga que hacerlo.
 La copia del repo **puede no coincidir con lo desplegado**. En octubre de 2026
 habia tres versiones distintas y analizar la equivocada llevo a conclusiones
 falsas. Ver `backend/nodered-flows/README.md`.
+
+## HUB-IF-014: Ventana de vinculacion (varios hubs)
+
+El hub solo adopta nodos **desconocidos** mientras la ventana esta abierta.
+Cerrada —el estado normal— ignora cualquier `PAIR` que no sea de un nodo ya
+vinculado.
+
+### Por que
+
+Un nodo de fabrica usa una **semilla compilada** para su primer `PAIR` y acepta
+el `ACK` de quien responda. En una casa con dos hubs, el nodo de la primera
+planta podia acabar vinculado al de la planta baja: le bastaba con estar en
+alcance. Y como todos los nodos comparten la semilla, cualquier hub respondia a
+cualquier nodo nuevo.
+
+### Como se abre
+
+| Via | Cuando | Como |
+|---|---|---|
+| MQTT | el hub ya tiene red | `{"action":"pairing"}` al topic `command` |
+| Boton fisico | el hub aun no tiene red | pulsar el BOOT (GPIO 0) |
+
+Duracion: **120 s** (`PAIR_WINDOW_SEC`). Reabrir reinicia el plazo. El boton
+abre en el **flanco** (alto a bajo), no mientras esta pulsado: si no, mantenerlo
+pulsado reiniciaria la ventana sin parar.
+
+### Como se sabe que esta abierta
+
+El **LED parpadea lento** (700 ms, `LED_EMPAREJA_MS`), distinto del parpadeo
+rapido de error (120 ms). Y el hub publica el estado en el topic `pairing`.
+
+### Limite
+
+No cierra el caso de un vecino vinculando a la vez. Reduce el problema de
+"siempre" a "solo durante la ventana". Cerrarlo del todo exige un **token
+compartido** en el `PAIR`, que necesita un paso de fabricacion que hoy no existe.
+
+### Comando unpair
+
+Olvida un nodo del registro del hub, para sustituir un sensor averiado sin ir
+fisicamente:
+
+    {"action":"unpair","mac":"a0:f2:62:f1:d0:f0"}
 
 ## Hallazgos v0.1 → v0.2
 

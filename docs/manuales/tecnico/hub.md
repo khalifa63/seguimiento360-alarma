@@ -158,3 +158,42 @@ Conviene tenerlo claro para no buscarlo:
 - No guarda los eventos en local: si se cae la nube, se pierden.
 - No tiene bateria ni respaldo de energia.
 - La firma no cubre el bootloader: con acceso fisico se puede reemplazar.
+
+## Indicador LED
+
+Una sola lampara, un solo color. Cambia el **ritmo**, no el color, para
+distinguir los estados.
+
+| Ritmo | Que pasa |
+|---|---|
+| Parpadeo lento (700 ms) | ventana de vinculacion abierta |
+| Parpadeo rapido (120 ms) | error |
+| Fijo | equipo en marcha |
+| Apagado | sin arrancar |
+
+GPIO 48, activo en alto (`gpio_set_level`). **No es un LED direccionable**: no
+hay driver WS2812 ni RMT en el firmware. Si una version futura anade color, el
+sitio donde cambiarlo es `blink_indicator()` en `main/main.c`.
+
+## Ventana de vinculacion
+
+Ver HUB-IF-014 en `specs/02-interfaces.md`. Resumen operativo:
+
+- Cerrada por defecto. Solo se adopta un nodo desconocido con la ventana abierta.
+- Se abre por MQTT (`{"action":"pairing"}` al topic `command`) o pulsando el
+  **BOOT** (GPIO 0) cuando el hub todavia no tiene red.
+- Dura 120 s. El LED parpadea lento mientras esta abierta.
+- El estado se publica en el topic `pairing`:
+
+      {"event":"PAIRING_open","seconds":120,"mac":"3cdc7562c2b0"}
+
+### Comandos de gestion de nodos
+
+| Comando | Efecto |
+|---|---|
+| `{"action":"pairing"}` | abre la ventana 120 s |
+| `{"action":"unpair","mac":"aa:bb:cc:dd:ee:ff"}` | olvida un nodo |
+| `{"action":"arm"}` / `{"action":"disarm"}` | arma / desarma |
+
+El registro guarda hasta **20 nodos**. Al olvidar uno, el contador baja de
+inmediato (`Quedan 0/20`).

@@ -368,7 +368,7 @@ Asignación preliminar de GPIO:
 
 | GPIO | Función | Observación |
 |---|---|---|
-| GPIO48 | LED RGB WS2812 | Estado de WiFi, ESP-NOW y alarma |
+| GPIO48 | LED de estado (un color) | Estado de WiFi, ESP-NOW y alarma |
 | GPIO9 | I2C SDA | RTC DS3231 |
 | GPIO10 | I2C SCL | RTC DS3231 |
 | GPIO11 | Salida de sirena | MOSFET hacia relé o sirena de 12 V |

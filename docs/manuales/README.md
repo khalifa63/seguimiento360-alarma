@@ -7,10 +7,11 @@ Documentacion de los dispositivos, en dos niveles. Un tema = un documento.
 Explican como instalar y usar cada aparato, sin tecnicismos. Estan pensados
 para incluirse en la caja del producto y para publicarse en el sitio web.
 
-| Documento | Dispositivo |
+| Documento | Contenido |
 |---|---|
 | [hub.md](usuario/hub.md) | Hub: la caja que conecta todo |
 | [sensor-ultrasonico.md](usuario/sensor-ultrasonico.md) | Sensor de movimiento por ultrasonido |
+| [portal.md](usuario/portal.md) | La cuenta web: registrarse, entrar y anadir dispositivos |
 
 ## Para quien instala y mantiene
 
@@ -22,6 +23,8 @@ diagnosticar un problema.
 | [hub.md](tecnico/hub.md) | Arquitectura, radio, MQTT, OTA, diagnostico |
 | [sensor-ultrasonico.md](tecnico/sensor-ultrasonico.md) | Arquitectura, ESP-NOW, pairing, OTA |
 | [protocolo-comun.md](tecnico/protocolo-comun.md) | El enlace ESP-NOW que comparten todos |
+| [vinculacion.md](tecnico/vinculacion.md) | Como se vincula un nodo: fisico y logico |
+| [portal.md](tecnico/portal.md) | API, registro, sesion, informes y eventos |
 
 ## Estado de los dispositivos
 

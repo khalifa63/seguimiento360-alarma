@@ -50,6 +50,7 @@ mkdir -p "$SALIDA"
 USUARIO=(
     "hub:Tu Hub Seguimiento 360"
     "sensor-ultrasonico:Tu Sensor de Movimiento"
+    "portal:Tu cuenta en Seguimiento 360"
 )
 
 # Manuales tecnicos: para quien instala y mantiene.
@@ -57,6 +58,8 @@ TECNICO=(
     "hub:Hub Seguimiento 360 - Manual tecnico"
     "sensor-ultrasonico:Sensor ultrasonico - Manual tecnico"
     "protocolo-comun:Protocolo ESP-NOW - Manual tecnico"
+    "vinculacion:Vinculacion de nodos - Manual tecnico"
+    "portal:Portal web - Manual tecnico"
 )
 
 convertir() {
@@ -150,6 +153,8 @@ if [ "$HACER_HTML" = "1" ]; then
 <p>C&oacute;mo conectarlo a tu WiFi y dejarlo funcionando.</p></li>
 <li><a href="sensor-ultrasonico.html">Tu Sensor de Movimiento</a>
 <p>C&oacute;mo colocarlo y comprobar que detecta bien.</p></li>
+<li><a href="portal.html">Tu cuenta en Seguimiento 360</a>
+<p>Registrarse, entrar y a&ntilde;adir tus dispositivos a la web.</p></li>
 </ul>
 
 <h2>Manuales t&eacute;cnicos</h2>
@@ -161,6 +166,10 @@ if [ "$HACER_HTML" = "1" ]; then
 <p>Pines, par&aacute;metros, vinculaci&oacute;n con el hub y recuperaci&oacute;n de fallos.</p></li>
 <li><a href="tecnico-protocolo-comun.html">Protocolo ESP-NOW &mdash; manual t&eacute;cnico</a>
 <p>El enlace que comparten todos los dispositivos.</p></li>
+<li><a href="tecnico-vinculacion.html">Vinculaci&oacute;n de nodos &mdash; manual t&eacute;cnico</a>
+<p>C&oacute;mo pasa un nodo de la caja a aparecer en la web.</p></li>
+<li><a href="tecnico-portal.html">Portal web &mdash; manual t&eacute;cnico</a>
+<p>API, registro, sesi&oacute;n, informes y eventos.</p></li>
 </ul>
 
 <p class="pie">Seguimiento 360 &middot; Estos manuales se actualizan con el producto.</p>
@@ -179,7 +188,12 @@ if [ "$PUBLICAR" = "1" ]; then
     echo
     info "Publicando en el sitio web..."
     mkdir -p "$WEB"
+    # Se copian tambien los PDF: son lo que el cliente descarga.
+    #
+    # Antes solo se copiaban HTML y CSS, asi que los PDF publicados eran los
+    # de una copia manual anterior. Se veia como "el PDF no se actualiza".
     cp -f "${SALIDA}"/*.html "${SALIDA}"/*.css "$WEB/" 2>/dev/null
+    cp -f "${SALIDA}"/*.pdf "$WEB/" 2>/dev/null
     chmod -R a+r "$WEB"
     info "  copiado a ${WEB}"
     info "  URL: https://seguimiento360.com/manuales/"

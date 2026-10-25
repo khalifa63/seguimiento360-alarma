@@ -46,6 +46,79 @@ Detalle completo en [sensor-ultrasonico.md](sensor-ultrasonico.md).
 Un hub admite **20 nodos** (`MAX_NODES`). Al llegar al limite, rechaza nuevos
 `PAIR` con cinco parpadeos del LED.
 
+## Ventana de vinculacion: varios hubs en la misma casa
+
+**El problema.** Un nodo de fabrica no sabe a que hub pertenece: usa una
+**semilla compilada** (la MAC del hub) para su primer `PAIR`, y acepta el `ACK`
+de quien responda. En una casa con dos hubs —planta baja y primera— el nodo de
+arriba podia acabar vinculado al hub de abajo: le bastaba con estar en alcance.
+
+Lo mismo al reves: todos los nodos de fabrica comparten la semilla, asi que un
+hub respondia a cualquier nodo nuevo que lo oyera.
+
+### Como se resuelve
+
+**El hub solo adopta nodos desconocidos mientras la ventana esta abierta.**
+Cerrada —el estado normal— ignora cualquier `PAIR` que no sea de un nodo ya
+vinculado.
+
+Asi el hub de la planta baja no roba el nodo de la primera: lo oye y lo
+rechaza.
+
+### Como se abre
+
+Dos vias, porque el instalador puede estar en dos situaciones distintas:
+
+| Via | Cuando usarla | Como |
+|---|---|---|
+| **MQTT** | el hub ya tiene red y el instalador esta con el movil | `{"action":"pairing"}` al topic `command` |
+| **Boton fisico** | el hub aun no tiene red | pulsar el BOOT (GPIO 0) |
+
+La ventana dura **120 segundos** (`PAIR_WINDOW_SEC`) y se puede reabrir
+pulsando otra vez: cada apertura reinicia el plazo.
+
+### Como se sabe que esta abierta
+
+**El LED parpadea** mientras la ventana esta abierta. Es la unica senal visible
+de que el hub esta escuchando.
+
+Al cerrarse, el LED vuelve a su estado normal. Ojo con esto: **el LED lo
+comparten la ventana y el indicador de alarma**, asi que la ventana solo lo
+toca mientras esta abierta y al cerrar lo devuelve al estado que le toca
+(encendido si la alarma esta armada).
+
+### Procedimiento de instalacion
+
+1. Abrir la ventana: en la app, o pulsando el boton del hub.
+2. Comprobar que el LED parpadea.
+3. Encender el nodo.
+4. En unos segundos queda vinculado y el LED deja de parpadear.
+
+**El orden importa:** hay que abrir la ventana **antes** de encender el nodo. Si
+se enciende primero, el nodo insiste cada vez con mas espera y hay que esperar a
+su siguiente intento.
+
+### Que NO resuelve
+
+**No cierra el caso de un vecino vinculando a la vez.** Si abres tu ventana y el
+vecino tiene un nodo de fabrica mandando `PAIR` en ese momento, tu hub podria
+adoptarlo.
+
+Reduce el problema de "siempre" a "solo durante la ventana", que es una mejora
+grande, pero no lo elimina. Cerrarlo del todo exige un **token compartido** en
+el `PAIR`: el hub solo adoptaria nodos con el codigo correcto. Es otro cambio y
+exige grabar ese codigo en cada nodo, paso de fabricacion que hoy no existe.
+
+### Rechazo visible
+
+Cuando la ventana esta cerrada y llega un `PAIR` desconocido, el hub lo
+registra:
+
+    PAIR de a0:f2:62:f1:d0:f0 rechazado: la ventana de vinculacion esta cerrada.
+    Abrala desde la app o pulsando el boton del hub.
+
+Un silencio dejaria al instalador sin pista de por que no vincula.
+
 ## Vinculo logico: manual
 
 Hoy un nodo **no aparece en la web solo**. Hay que registrarlo:

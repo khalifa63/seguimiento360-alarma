@@ -134,6 +134,10 @@ static bool wifi_configured = false;
 /* true solo si el SoftAP de provisioning esta levantado. Lo usa el arranque
  * del portal para no abrirlo en un hub ya configurado. */
 static bool s_portal_habilitado = false;
+/* Momento en que se abrio la ventana de vinculacion, en segundos. 0 = cerrada.
+ * Se guarda como instante y no como booleano: asi la ventana caduca sola sin
+ * necesidad de una tarea que la cierre. */
+static uint32_t s_pair_window_started = 0;
 static httpd_handle_t server = NULL;
 /* Canal compartido con los nodos. Debe coincidir con WIFI_CHANNEL del
  * firmware del nodo y con el canal en que queda el AP del hub.
@@ -161,6 +165,24 @@ static httpd_handle_t server = NULL;
  * fija SPEC-01. Se usan para clasificar cada medida como dentro o fuera. */
 #define S360_BUDGET_ACK_MS      50
 #define S360_BUDGET_PUBLISH_MS  250
+
+/* Ventana de vinculacion (opcion 2 del analisis de varios hubs).
+ *
+ * El hub solo adopta nodos DESCONOCIDOS mientras la ventana esta abierta.
+ * Cerrada —el estado normal— ignora cualquier PAIR que no sea de un nodo ya
+ * vinculado. Asi un hub no roba el nodo de otra planta: no lo oye, o lo oye y
+ * lo rechaza.
+ *
+ * Se abre por dos vias, porque el instalador puede estar en dos situaciones:
+ *   - MQTT: esta en la casa con el movil y el hub ya tiene red.
+ *   - Boton fisico (GPIO 0, el BOOT de la placa): el hub aun no tiene red.
+ *
+ * NO cierra el caso de un vecino que este vinculando a la vez. Reduce el
+ * problema de "siempre" a "solo durante la ventana". Cerrarlo del todo exige
+ * un token compartido en el PAIR, que es otro cambio. */
+#define PAIR_WINDOW_SEC        120      // duracion de la ventana
+#define PAIR_BUTTON_PIN        GPIO_NUM_0
+#define PAIR_BUTTON_DEBOUNCE_MS 200
 
 #define S360_ESPNOW_CHANNEL  5
 static uint8_t router_channel = S360_ESPNOW_CHANNEL;
@@ -211,6 +233,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                int32_t event_id, void *event_data);
 esp_err_t hub_send_ota_config(const uint8_t *node_mac, const char *ota_url);
 static void reconnect_request(void);
+
+/* Ventana de vinculacion: se usan en el handler de MQTT y en el de ESP-NOW,
+ * que estan antes de sus definiciones. */
+static bool pair_window_open(void);
+static void pair_window_open_now(const char *origen);
+static uint32_t pair_window_remaining(void);
 static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t *payload,
                                   int64_t rx_us);
 static void format_mac(const uint8_t *mac, char *out, size_t out_size);
@@ -605,6 +633,48 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                 if (cmd_data != NULL) {
                     memcpy(cmd_data, event->data, event->data_len);
                     ESP_LOGI(TAG, "Comando de alarma recibido: %s", cmd_data);
+
+                    /* Vinculacion por MQTT: la app abre la ventana para que el
+                     * hub acepte un nodo nuevo. Es la via comoda cuando el hub
+                     * ya tiene red y el instalador esta con el movil. */
+                    if (strstr(cmd_data, "pairing") != NULL) {
+                        pair_window_open_now("MQTT");
+                        free(cmd_data);
+                        return;
+                    }
+
+                    /* Olvidar un nodo: se usa al sustituir un sensor averiado,
+                     * para que el hub acepte el nuevo en su lugar. */
+                    if (strstr(cmd_data, "unpair") != NULL) {
+                        cJSON *raiz = cJSON_Parse(cmd_data);
+                        cJSON *mac_json = raiz ? cJSON_GetObjectItem(raiz, "mac") : NULL;
+                        uint8_t a_borrar[6];
+                        if (cJSON_IsString(mac_json) &&
+                            sscanf(mac_json->valuestring, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                                   &a_borrar[0], &a_borrar[1], &a_borrar[2],
+                                   &a_borrar[3], &a_borrar[4], &a_borrar[5]) == 6) {
+                            int idx = find_node_index(a_borrar);
+                            if (idx >= 0) {
+                                for (int i = idx; i < node_registry.count - 1; i++) {
+                                    node_registry.nodes[i] = node_registry.nodes[i + 1];
+                                }
+                                node_registry.count--;
+                                save_node_registry();
+                                esp_now_del_peer(a_borrar);
+                                ESP_LOGW(TAG, "Nodo %s olvidado. Quedan %d/%d.",
+                                         mac_json->valuestring,
+                                         node_registry.count, MAX_NODES);
+                            } else {
+                                ESP_LOGW(TAG, "unpair: el nodo %s no estaba registrado.",
+                                         mac_json->valuestring);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "unpair: falta 'mac' en el comando.");
+                        }
+                        if (raiz) cJSON_Delete(raiz);
+                        free(cmd_data);
+                        return;
+                    }
 
                     sm_alarm_cmd_t cmd = SM_ALARM_CMD_NONE;
                     if (strstr(cmd_data, "arm") != NULL && strstr(cmd_data, "disarm") == NULL) {
@@ -1006,6 +1076,21 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             return;
         }
 
+        /* La ventana decide si este hub adopta nodos desconocidos.
+         *
+         * Cerrada es el estado normal: asi el hub del primer piso no adopta el
+         * nodo del segundo cuando lo oye. El rechazo se registra porque un
+         * silencio dejaria al instalador sin pista de por que no vincula. */
+        if (!pair_window_open()) {
+            ESP_LOGW(TAG, "PAIR de %s rechazado: la ventana de vinculacion esta cerrada. "
+                          "Abrala desde la app o pulsando el boton del hub.",
+                     mac_str);
+            return;
+        }
+
+        ESP_LOGI(TAG, "PAIR de %s aceptado: quedan %lu s de ventana.",
+                 mac_str, (unsigned long)pair_window_remaining());
+
         esp_now_peer_info_t new_peer = { 
             .channel = router_channel, 
             .ifidx = ESP_IF_WIFI_STA, 
@@ -1127,6 +1212,93 @@ static void reconnect_task(void *arg)
 }
 
 /* Pide una reconexion. Se puede llamar desde cualquier tarea o callback. */
+/* true si el hub debe aceptar nodos desconocidos ahora mismo. */
+static bool pair_window_open(void)
+{
+    if (s_pair_window_started == 0) {
+        return false;
+    }
+    uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000000);
+    if ((ahora - s_pair_window_started) >= PAIR_WINDOW_SEC) {
+        s_pair_window_started = 0;   /* caduco */
+        return false;
+    }
+    return true;
+}
+
+/* Abre la ventana. Reiniciarla estando abierta extiende el plazo, que es lo
+ * que se espera si alguien vuelve a pulsar. */
+static void pair_window_open_now(const char *origen)
+{
+    s_pair_window_started = (uint32_t)(esp_timer_get_time() / 1000000);
+    ESP_LOGW(TAG, "Ventana de vinculacion ABIERTA %d s (por %s).",
+             PAIR_WINDOW_SEC, origen);
+}
+
+/* Segundos que le quedan a la ventana, 0 si esta cerrada. */
+static uint32_t pair_window_remaining(void)
+{
+    if (!pair_window_open()) {
+        return 0;
+    }
+    uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000000);
+    return PAIR_WINDOW_SEC - (ahora - s_pair_window_started);
+}
+
+/* Tarea que vigila el boton fisico.
+ *
+ * GPIO 0 es el BOOT de la placa: tiene pull-up, asi que se lee en bajo al
+ * pulsar. Se sondea en vez de usar interrupciones porque un pulsador mecanico
+ * genera rebotes y aqui no hace falta precision: 50 ms de sondeo sobran. */
+static void pair_button_task(void *arg)
+{
+    gpio_reset_pin(PAIR_BUTTON_PIN);
+    gpio_set_direction(PAIR_BUTTON_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(PAIR_BUTTON_PIN, GPIO_PULLUP_ONLY);
+
+    int bajo_previo = 0;
+    while (1) {
+        int bajo = (gpio_get_level(PAIR_BUTTON_PIN) == 0);
+        if (bajo && !bajo_previo) {
+            pair_window_open_now("boton fisico");
+        }
+        bajo_previo = bajo;
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+/* Tarea que parpadea el LED mientras la ventana esta abierta.
+ *
+ * Es la senal visible de que el hub esta escuchando. Sin ella el instalador
+ * no tiene forma de saber si pulso bien o si ya caduco. */
+static void pair_window_led_task(void *arg)
+{
+    int estaba_abierta = 0;
+
+    while (1) {
+        if (pair_window_open()) {
+            estaba_abierta = 1;
+            gpio_set_level(INDICATOR_LED_PIN, 1);
+            vTaskDelay(pdMS_TO_TICKS(120));
+            gpio_set_level(INDICATOR_LED_PIN, 0);
+            vTaskDelay(pdMS_TO_TICKS(120));
+        } else {
+            /* Al cerrarse la ventana se devuelve el LED a su estado normal.
+             *
+             * El LED lo comparten la alarma y esta ventana: si la tarea se
+             * quedara escribiendolo, borraria el indicador de "armado" que
+             * mantiene sm_alarm. Solo se toca mientras la ventana esta
+             * abierta, y al cerrar se deja como estaba (apagado). */
+            if (estaba_abierta) {
+                estaba_abierta = 0;
+                gpio_set_level(INDICATOR_LED_PIN,
+                               sm_alarm_get_state() == SM_ALARM_STATE_ARMED ? 1 : 0);
+            }
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
+}
+
 static void reconnect_request(void)
 {
     if (s_reconnect_task != NULL) {
@@ -1740,10 +1912,20 @@ void app_main(void) {
         s_reconnect_task = NULL;
     }
 
+    /* Ventana de vinculacion: el boton fisico y el parpadeo de aviso.
+     *
+     * Se crean despues de configurar el LED (gpio_reset_pin mas abajo), asi
+     * que la tarea del LED espera a que el pin este listo. El boton no
+     * depende de nada. */
+    xTaskCreate(pair_button_task, "pair_button", 3072, NULL, 3, NULL);
+
     // 5. Configurar GPIO 48 (LED RGB) como salida para indicador
     gpio_reset_pin(INDICATOR_LED_PIN);
     gpio_set_direction(INDICATOR_LED_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(INDICATOR_LED_PIN, 0);
+
+    /* El parpadeo de la ventana empieza cuando el LED ya esta configurado. */
+    xTaskCreate(pair_window_led_task, "pair_led", 2560, NULL, 2, NULL);
 
     /* FSM de alarma: restaura el estado guardado en NVS y deja el LED
      * reflejandolo, para que sobreviva a un reinicio (AT-006). */

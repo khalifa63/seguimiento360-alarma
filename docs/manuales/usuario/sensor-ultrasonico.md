@@ -80,7 +80,30 @@ Piensa que quieres vigilar y apunta el sensor hacia ahi.
 
 ---
 
-## Paso 2: Enchufalo
+## Paso 2: Prepara el hub para recibirlo
+
+**Antes de encender el sensor**, dile al hub que va a recibir uno nuevo.
+
+Tienes dos formas, elige la que puedas:
+
+- **Desde la aplicacion**: busca la opcion de **anadir dispositivo** y pulsa
+  vincular.
+- **En el hub, con el dedo**: pulsa el boton pequeno. La luz del hub empieza a
+  **parpadear**.
+
+**Que la luz del hub parpadee significa que esta escuchando.** Tienes **2
+minutos** para encender el sensor.
+
+> **Esto es nuevo y es importante.** El hub solo acepta sensores nuevos
+> mientras la luz parpadea. Si enciendes el sensor sin hacer esto, el hub lo
+> ignorara: es lo que evita que el sensor de arriba se conecte al hub de abajo
+> cuando tienes varios.
+
+Si se te pasan los 2 minutos, vuelve a pulsar el boton. No pasa nada.
+
+---
+
+## Paso 3: Enchufalo
 
 Conecta el cable de corriente.
 
@@ -96,7 +119,7 @@ Si se queda parpadeando mucho rato, mira la seccion de problemas.
 
 ---
 
-## Paso 3: Compruébalo
+## Paso 4: Compruebalo
 
 Pasa la mano por delante del sensor, a unos 30 centimetros.
 
@@ -192,7 +215,13 @@ Se apaga. Cuando vuelve, arranca solo y busca el hub otra vez. Tarda un minuto.
 Muy poca, menos que el hub.
 
 **Puedo poner varios?**
-Si. Un hub admite hasta **20 sensores**.
+Si. Un hub admite hasta **20 sensores**, y cada uno se anade abriendo la
+ventana antes de encenderlo.
+
+**Tengo dos hubs, en plantas distintas. Se confundiran?**
+No. Para eso esta la ventana: el hub solo acepta sensores mientras su luz
+parpadea, asi que tu decides cual los recibe. Abre la ventana en el hub de la
+planta donde vas a instalar el sensor.
 
 **Se puede mojar?**
 No. Solo en sitios secos.

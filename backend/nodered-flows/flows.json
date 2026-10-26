@@ -554,7 +554,7 @@
         "type": "function",
         "z": "4b3c23e37880f78c",
         "name": "Parsear HUB_ONLINE (sin :)",
-        "func": "const payload = msg.payload;\n\nif (!payload || !payload.mac) {\n    node.warn('Mensaje HUB_ONLINE sin MAC');\n    return null;\n}\n\nconst mac = payload.mac.replace(/:/g, '').toLowerCase();\nconst hubName = payload.hub_name || 'Hub Sin Nombre';\nconst event = payload.event || 'HUB_ONLINE';\n\nmsg.params = [mac, hubName];\nmsg.hubData = { mac, hubName, event };\n\nnode.log(`Hub conectado: ${mac} (${hubName})`);\nreturn msg;",
+        "func": "const payload = msg.payload;\n\nif (!payload || !payload.mac) {\n    node.warn('Mensaje HUB_ONLINE sin MAC');\n    return null;\n}\n\nconst mac = payload.mac.replace(/:/g, '').toLowerCase();\n// OJO: si el hub no manda su nombre, se envia null (no un texto por\n// defecto). El UPDATE usa COALESCE($2, name), asi que null conserva el\n// nombre que ya tiene en la base. Mandar 'Hub Sin Nombre' lo borraba.\nconst hubName = payload.hub_name || null;\nconst event = payload.event || 'HUB_ONLINE';\n\nmsg.params = [mac, hubName];\nmsg.hubData = { mac, hubName, event };\n\nnode.log(`Hub conectado: ${mac} (${hubName || 'conserva nombre en BD'})`);\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,

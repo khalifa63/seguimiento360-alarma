@@ -402,3 +402,67 @@ Y exportar produccion antes de tocarla:
     docker cp nodered:/data/flows.json /tmp/flows_activo.json
 
 Ver `backend/nodered-flows/README.md`.
+
+## Incidente: `last_seen` del nodo siempre nulo (2026-10-25)
+
+**Sintoma:** el portal mostraba el hub con `last_seen` correcto, pero el nodo
+aparecia sin fecha, aunque estuviera activo y mandando HEAR cada 10 minutos.
+
+**Causa raiz — dos fallos encadenados:**
+
+### Fallo 1 — la columna nunca se escribia
+
+La consulta `SELECT nodes` ya traia `n.last_seen`, pero **nada** actualizaba esa
+columna. El `INSERT node` y el `UPDATE node + hub info` no la incluian, asi que
+el registro nacia en `NULL` y ahi se quedaba.
+
+Corregido en ambos queries:
+
+    INSERT INTO nodes (..., status, last_seen)
+    SELECT $1, ..., 'pending', NOW() FROM hubs h ...
+
+    UPDATE nodes n SET ..., updated_at = NOW(), last_seen = NOW()
+
+### Fallo 2 — el latido del nodo tampoco la refrescaba
+
+Aunque se arreglara el `UPDATE`, solo se ejecutaba al editar el nodo **desde el
+portal**. Los mensajes MQTT del nodo (HEAR/ALRM) entraban por otra rama del
+flujo —`mqtt in` -> `Parsear evento a params` -> `INSERT event`— que nunca
+tocaba la tabla `nodes`. El `last_seen` se habria quedado congelado.
+
+**Solucion:** el nodo `Parsear evento a params` ahora tiene **dos salidas**:
+
+    salida 1 -> INSERT event            (guarda el evento, como antes)
+    salida 2 -> UPDATE node heartbeat   (refresca nodes.last_seen)
+
+El segundo mensaje lleva sus propios parametros:
+
+    const msgHb = { params: [d.mac, hubMac], _heartbeat: true };
+    return [msg, msgHb];
+
+Y la consulta nueva:
+
+    UPDATE nodes SET last_seen = NOW()
+    WHERE mac_address = $1
+      AND hub_id = (SELECT id FROM hubs WHERE serial_number = $2)
+    RETURNING id, mac_address, last_seen;
+
+**Por que asi:** se usa `mac_address` + `serial_number` en vez de un `id` fijo,
+para que funcione con cualquier nodo de cualquier hub sin tocar el flujo.
+
+### Como comprobarlo
+
+    docker exec nodered node -e '...'   # consulta nodes.last_seen
+
+Si el nodo esta vivo, la fecha avanza cada vez que llega un HEAR. Los HEAR de
+este nodo llegan **cada 10 minutos**, no cada 5 segundos: al verificar hay que
+esperar al menos ese intervalo.
+
+### La tabla `nodes` no esta en `traccar`
+
+Vive en la base **`seguimiento360_alarmas`**, usuario `admin`. El `dbConfig` se
+lee de `settings.js`:
+
+    database: 'seguimiento360_alarmas'
+
+Consultar la base equivocada devuelve `relation "nodes" does not exist`.

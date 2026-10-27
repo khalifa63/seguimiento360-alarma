@@ -924,3 +924,13 @@ Una alarma produce ahora **solo** los envios de Firebase:
     [function:Firebase Push Real] PUSH OK 201 (critica) -> 🚨 ALARMA — Garaje
 
 Y el evento queda registrado en la tabla `events` como siempre.
+
+## nginx devuelve 502 tras recrear un contenedor
+
+Cuando se **recrea** un contenedor al que nginx reenvia (no basta reiniciarlo),
+Docker le asigna otra IP. nginx conserva la vieja en memoria y devuelve **502**
+en todas las rutas `/api/`, aunque el nombre siga resolviendo bien.
+
+Solucion: `docker restart nginx`.
+
+Detalle completo en `docs/operaciones/nginx-ip-cacheada.md`.

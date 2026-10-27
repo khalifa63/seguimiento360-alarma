@@ -47,16 +47,31 @@ Todavia **no hay recuperacion automatica**. Contacta con el servicio tecnico.
 
 ## Que ves al entrar
 
-Tu **panel**, con tus dispositivos.
+Arriba del todo hay una barra con el nombre del sistema y tu nombre.
 
-Cada dispositivo aparece como una tarjeta con:
+A la derecha de tu nombre hay un **boton con tres rayas**. Al pulsarlo se abre
+el menu:
 
-- Su nombre (el que le pusiste).
-- Donde esta: ubicacion y habitacion.
-- Si esta **activo** o **pendiente**.
-- Cuando fue la ultima vez que dio senal.
+- **Panel** — el resumen de tus dispositivos
+- **Nodos** — la lista de sensores
+- **Eventos** — el historial de lo que ha pasado
+- **Diagnostico** — comprueba si este aparato recibe los avisos
+- **Salir** — cierra tu sesion
 
----
+Para cerrar el menu, pulsa otra vez el boton, toca fuera de el, o pulsa la tecla
+**Escape**.
+
+### Si el portal se ve muy pequeno
+
+Si el texto se ve diminuto y las tablas salen apretadas, es probable que el
+navegador este mostrando la **version de ordenador**. Se cambia asi:
+
+1. Toca los **tres puntos** del navegador (arriba a la derecha).
+2. Busca **"Sitio para ordenadores"**.
+3. Si tiene una marca, tocalo para **desactivarlo**.
+4. Recarga la pagina.
+
+Con eso el portal se adapta a la pantalla del telefono y se lee comodo.
 
 ## Anadir un dispositivo
 
@@ -223,11 +238,23 @@ para recibir los avisos.
 
 ### Android (Chrome)
 
+Lo mas facil: el propio portal te lo ofrece.
+
 1. Abre el portal en **Chrome**.
-2. Toca el menu de los **tres puntos** (arriba a la derecha).
-3. Elige **Instalar aplicacion** (o **Anadir a pantalla de inicio**).
-4. Confirma. Aparece el icono en tu pantalla de inicio.
-5. **Abre la app desde ese icono**, no desde Chrome.
+2. Si aparece un recuadro que dice **"Instala la aplicacion"**, pulsa el boton
+   **Instalar**.
+3. Confirma en la ventana que se abre.
+4. Aparece el icono en tu pantalla de inicio.
+
+Si no aparece ese recuadro, hazlo a mano:
+
+1. Toca el menu de los **tres puntos** (arriba a la derecha).
+2. Elige **Instalar aplicacion** (o **Anadir a pantalla de inicio**).
+3. Confirma.
+
+**Abre la app desde el icono**, no desde Chrome, para que funcione bien.
+
+**Nota:** si ya tienes la app instalada, el recuadro no aparece. Es normal.
 
 ### iPhone y iPad (Safari)
 
@@ -244,6 +271,9 @@ pagina abierta en el navegador.
 **Importante en iPhone:** si abres el portal en Safari y pulsas Activar
 notificaciones, parecera que funciona, pero **los avisos no llegaran**. Hay que
 abrir la app instalada.
+
+Si entras desde Safari sin haberla instalado, el portal te avisa con un recuadro
+que explica estos pasos. No lo ignores: sin instalar, en iPhone no llega nada.
 
 ---
 

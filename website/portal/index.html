@@ -13,7 +13,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Iniciar sesion - Seguimiento 360</title>
-<link rel="stylesheet" href="estilo-2026e.css">
+<link rel="stylesheet" href="estilo-2026f.css">
 
 </head>
 <body>
@@ -45,7 +45,7 @@
 </div>
 
 <script type="module">
-import { api, Sesion, esc } from '/portal/comun-2026b.js';
+import { api, Sesion, esc } from '/portal/comun-2026c.js';
 
 const msg = document.getElementById('msg');
 const btn = document.getElementById('btn');
@@ -85,11 +85,11 @@ document.getElementById('form').addEventListener('submit', async (e) => {
 </script>
 
 <!-- Aviso para instalar la aplicacion (lo pinta comun.js si el navegador lo ofrece) -->
-<div id="zona-instalar-zona" style="max-width:420px;margin:0 auto 30px"></div>
+<div id="zona-instalar" style="max-width:420px;margin:0 auto 30px"></div>
 
 <script type="module">
-  import { avisoInstalar } from '/portal/comun-2026b.js';
-  avisoInstalar('zona-instalar-zona');
+  import { avisoInstalar } from '/portal/comun-2026c.js';
+  avisoInstalar('zona-instalar');
 </script>
 
 </body>

@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Panel - Seguimiento 360</title>
-<link rel="stylesheet" href="estilo-2026e.css">
+<link rel="stylesheet" href="estilo-2026f.css">
 </head>
 <body>
 <div id="cabecera"></div>
 <main>
   <h2 class="titulo">Panel</h2>
   <p class="desc" id="sub">Resumen de tus sitios y dispositivos</p>
-  <div id="aviso-instalar-zona"></div>
+  <div id="zona-instalar"></div>
   <div id="aviso-push-zona"></div>
   <div id="contenido">
     <div class="cargando"><div class="girador"></div>Cargando...</div>
@@ -20,14 +20,14 @@
 
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, hace,
-         evento, fecha, avisoNotificaciones, avisoInstalar } from '/portal/comun-2026b.js';
+         evento, fecha, avisoNotificaciones, avisoInstalar } from '/portal/comun-2026c.js';
 
 if (!exigirSesion()) throw new Error('sin sesion');
 document.getElementById('cabecera').innerHTML = cabecera('panel');
 conectarSalir();
 
 // Aviso si este dispositivo no tiene las notificaciones activadas
-avisoInstalar('aviso-instalar-zona');
+avisoInstalar('zona-instalar');
 avisoNotificaciones('aviso-push-zona');
 
 const cont = document.getElementById('contenido');

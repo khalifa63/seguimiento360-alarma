@@ -1129,3 +1129,123 @@ Anadir el `<div id="cabecera"></div>` al principio del `body` y el script:
     }
 
 Y anadir su entrada a la lista `p` dentro de `cabecera()`.
+
+## Boton de instalar la aplicacion (2026-10-27)
+
+El portal ofrece instalar la PWA cuando el navegador lo permite, en lugar de
+esperar a que el usuario lo encuentre en el menu de Chrome.
+
+### Como funciona
+
+Chrome dispara `beforeinstallprompt` cuando la PWA cumple los requisitos. El
+evento se guarda y se ofrece como boton:
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      eventoInstalacion = e;            // se guarda para luego
+      avisoInstalar('zona-instalar');   // se pinta el aviso
+    });
+
+Al pulsar **Instalar** se llama a `eventoInstalacion.prompt()`, que abre la
+ventana nativa de Chrome. Despues se lee `userChoice` para saber que eligio.
+
+### Por que el aviso "aparece y desaparece"
+
+Es el comportamiento correcto, no un fallo. `beforeinstallprompt` **solo se
+dispara si**:
+
+1. La PWA cumple los requisitos (manifest con iconos, service worker, HTTPS)
+2. Chrome considera que **no esta ya instalada**
+3. El usuario no la ha descartado hace poco
+
+Si la app ya esta instalada, el evento no llega y el aviso no se muestra. Para
+volver a verlo, desinstalar y recargar.
+
+### Dos errores que tuvo la primera version
+
+**a) `dashboard.html` llamaba a `avisoInstalar('aviso-instalar-zona')` pero el
+contenedor `<div>` no existia en esa pagina.** La funcion salia sin hacer nada.
+
+**b) El listener refrescaba el id `zona-instalar`, que no usaba ninguna pagina.**
+Los ids estaban cruzados.
+
+Ahora todas las paginas usan el mismo: **`zona-instalar`**.
+
+### En iPhone
+
+`beforeinstallprompt` no existe en Safari. Alli `avisoInstalar()` muestra las
+instrucciones manuales (Compartir > Anadir a pantalla de inicio) si detecta que
+es un dispositivo Apple y no esta instalado.
+
+---
+
+## El modo escritorio: causa de "se ve pequeno" (2026-10-27)
+
+Un usuario reporto que el portal se veia con el texto diminuto en el movil,
+mientras que en las DevTools del ordenador se veia bien al emular un telefono.
+
+**No era un fallo del CSS.** El navegador del movil tenia activado
+**"Sitio para ordenadores"**. Con esa opcion, el navegador ignora la etiqueta:
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+y usa un ancho virtual de unos 980px, como si fuera un monitor. Entonces
+**ninguna media query de movil se activa**.
+
+### Como detectarlo
+
+Si algo se ve bien en el emulador pero mal en el dispositivo, **lo primero es
+comprobar ese ajuste**, no el CSS. En Chrome del movil:
+
+    Tres puntos > "Sitio para ordenadores"   (debe estar DESACTIVADO)
+
+### Respaldo que se anadio
+
+Para que un dispositivo tactil ancho (tablet, o un movil en modo escritorio)
+tambien reciba los ajustes, se anadio un bloque por tipo de puntero:
+
+    @media (pointer: coarse) and (min-width: 701px) { ... }
+
+Se activa por ser pantalla tactil, sin depender del ancho. Es un respaldo, no
+una solucion al modo escritorio: las tablas se convierten en tarjetas, pero el
+usuario sigue viendo la version ancha.
+
+---
+
+## Nombres versionados: por que y cuando (2026-10-27)
+
+### El problema
+
+Subir el CSS o el JS y cambiar el `?v=` de la URL **no basta**: si el navegador
+tiene cacheado el propio HTML, sigue pidiendo la version antigua. Y la PWA
+instalada guarda ademas su propia copia, que sobrevive a borrar la cache.
+
+### La solucion
+
+**Cambiar el nombre del archivo.** Un nombre nuevo no puede estar en cache.
+
+Estado actual:
+
+| Antes | Ahora |
+|---|---|
+| `estilo.css` | `estilo-2026f.css` |
+| `comun.js` | `comun-2026c.js` |
+
+Las versiones anteriores (`estilo-2026.css`, `comun-2026.js`...) se conservan en
+disco sin usar.
+
+### Al hacer un cambio importante
+
+1. Copiar el archivo con un nombre nuevo (`estilo-2027.css`)
+2. Actualizar el `href` en los seis HTML
+3. Subir el numero de version
+
+Para retoques pequenos, cambiar el contenido y subir el `?v=` suele bastar.
+
+### Cuidado: no mezclar versiones del mismo modulo
+
+En un momento dado, `index.html` importaba `comun.js?v=l` **y** `comun.js?v=m` a
+la vez. El navegador los trata como **modulos distintos**, asi que el estado
+compartido (`Sesion`) se duplicaba y **el login dejaba de funcionar**.
+
+Todas las paginas deben apuntar al **mismo archivo exacto**.

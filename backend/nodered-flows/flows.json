@@ -2069,18 +2069,7 @@
         "label": "Config Push",
         "disabled": false,
         "info": "Claves VAPID para notificaciones push",
-        "env": [
-            {
-                "name": "VAPID_PUBLIC",
-                "value": "BNXGhPeU2YtDPokEZUYUuQjWBKC7p0Rf_YhtyBxMNrcIwqPSLGdKp4rF30axOCr2lQGEIADMped1jRIqxf6Ys_g",
-                "type": "str"
-            },
-            {
-                "name": "VAPID_PRIVATE",
-                "value": "NzCGudstM1yR0wHqT1C0oFjQMb9UOPDmLWGycUupKbU",
-                "type": "str"
-            }
-        ]
+        "env": []
     },
     {
         "id": "push_select_tokens1",

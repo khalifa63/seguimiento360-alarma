@@ -558,8 +558,8 @@ adminAuth: {
         pg: require('pg'),
         bcrypt: require('bcryptjs'),
         jwt: require('jsonwebtoken'),
-        dbConfig: { host: 'postgres', port: 5432, user: 'admin', password: 'f3f96f5e81e357488989a0a37bfffee153fb24f91bdf32b7', database: 'seguimiento360_alarmas' },
-        jwtSecret: 'd6e1c387d3000575478344e6f0c6eb2619396a9911d4bacac21b47a6aebce250'
+        dbConfig: { host: 'postgres', port: 5432, user: 'admin', password: process.env.PG_PASSWORD, database: 'seguimiento360_alarmas' },
+        jwtSecret: process.env.JWT_SECRET
     },
 
     /** The maximum number of messages nodes will buffer internally as part of their

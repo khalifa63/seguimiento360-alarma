@@ -118,3 +118,10 @@ tests/firmware/*.o
 # Salida generada de los manuales (HTML y PDF). Se regenera con
 # scripts/manuales/generar.sh desde los .md, que si se versionan.
 docs/manuales/salida/
+vapid.json
+service-account.json
+service-account*.json
+flows_cred.json
+*.bak-*
+.env.*
+*.backup-*

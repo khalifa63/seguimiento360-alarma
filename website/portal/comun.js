@@ -445,7 +445,7 @@ const VERSION_CSS_ESPERADA = '20261027k';
 
 async function forzarCssActualizado() {
   try {
-    const enlace = document.querySelector('link[rel="stylesheet"][href*="estilo.css"]');
+    const enlace = document.querySelector('link[rel="stylesheet"][href*="estilo"]');
     if (!enlace) return;
 
     // Si la URL ya lleva la version esperada, no hay nada que hacer

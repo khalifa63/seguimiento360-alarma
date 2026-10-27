@@ -1045,3 +1045,40 @@ Aunque lo anterior lo resuelve solo, para forzarlo a mano:
 - **Android:** candado de la URL > Cookies y datos de sitios > Eliminar
 - **iPhone:** Ajustes > Safari > Borrar historial y datos
 - **La PWA instalada:** desinstalarla y volver a instalarla
+
+## El CSS se sirve con nombre versionado (2026-10-27)
+
+Cambiar el `?v=` de la hoja de estilos **no bastaba** en algunos moviles: si el
+navegador tenia cacheado el propio HTML, seguia pidiendo la version antigua, y
+la app instalada guarda ademas su propia copia.
+
+La solucion definitiva es **cambiar el nombre del archivo**:
+
+    estilo.css  ->  estilo-2026.css
+
+Un nombre nuevo no puede estar en cache: es imposible que el navegador tenga
+una copia. No depende de que el HTML se refresque ni de ningun `?v=`.
+
+### Estado actual
+
+- El portal carga `estilo-2026.css`
+- `estilo.css` se conserva en su sitio, sin usar, por si algo lo pide
+- Ambas copias tienen el mismo contenido
+
+### Al cambiar el CSS de ahora en adelante
+
+Dos opciones:
+
+1. **Cambiar el nombre** (`estilo-2027.css`, `estilo-2027b.css`...) y actualizar
+   el `href` en los seis HTML. Infalible.
+2. Cambiar el contenido y subir el `?v=` en los HTML. Mas comodo, pero depende
+   de que el HTML no este cacheado.
+
+Para cambios importantes, la opcion 1. Para retoques, la 2 suele bastar.
+
+### Aviso sobre `comun.js`
+
+`comun.js` tambien se cachea, y lleva el menu y las funciones del portal. Tiene
+el mismo problema. Ahora mismo se sirve con `?v=`; **si algun dia un cambio en
+ese archivo no llega a los moviles, renombrarlo igual** (`comun-2026.js`) y
+actualizar las referencias en los HTML.

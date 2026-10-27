@@ -1082,3 +1082,50 @@ Para cambios importantes, la opcion 1. Para retoques, la 2 suele bastar.
 el mismo problema. Ahora mismo se sirve con `?v=`; **si algun dia un cambio en
 ese archivo no llega a los moviles, renombrarlo igual** (`comun-2026.js`) y
 actualizar las referencias en los HTML.
+
+## Cabecera del portal: menu hamburguesa (2026-10-27)
+
+La cabecera se reestructuro:
+
+    [marca]                       [Antonio] [☰]
+    ------------------------------------------
+    (al pulsar ☰)
+
+    Panel
+    Nodos
+    Eventos
+    Diagnostico
+    Salir
+
+### Por que
+
+Antes los enlaces, el nombre del usuario y el boton Salir iban todos en la
+misma fila. En un movil se apretaban y el nombre competia con la navegacion.
+
+Ahora el nombre va **fuera del menu**, siempre visible, y la navegacion se
+despliega al pulsar la hamburguesa.
+
+### Como se construye
+
+Todo esta en `cabecera()` de `comun.js`. Devuelve el HTML de la barra y del
+menu; `conectarMenu()` (que llama `conectarSalir()`) es quien lo hace
+funcionar.
+
+El menu:
+- Se abre y se cierra con el boton (las tres lineas forman una X)
+- Se cierra al pulsar fuera
+- Se cierra con la tecla Escape
+- Lleva `aria-expanded` para lectores de pantalla
+- En escritorio se abre como panel flotante a la derecha
+
+### Si se anade una pagina nueva
+
+Anadir el `<div id="cabecera"></div>` al principio del `body` y el script:
+
+    import { cabecera, conectarSalir, exigirSesion } from '/portal/comun-2026b.js';
+    if (exigirSesion()) {
+      document.getElementById('cabecera').innerHTML = cabecera('nombre-pagina');
+      conectarSalir();
+    }
+
+Y anadir su entrada a la lista `p` dentro de `cabecera()`.

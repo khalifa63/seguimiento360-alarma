@@ -4,13 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Panel - Seguimiento 360</title>
-<link rel="stylesheet" href="estilo.css?v=20261025b">
+<link rel="stylesheet" href="estilo.css?v=20261027f">
 </head>
 <body>
 <div id="cabecera"></div>
 <main>
   <h2 class="titulo">Panel</h2>
   <p class="desc" id="sub">Resumen de tus sitios y dispositivos</p>
+  <div id="aviso-push-zona"></div>
   <div id="contenido">
     <div class="cargando"><div class="girador"></div>Cargando...</div>
   </div>
@@ -18,11 +19,14 @@
 
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, hace,
-         evento, fecha } from '/portal/comun.js?v=20261027a';
+         evento, fecha, avisoNotificaciones } from '/portal/comun.js?v=20261027f';
 
 if (!exigirSesion()) throw new Error('sin sesion');
 document.getElementById('cabecera').innerHTML = cabecera('panel');
 conectarSalir();
+
+// Aviso si este dispositivo no tiene las notificaciones activadas
+avisoNotificaciones('aviso-push-zona');
 
 const cont = document.getElementById('contenido');
 

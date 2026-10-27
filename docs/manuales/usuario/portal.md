@@ -113,6 +113,83 @@ la web. Si lo quieres de vuelta, vuelve a anadirlo.
 
 ---
 
+## Recibir avisos en el movil
+
+Cuando algo pasa en tu casa, el sistema puede avisarte al movil. Para eso hay
+que **activar las notificaciones** en cada aparato donde quieras recibirlas.
+
+### Como activarlas
+
+Lo mas facil es desde el propio panel:
+
+1. Entra al portal y mira arriba del todo.
+2. Si ves un recuadro que dice **Activa las notificaciones de alarma**, pulsa el
+   boton azul.
+3. El navegador te preguntara si quieres permitir las notificaciones. Pulsa
+   **Permitir**.
+4. Listo. El recuadro desaparece y ya recibes los avisos.
+
+Si no ves ese recuadro, es que en ese aparato ya estan activadas.
+
+### Si le diste a "Bloquear" sin querer
+
+El navegador **no vuelve a preguntar** si una vez dijiste que no. Hay que
+abrirlo a mano:
+
+1. Fijate en el **candado** que hay a la izquierda de la direccion web.
+2. Pulsalo y busca **Notificaciones**.
+3. Cambialo a **Permitir**.
+4. Recarga la pagina y pulsa otra vez el boton azul.
+
+Tambien puedes usar la pagina de ayuda, que te dice que falta:
+
+    https://seguimiento360.com/portal/diagnostico.html
+
+### Que avisos llegan
+
+No todo avisa. Solo lo importante:
+
+| Que pasa | Te avisa | Como suena |
+|---|---|---|
+| Alarma del sensor (ALRM) | Si, urgente | Vibra fuerte y no se quita hasta que la tocas |
+| Puerta, movimiento | Si, normal | Vibra un poco |
+| El sensor sigue vivo (latido) | No | Nada |
+
+**Los latidos no avisan.** Son solo para que el sistema sepa que el sensor
+funciona. Si avisaran cada 10 minutos, serian molestos.
+
+### Como se ve el aviso
+
+    🚨 ALARMA — Garaje
+    Sensor Ultrasonico Garaje · 7 cm · bateria 95%
+
+Sale la habitacion en el titulo y los datos en el mensaje.
+
+Si tocas el aviso, se abre el panel para que veas que ha pasado.
+
+### Preguntas sobre los avisos
+
+**¿Necesito tener el navegador abierto?**
+En el movil, no. Los avisos llegan aunque tengas el navegador cerrado y el
+telefono bloqueado. En el computador si hace falta que el navegador este
+abierto, aunque sea minimizado.
+
+**¿Por que no suena una sirena?**
+Los navegadores no dejan poner sonidos propios. Se usa el sonido de aviso que
+tengas puesto en el telefono. Si lo tienes en silencio, no sonara, pero si
+vibrara.
+
+**¿Por que no me vibra?**
+Porque el telefono esta en modo "No molestar", o porque lleva mucho rato sin
+tocarse y Android lo tiene dormido. Tocalo y vuelve a intentarlo.
+
+**¿Puedo recibirlos en varios aparatos?**
+Si. Activa las notificaciones en cada uno. El movil y el computador pueden
+recibir el mismo aviso a la vez.
+
+**Si borro los datos del navegador, ¿dejo de recibirlos?**
+Si. Vuelve a entrar al portal y activalos otra vez con el boton azul.
+
 ## Preguntas frecuentes
 
 **Me registre pero no me llego ningun correo.**

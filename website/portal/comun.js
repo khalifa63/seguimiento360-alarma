@@ -171,7 +171,7 @@ function urlBase64ToUint8Array(base64String) {
   return salida;
 }
 
-async function registrarPushDelNavegador() {
+export async function registrarPushDelNavegador() {
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
@@ -290,3 +290,137 @@ navigator.serviceWorker.addEventListener('message', (event) => {
 });
 
 comprobarVersionServiceWorker();
+
+
+/* ------------------------------------------------------------------
+   Aviso de notificaciones en el panel
+
+   Un usuario nuevo puede no tenerlas activadas: bien porque rechazo el
+   permiso, bien porque nunca llego a aceptarlo.
+
+   Chrome solo pregunta una vez. Si el usuario dijo "no", no vuelve a
+   ofrecerlo nunca, asi que hay que darle una via manual.
+   ------------------------------------------------------------------ */
+
+/* Estado de las notificaciones en este dispositivo */
+export async function estadoNotificaciones() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    return { soportado: false };
+  }
+
+  const permiso = Notification.permission;
+  let suscrito = false;
+
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg && reg.pushManager) {
+      const sub = await reg.pushManager.getSubscription();
+      suscrito = !!sub;
+    }
+  } catch (e) {
+    suscrito = false;
+  }
+
+  return { soportado: true, permiso, suscrito };
+}
+
+function avisoDescartado() {
+  try { return sessionStorage.getItem('s360_aviso_push') === 'descartado'; }
+  catch (e) { return false; }
+}
+
+function descartarAviso() {
+  try { sessionStorage.setItem('s360_aviso_push', 'descartado'); } catch (e) {}
+}
+
+/* Pinta el aviso dentro del contenedor indicado */
+export async function avisoNotificaciones(idContenedor) {
+  const caja = document.getElementById(idContenedor);
+  if (!caja) return;
+
+  const estado = await estadoNotificaciones();
+
+  if (!estado.soportado) return;
+  if (avisoDescartado()) return;
+
+  // Si ya esta todo listo, se quita el aviso si estuviera puesto
+  if (estado.permiso === 'granted' && estado.suscrito) {
+    caja.innerHTML = '';
+    return;
+  }
+
+  let titulo, texto, boton;
+
+  if (estado.permiso === 'denied') {
+    titulo = 'Notificaciones bloqueadas';
+    texto = 'Tu navegador tiene bloqueadas las notificaciones para este sitio. ' +
+            'Abrelas en el candado de la barra de direcciones para recibir las alarmas.';
+    boton = 'Ya las active';
+  } else {
+    titulo = 'Activa las notificaciones de alarma';
+    texto = 'Ahora mismo no recibirás avisos en este dispositivo. ' +
+            'Actívalas para que te llegue la alarma aunque no tengas el portal abierto.';
+    boton = 'Activar notificaciones';
+  }
+
+  caja.innerHTML =
+    '<div class="aviso-push" id="aviso-push">' +
+      '<div class="aviso-push-icono">🔔</div>' +
+      '<div class="aviso-push-texto">' +
+        '<strong>' + titulo + '</strong>' +
+        '<span>' + texto + '</span>' +
+      '</div>' +
+      '<div class="aviso-push-acciones">' +
+        '<button class="btn-aviso-principal" id="btn-aviso-activar">' + boton + '</button>' +
+        '<button class="btn-aviso-secundario" id="btn-aviso-cerrar" title="Ocultar">✕</button>' +
+      '</div>' +
+      '<div class="aviso-push-estado" id="aviso-push-estado"></div>' +
+    '</div>';
+
+  document.getElementById('btn-aviso-cerrar').addEventListener('click', () => {
+    descartarAviso();
+    caja.innerHTML = '';
+  });
+
+  document.getElementById('btn-aviso-activar').addEventListener('click', async () => {
+    const estadoCaja = document.getElementById('aviso-push-estado');
+    const botonActivar = document.getElementById('btn-aviso-activar');
+    botonActivar.disabled = true;
+    const decir = (t) => { if (estadoCaja) estadoCaja.textContent = t; };
+
+    try {
+      if (Notification.permission === 'denied') {
+        // Puede haberlo activado en el candado: se vuelve a comprobar
+        const ahora = await estadoNotificaciones();
+        if (ahora.permiso === 'denied') {
+          decir('Sigue bloqueado. Ábrelo en el candado de la barra de direcciones.');
+          botonActivar.disabled = false;
+          return;
+        }
+      }
+
+      decir('Pidiendo permiso…');
+      const permiso = await Notification.requestPermission();
+      if (permiso !== 'granted') {
+        decir('No se concedió el permiso.');
+        botonActivar.disabled = false;
+        return;
+      }
+
+      decir('Registrando este dispositivo…');
+      await registrarPushDelNavegador();
+
+      const nuevo = await estadoNotificaciones();
+      if (nuevo.suscrito) {
+        decir('¡Listo! Ya recibirás los avisos de alarma.');
+        setTimeout(() => { caja.innerHTML = ''; }, 2500);
+      } else {
+        decir('No se pudo completar. Prueba desde la página de diagnóstico.');
+        botonActivar.disabled = false;
+      }
+    } catch (e) {
+      decir('Error: ' + e.message);
+      botonActivar.disabled = false;
+    }
+  });
+}

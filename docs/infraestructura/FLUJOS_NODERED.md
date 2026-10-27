@@ -802,3 +802,72 @@ El nodo lo detecta y avisa en el log:
     PUSH token caducado (410), conviene borrarlo
 
 No se borra automaticamente todavia; conviene limpiarlos de vez en cuando.
+
+## Actualizacion del Service Worker (2026-10-27)
+
+### El sintoma
+
+En el portatil las notificaciones mostraban **el JSON sin procesar**:
+
+    Seguimiento 360
+    {"title":"🚨 ALARMA — Garaje","body":"Sensor Ultrasónico Garaje · 4 cm…"}
+
+En el movil se veian bien. La causa: el portatil seguia usando una **version
+antigua** del Service Worker, que leia el aviso con `event.data.text()` en
+lugar de `JSON.parse`.
+
+### Por que no se actualizaba solo
+
+Dos motivos que se suman:
+
+**1. Chrome no sustituye un Service Worker en marcha.** Espera a que se cierren
+**todas** las pestanas del sitio. Si el portal se queda abierto, puede tardar
+dias. Hacia falta forzar la actualizacion.
+
+**2. Cloudflare lo cacheaba 4 horas.** El archivo se servia con
+`cache-control: max-age=14400`, asi que el navegador ni siquiera veia la
+version nueva.
+
+### La solucion
+
+**a) El Service Worker lleva un numero de version**
+
+    const VERSION = '2026-10-27-3';
+
+Al cambiarlo hay que **subir ese numero**. Es lo primero que hay que tocar al
+modificar el archivo.
+
+**b) El portal pregunta la version al abrirse**
+
+`comun.js` envia un mensaje por `MessageChannel` y compara:
+
+    const VERSION_SW_ESPERADA = '2026-10-27-3';
+
+Si no coincide, llama a `reg.update()`, activa el que este en espera y recarga
+**una sola vez** (marca en `sessionStorage` para no entrar en bucle).
+
+Detalle importante: el Service Worker responde por `event.ports[0]`, **no** por
+`event.source`. Con `MessageChannel`, `event.source` es `null`.
+
+**c) Se registra con la version en la URL**
+
+    navigator.serviceWorker.register('service-worker.js?v=2026-10-27-3')
+
+Eso esquiva la cache de Cloudflare: cada version es una URL distinta.
+
+### Al modificar el Service Worker
+
+1. Subir `const VERSION` en `service-worker.js`.
+2. Subir `VERSION_SW_ESPERADA` en `comun.js` (el mismo valor).
+3. Subir el `?v=` del `register()` en los HTML.
+
+Si no se hace, los usuarios pueden seguir con la version vieja durante dias.
+
+### Respaldo por si llega un aviso mal formado
+
+Aunque todo este al dia, un aviso podria llegar como texto. El Service Worker
+lo detecta e intenta reinterpretarlo, para que nunca se muestre un JSON crudo:
+
+    if (!datos.title && datos.body.trim().startsWith('{')) {
+      try { datos = JSON.parse(datos.body); } catch (e) { }
+    }

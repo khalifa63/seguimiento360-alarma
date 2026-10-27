@@ -218,3 +218,75 @@ registrarPushDelNavegador();
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) registrarPushDelNavegador();
 });
+
+
+/* ------------------------------------------------------------------
+   Actualizacion del Service Worker
+
+   Chrome no actualiza el Service Worker hasta que se cierran todas
+   las pestanas del sitio, y a veces tarda dias. Mientras tanto, los
+   avisos push pueden verse sin procesar (JSON crudo).
+
+   Aqui se comprueba la version cada vez que se abre el portal y, si
+   no coincide con la que corre, se fuerza la actualizacion.
+   ------------------------------------------------------------------ */
+const VERSION_SW_ESPERADA = '2026-10-27-3';
+
+async function comprobarVersionServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
+
+    // Preguntar la version al Service Worker activo
+    const version = await new Promise((resolver) => {
+      const canal = new MessageChannel();
+      const temporizador = setTimeout(() => resolver(null), 2000);
+
+      canal.port1.onmessage = (ev) => {
+        clearTimeout(temporizador);
+        if (ev.data && ev.data.tipo === 'version') resolver(ev.data.version);
+        else resolver(null);
+      };
+
+      const destino = reg.active || reg.waiting || reg.installing;
+      if (!destino) { clearTimeout(temporizador); resolver(null); return; }
+      destino.postMessage({ tipo: 'version' }, [canal.port2]);
+    });
+
+    if (version === VERSION_SW_ESPERADA) return;
+
+    // Si no hubo respuesta (null), el Service Worker puede ser antiguo y no
+    // saber responder. Se actualiza, pero sin recargar en bucle.
+    const sinRespuesta = version === null;
+
+    console.warn('Service Worker desactualizado (' + version + ' != ' + VERSION_SW_ESPERADA + '). Actualizando…');
+    await reg.update();
+
+    // Si hay uno en espera, activarlo ya
+    if (reg.waiting) {
+      reg.waiting.postMessage({ tipo: 'activar-ya' });
+    }
+
+    // Recargar una sola vez para que el nuevo tome el control.
+    // Si no hubo respuesta, se espera mas antes de recargar y solo una vez.
+    const marca = 'sw_recargado_' + VERSION_SW_ESPERADA;
+    if (!sessionStorage.getItem(marca)) {
+      sessionStorage.setItem(marca, '1');
+      setTimeout(() => location.reload(), sinRespuesta ? 2500 : 800);
+    }
+  } catch (e) {
+    // Si falla, no se interrumpe la navegacion
+    console.warn('No se pudo comprobar la version del Service Worker:', e.message);
+  }
+}
+
+// Al recibir avisos del propio Service Worker
+navigator.serviceWorker.addEventListener('message', (event) => {
+  if (event.data && event.data.tipo === 'suscripcion-cambiada') {
+    registrarPushDelNavegador();
+  }
+});
+
+comprobarVersionServiceWorker();

@@ -176,7 +176,7 @@ async function activar() {
     // Registrar el Service Worker si hace falta
     if (!estado.reg) {
       log('Registrando Service Worker…');
-      await navigator.serviceWorker.register('service-worker.js');
+      await navigator.serviceWorker.register('service-worker.js?v=2026-10-27-3');
       await navigator.serviceWorker.ready;
       log('Service Worker listo.');
     }

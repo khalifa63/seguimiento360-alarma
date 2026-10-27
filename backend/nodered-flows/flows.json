@@ -1331,7 +1331,7 @@
         "type": "function",
         "z": "7bfa17039520b422",
         "name": "Parsear evento a params",
-        "func": "const parts = msg.topic.split('/');\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\nmsg.params = [\n  tid,\n  sid,\n  hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  (d.distance_cm != null ? d.distance_cm : null),\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n// Segundo mensaje: refrescar last_seen del nodo\nconst msgHb = {\n  params: [d.mac || null, hubMac],\n  _heartbeat: true\n};\n\nreturn [msg, msgHb];",
+        "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Mensaje 1: INSERT event (como estaba antes)\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  (d.distance_cm != null ? d.distance_cm : null),\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// Mensaje 2: push solo para alarmas\nconst ev = String(d.event).toUpperCase();\nconst esAlarma = [\"ALRM\",\"GAS\",\"SMOKE\",\"FIRE\",\"PANIC\",\"SOS\",\"SEIS\",\"HUM\",\"DOOR\",\"MOV\"].some(p => ev.startsWith(p));\nif (!esAlarma) { return [msg, null]; }\n\nconst msgPush = {\n  alarma: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\"),\n  payload: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\"),\n  node_mac: d.mac || null,\n  hub_mac: hubMac,\n  event: ev\n};\nreturn [msg, msgPush];",
         "outputs": 2,
         "timeout": 0,
         "noerr": 0,
@@ -1342,7 +1342,7 @@
                 "d68596e759d04a45"
             ],
             [
-                "a1b2c3d4e5f60701"
+                "push_select_tokens1"
             ]
         ]
     },
@@ -2043,9 +2043,9 @@
     },
     {
         "id": "a1b2c3d4e5f60701",
-        "type": "postgresql",
+        "type": "function",
         "z": "7bfa17039520b422",
-        "name": "UPDATE node heartbeat",
+        "name": "Firebase Push Real",
         "query": "UPDATE nodes SET last_seen = NOW()\nWHERE mac_address = $1\n  AND hub_id = (SELECT id FROM hubs WHERE serial_number = $2)\nRETURNING id, mac_address, last_seen;",
         "postgreSQLConfig": "s360_pg_alarmas",
         "split": false,
@@ -2055,6 +2055,49 @@
         "y": 40,
         "wires": [
             []
+        ],
+        "func": "node.warn(\"R1 entra, filas=\" + (Array.isArray(msg.payload) ? msg.payload.length : typeof msg.payload));\n\nconst webpush = global.get(\"webpush\");\nconst fsMod = global.get(\"fsPush\");\n\n// El nodo postgresql entrega las filas en msg.payload\nlet filas = msg.payload;\nif (!Array.isArray(filas)) {\n  filas = filas && filas.token ? [filas] : [];\n}\nnode.warn(\"R2 filas normalizadas=\" + filas.length);\n\nif (filas.length === 0) { node.warn(\"R3 sin tokens\"); return null; }\n\nconst vapid = JSON.parse(fsMod.readFileSync(\"/data/vapid.json\", \"utf8\"));\nwebpush.setVapidDetails(\"mailto:admin@seguimiento360.com\", vapid.publicKey, vapid.privateKey);\n\n// El texto de la alarma viaja en msg.alarma (lo puso el parser)\nconst texto = msg.alarma || \"Alarma en Seguimiento 360\";\nconst cuerpo = JSON.stringify({ title: \"Seguimiento 360\", body: texto, tag: \"alarma-s360\" });\n\nfilas.forEach(function (fila) {\n  let sub;\n  try { sub = typeof fila.token === \"string\" ? JSON.parse(fila.token) : fila.token; }\n  catch (e) { node.error(\"R4 token invalido: \" + e.message); return; }\n\n  webpush.sendNotification(sub, cuerpo)\n    .then(r => node.warn(\"R5 ENVIADO status=\" + r.statusCode))\n    .catch(e => node.error(\"R5 FALLO \" + e.statusCode + \" \" + String(e.body).slice(0,150)));\n});\n\nreturn null;",
+        "libs": [],
+        "initialize": "",
+        "finalize": "",
+        "noerr": 0,
+        "timeout": 0
+    },
+    {
+        "id": "push_cfg_tab_0001",
+        "type": "tab",
+        "label": "Config Push",
+        "disabled": false,
+        "info": "Claves VAPID para notificaciones push",
+        "env": [
+            {
+                "name": "VAPID_PUBLIC",
+                "value": "BNXGhPeU2YtDPokEZUYUuQjWBKC7p0Rf_YhtyBxMNrcIwqPSLGdKp4rF30axOCr2lQGEIADMped1jRIqxf6Ys_g",
+                "type": "str"
+            },
+            {
+                "name": "VAPID_PRIVATE",
+                "value": "NzCGudstM1yR0wHqT1C0oFjQMb9UOPDmLWGycUupKbU",
+                "type": "str"
+            }
+        ]
+    },
+    {
+        "id": "push_select_tokens1",
+        "type": "postgresql",
+        "z": "7bfa17039520b422",
+        "name": "SELECT tokens push",
+        "query": "SELECT token FROM user_fcm_tokens ORDER BY id DESC LIMIT 5;",
+        "postgreSQLConfig": "s360_pg_alarmas",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 660,
+        "y": 40,
+        "wires": [
+            [
+                "a1b2c3d4e5f60701"
+            ]
         ]
     }
 ]

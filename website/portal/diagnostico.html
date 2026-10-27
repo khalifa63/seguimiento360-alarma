@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="vapid-public" content="BNXGhPeU2YtDPokEZUYUuQjWBKC7p0Rf_YhtyBxMNrcIwqPSLGdKp4rF30axOCr2lQGEIADMped1jRIqxf6Ys_g">
+<title>Diagnostico de notificaciones - Seguimiento 360</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0f1420; color: #e8ecf4; line-height: 1.5;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  .sub { color: #8e9bb3; font-size: .85rem; margin-bottom: 18px; }
+  .fila {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #1a2131; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+    border: 1px solid #263049;
+  }
+  .fila .eti { font-size: .9rem; }
+  .fila .val { font-size: .85rem; font-weight: 600; }
+  .ok    { color: #4ade80; }
+  .mal   { color: #f87171; }
+  .aviso { color: #fbbf24; }
+  .neutro{ color: #8e9bb3; }
+  button {
+    width: 100%; padding: 14px; margin-top: 14px;
+    font-size: 1rem; font-weight: 600;
+    border: 0; border-radius: 10px;
+    background: #4f7cff; color: #fff; cursor: pointer;
+  }
+  button:disabled { background: #2c3448; opacity: .5; cursor: default; }
+  button.sec { background: #2a3348; color: #cfd8e8; }
+  #log {
+    margin-top: 16px; padding: 12px;
+    background: #0b0f18; border-radius: 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .78rem; color: #9fb0cc;
+    white-space: pre-wrap; word-break: break-all;
+    border: 1px solid #1e2739;
+    max-height: 40vh; overflow-y: auto;
+  }
+  .oculto { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Diagnóstico de notificaciones</h1>
+<div class="sub">Seguimiento 360 · Esta página comprueba el estado de este dispositivo</div>
+
+<div class="fila"><span class="eti">Permiso de notificaciones</span><span class="val neutro" id="v-permiso">…</span></div>
+<div class="fila"><span class="eti">Service Worker</span><span class="val neutro" id="v-sw">…</span></div>
+<div class="fila"><span class="eti">Suscripción push</span><span class="val neutro" id="v-sub">…</span></div>
+<div class="fila"><span class="eti">Sesión iniciada</span><span class="val neutro" id="v-sesion">…</span></div>
+<div class="fila"><span class="eti">Usuario</span><span class="val neutro" id="v-usuario">…</span></div>
+
+<button id="btn-activar">Activar notificaciones en este dispositivo</button>
+<button id="btn-probar" class="sec">Mostrar una notificación de prueba</button>
+<button id="btn-refrescar" class="sec">Volver a comprobar</button>
+
+<div id="log" class="oculto"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function log(texto) {
+  const caja = $('log');
+  caja.classList.remove('oculto');
+  const hora = new Date().toLocaleTimeString();
+  caja.textContent += '[' + hora + '] ' + texto + '\n';
+  caja.scrollTop = caja.scrollHeight;
+}
+
+function pintar(id, texto, clase) {
+  const el = $(id);
+  el.textContent = texto;
+  el.className = 'val ' + clase;
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const salida = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) salida[i] = raw.charCodeAt(i);
+  return salida;
+}
+
+async function revisar() {
+  // 1. Permiso
+  if (!('Notification' in window)) {
+    pintar('v-permiso', 'no soportado', 'mal');
+  } else if (Notification.permission === 'granted') {
+    pintar('v-permiso', 'concedido', 'ok');
+  } else if (Notification.permission === 'denied') {
+    pintar('v-permiso', 'BLOQUEADO', 'mal');
+  } else {
+    pintar('v-permiso', 'sin decidir', 'aviso');
+  }
+
+  // 2. Service Worker
+  let reg = null;
+  if (!('serviceWorker' in navigator)) {
+    pintar('v-sw', 'no soportado', 'mal');
+  } else {
+    try {
+      reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        // No está registrado: registrarlo ahora
+        log('Service Worker no encontrado. Registrando…');
+        try {
+          reg = await navigator.serviceWorker.register('service-worker.js', { scope: './' });
+          log('Registro lanzado. Esperando activación…');
+          reg = await navigator.serviceWorker.ready;
+          log('Service Worker activo.');
+        } catch (e2) {
+          log('FALLO al registrar: ' + e2.name + ' - ' + e2.message);
+          pintar('v-sw', 'error al registrar', 'mal');
+          reg = null;
+        }
+      }
+
+      if (reg) {
+        if (reg.active) pintar('v-sw', 'activo', 'ok');
+        else if (reg.installing) pintar('v-sw', 'instalando', 'aviso');
+        else if (reg.waiting) pintar('v-sw', 'en espera', 'aviso');
+        else pintar('v-sw', 'registrado', 'aviso');
+      }
+    } catch (e) {
+      pintar('v-sw', 'error', 'mal');
+      log('Error Service Worker: ' + e.name + ' - ' + e.message);
+    }
+  }
+
+  // 3. Suscripción
+  if (!reg || !('PushManager' in window)) {
+    pintar('v-sub', 'no disponible', 'mal');
+  } else {
+    try {
+      const sub = await reg.pushManager.getSubscription();
+      pintar('v-sub', sub ? 'activa' : 'ninguna', sub ? 'ok' : 'mal');
+    } catch (e) {
+      pintar('v-sub', 'error', 'mal');
+      log('Error suscripción: ' + e.message);
+    }
+  }
+
+  // 4. Sesión
+  let token = null;
+  try { token = localStorage.getItem('s360_token'); } catch (e) {}
+  pintar('v-sesion', token ? 'sí' : 'NO', token ? 'ok' : 'mal');
+
+  let usuario = null;
+  try { usuario = JSON.parse(localStorage.getItem('s360_user') || 'null'); } catch (e) {}
+  pintar('v-usuario', usuario && (usuario.full_name || usuario.email) ? (usuario.full_name || usuario.email) : '—', usuario ? 'ok' : 'neutro');
+
+  return { reg, token, usuario };
+}
+
+async function activar() {
+  $('btn-activar').disabled = true;
+  log('Iniciando activación…');
+
+  try {
+    const estado = await revisar();
+
+    if (!estado.token) {
+      log('AVISO: no hay sesión iniciada. El dispositivo se registrará,');
+      log('pero quedará sin usuario asociado hasta que entres al portal.');
+    }
+
+    // Registrar el Service Worker si hace falta
+    if (!estado.reg) {
+      log('Registrando Service Worker…');
+      await navigator.serviceWorker.register('service-worker.js');
+      await navigator.serviceWorker.ready;
+      log('Service Worker listo.');
+    }
+
+    // Pedir permiso
+    if (Notification.permission !== 'granted') {
+      log('Pidiendo permiso de notificaciones…');
+      const pedido = await Notification.requestPermission();
+      log('Permiso: ' + pedido);
+      if (pedido !== 'granted') {
+        log('No se puede continuar sin permiso.');
+        await revisar();
+        $('btn-activar').disabled = false;
+        return;
+      }
+    }
+
+    // Suscribir
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+
+    if (sub) {
+      log('Ya existía una suscripción. Se reutiliza.');
+    } else {
+      const meta = document.querySelector('meta[name="vapid-public"]');
+      const clave = meta ? (meta.getAttribute('content') || '').trim() : '';
+      log('Clave VAPID leída: ' + (clave ? clave.slice(0, 25) + '…' : 'VACÍA'));
+      if (!clave || clave.indexOf('PLACEHOLDER') === 0) {
+        log('ERROR: falta la clave pública VAPID en la página.');
+        await revisar();
+        $('btn-activar').disabled = false;
+        return;
+      }
+      log('Suscribiendo al servicio push…');
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(clave)
+      });
+      log('Suscripción creada.');
+    }
+
+    log('Endpoint: ' + sub.endpoint.slice(0, 60) + '…');
+
+    // Enviar al servidor
+    if (estado.token) {
+      log('Enviando al servidor…');
+      const r = await fetch('/api/fcm/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + estado.token
+        },
+        body: JSON.stringify({ subscription: sub })
+      });
+      const texto = await r.text();
+      log('Respuesta del servidor (' + r.status + '): ' + texto);
+    } else {
+      log('Sin sesión: no se envió al servidor.');
+    }
+
+    await revisar();
+    log('Proceso terminado.');
+  } catch (e) {
+    log('ERROR: ' + e.message);
+    await revisar();
+  }
+
+  $('btn-activar').disabled = false;
+}
+
+$('btn-activar').addEventListener('click', activar);
+$('btn-refrescar').addEventListener('click', () => { revisar(); log('Comprobación repetida.'); });
+$('btn-probar').addEventListener('click', async () => {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification('Seguimiento 360', {
+      body: 'Notificación de prueba desde el diagnóstico',
+      icon: '/portal/icono.png'
+    });
+    log('Notificación de prueba enviada.');
+  } catch (e) {
+    log('Error al mostrar la prueba: ' + e.message);
+  }
+});
+
+revisar();
+</script>
+</body>
+</html>

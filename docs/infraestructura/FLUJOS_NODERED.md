@@ -635,3 +635,42 @@ Y para comprobar que llega la notificacion, publicar una alarma y mirar el log:
 
     docker logs --tail 20 nodered
     # debe aparecer: R5 ENVIADO status=201
+
+## Pagina de diagnostico de notificaciones
+
+    https://seguimiento360.com/portal/diagnostico.html
+
+Sirve para comprobar, **desde el propio dispositivo**, por que no llegan las
+notificaciones. Es util sobre todo en moviles, donde Chrome no tiene consola
+de desarrollador.
+
+Muestra el estado de cuatro cosas:
+
+| Comprobacion | Que significa si falla |
+|---|---|
+| Permiso de notificaciones | El usuario (o Android) bloqueo Chrome |
+| Service Worker | No esta registrado: se registra solo al abrir la pagina |
+| Suscripcion push | El dispositivo nunca se suscribio |
+| Sesion iniciada | Sin sesion, el servidor no sabe a quien asociar el dispositivo |
+
+Tiene tres botones:
+
+- **Activar notificaciones**: hace todo el proceso a mano (registra el Service
+  Worker, pide permiso, se suscribe y envia el token al servidor). Muestra cada
+  paso en un registro visible en pantalla.
+- **Mostrar notificacion de prueba**: comprueba que el dispositivo puede mostrar
+  notificaciones, sin pasar por el servidor.
+- **Volver a comprobar**: repite las cuatro comprobaciones.
+
+### Por que existe
+
+En Android no hay `DevTools`. Sin esta pagina, diagnosticar un movil exige
+conectarlo por USB y usar `chrome://inspect`, que ademas falla a menudo por
+falta de drivers o por no aceptar el dialogo de depuracion.
+
+### Nota sobre Chrome en Android
+
+El Service Worker aparece como `STOPPED` en `chrome://serviceworker-internals/`.
+Eso es **normal**: Chrome lo detiene cuando no hay pestanas abiertas del sitio.
+Se despierta solo cuando llega un push. Lo que importa es que exista
+suscripcion, no que el Service Worker este corriendo.

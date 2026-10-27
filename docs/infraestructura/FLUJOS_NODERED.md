@@ -724,3 +724,81 @@ Tambien se anadio:
 - `tag`: agrupa las alarmas del mismo tipo en una sola notificacion
 - `renotify`: avisa otra vez aunque el tag sea el mismo
 - Lectura del cuerpo como JSON (con respaldo a texto plano)
+
+## Notificaciones segun la gravedad (2026-10-27)
+
+La notificacion ya no es un texto plano: cambia de titulo, cuerpo y vibracion
+segun el tipo de evento.
+
+### Tres niveles
+
+| Nivel | Eventos | Titulo | Vibracion | Se queda fija |
+|---|---|---|---|---|
+| critica | FIRE, GAS, SMOKE, PANIC, SOS, SEIS, ALRM | 🚨 ALARMA | 5 pulsos largos + uno final | Si |
+| media | DOOR, MOV, HUM | ⚠️ AVISO | 3 pulsos + uno final | No |
+| aviso | el resto | ℹ️ INFO | 2 pulsos | No |
+
+**Los latidos (HEAR) no generan notificacion.** Solo sirven para actualizar
+`last_seen`, asi que no molestan al usuario.
+
+### Contenido del aviso
+
+El parser arma un objeto `msg.push` con los datos del evento:
+
+    {
+      event, gravedad, nodo, habitacion, ubicacion,
+      distancia, bateria, secuencia
+    }
+
+El nodo de push lo convierte en:
+
+    Titulo:  🚨 ALARMA — Garaje
+    Cuerpo:  Sensor Ultrasonico Garaje · 7 cm · bateria 95% · Casa Principal
+
+### Sobre el sonido
+
+**Web Push no permite elegir un archivo de audio propio.** El navegador lo
+ignora. Lo unico que se puede hacer es `silent: false`, es decir, dejar que
+Android use el sonido de notificacion que el usuario tenga configurado.
+
+Para un sonido personalizado (una sirena propia) haria falta una app nativa:
+Firebase con un canal de notificacion propio. Es la misma razon por la que
+Gotify tampoco suena distinto.
+
+### La vibracion tiene limites en Android
+
+- El movil debe estar **despierto** (pantalla encendida o recien usada). En
+  reposo profundo (Doze) Android suspende las vibraciones.
+- Si el usuario tiene **silencio** o **No molestar**, la vibracion puede
+  anularse.
+
+### Fuga de duplicados (corregido)
+
+El endpoint hacia `INSERT` a secas, asi que **cada vez que el portal se abria
+se anadia una fila nueva** del mismo dispositivo. Con 11 filas, una sola alarma
+generaba 11 notificaciones.
+
+Corregido en dos sitios:
+
+1. **Indice unico** sobre el endpoint del dispositivo:
+
+       CREATE UNIQUE INDEX user_fcm_tokens_endpoint_uidx
+       ON user_fcm_tokens ((token->>'endpoint'));
+
+2. **El endpoint hace UPSERT** en lugar de INSERT:
+
+       INSERT INTO user_fcm_tokens (...) VALUES (...)
+       ON CONFLICT ((token->>'endpoint')) DO UPDATE
+       SET user_id = EXCLUDED.user_id, ..., updated_at = NOW();
+
+Ademas, el `SELECT` del push ya no lleva `LIMIT 10`: envia a **todos** los
+dispositivos del tenant duenno del hub.
+
+### Tokens caducados
+
+Si el usuario borra los datos del navegador, Google responde **404** o **410**.
+El nodo lo detecta y avisa en el log:
+
+    PUSH token caducado (410), conviene borrarlo
+
+No se borra automaticamente todavia; conviene limpiarlos de vez en cuando.

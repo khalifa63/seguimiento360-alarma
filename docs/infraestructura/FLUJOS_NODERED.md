@@ -674,3 +674,53 @@ El Service Worker aparece como `STOPPED` en `chrome://serviceworker-internals/`.
 Eso es **normal**: Chrome lo detiene cuando no hay pestanas abiertas del sitio.
 Se despierta solo cuando llega un push. Lo que importa es que exista
 suscripcion, no que el Service Worker este corriendo.
+
+## PWA instalable e iconos (2026-10-27)
+
+Android marca las notificaciones como **"posible spam"** cuando llegan desde un
+sitio web que no esta instalado como aplicacion. Instalar la PWA resuelve el
+aviso, porque el sistema pasa a tratarla como app propia.
+
+### Requisitos que Chrome exige para ofrecer "Instalar aplicacion"
+
+| Requisito | Estado |
+|---|---|
+| `manifest.json` valido | Si |
+| `name` y `short_name` | Si |
+| `start_url` | `/portal/` |
+| `display` | `standalone` |
+| Icono de 192x192 | Si |
+| Icono de 512x512 | Si |
+| Service Worker con handler `fetch` o `push` | Si |
+| HTTPS | Si |
+
+**El icono era lo que faltaba.** El manifest apuntaba a `/portal/icono.png`,
+que no existia: Chrome descartaba la instalacion y solo ofrecia "Crear acceso
+directo".
+
+### Los iconos
+
+Se generan con `website/portal/generar-iconos.js`, que **no necesita
+dependencias**: dibuja pixel a pixel y escribe el PNG a mano con `zlib`.
+
+    node website/portal/generar-iconos.js
+
+Produce `icono-192.png`, `icono-512.png` e `icono.png` (escudo azul con check,
+sobre fondo oscuro, siguiendo los colores del portal).
+
+### Service Worker: se anadio el manejo del click
+
+El Service Worker anterior ignoraba el evento `notificationclick`, asi que al
+tocar la notificacion no pasaba nada. Ahora abre el panel del portal, o trae al
+frente la pestana si ya estaba abierta:
+
+    self.addEventListener('notificationclick', (event) => {
+      event.notification.close();
+      // busca una pestana del portal y la enfoca; si no, abre una nueva
+    });
+
+Tambien se anadio:
+- `badge`: el icono pequeno de la barra de estado
+- `tag`: agrupa las alarmas del mismo tipo en una sola notificacion
+- `renotify`: avisa otra vez aunque el tag sea el mismo
+- Lectura del cuerpo como JSON (con respaldo a texto plano)

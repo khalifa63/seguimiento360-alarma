@@ -1331,7 +1331,7 @@
         "type": "function",
         "z": "7bfa17039520b422",
         "name": "Parsear evento a params",
-        "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Mensaje 1: INSERT event (como estaba antes)\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  (d.distance_cm != null ? d.distance_cm : null),\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// Mensaje 2: push solo para alarmas\nconst ev = String(d.event).toUpperCase();\nconst esAlarma = [\"ALRM\",\"GAS\",\"SMOKE\",\"FIRE\",\"PANIC\",\"SOS\",\"SEIS\",\"HUM\",\"DOOR\",\"MOV\"].some(p => ev.startsWith(p));\nif (!esAlarma) { return [msg, null]; }\n\nconst msgPush = {\n  alarma: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\"),\n  payload: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\"),\n  node_mac: d.mac || null,\n  hub_mac: hubMac,\n  event: ev\n};\nreturn [msg, msgPush];",
+        "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Mensaje 1: INSERT event (como estaba antes)\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  (d.distance_cm != null ? d.distance_cm : null),\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// Mensaje 2: push solo para alarmas\nconst ev = String(d.event).toUpperCase();\nconst esAlarma = [\"ALRM\",\"GAS\",\"SMOKE\",\"FIRE\",\"PANIC\",\"SOS\",\"SEIS\",\"HUM\",\"DOOR\",\"MOV\"].some(p => ev.startsWith(p));\nif (!esAlarma) { return [msg, null]; }\n\n// El SELECT de tokens necesita el hub como parametro ($1)\nconst msgPush = {\n  params: [hubMac],\n  alarma: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\"),\n  payload: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\"),\n  node_mac: d.mac || null,\n  hub_mac: hubMac,\n  event: ev\n};\nreturn [msg, msgPush];",
         "outputs": 2,
         "timeout": 0,
         "noerr": 0,
@@ -2087,7 +2087,7 @@
         "type": "postgresql",
         "z": "7bfa17039520b422",
         "name": "SELECT tokens push",
-        "query": "SELECT token FROM user_fcm_tokens ORDER BY id DESC LIMIT 5;",
+        "query": "SELECT t.token\nFROM user_fcm_tokens t\nJOIN hubs h ON h.tenant_id = t.tenant_id\nWHERE h.serial_number = $1\nORDER BY t.updated_at DESC\nLIMIT 10;",
         "postgreSQLConfig": "s360_pg_alarmas",
         "split": false,
         "rowsPerMsg": 1,
@@ -2099,5 +2099,137 @@
                 "a1b2c3d4e5f60701"
             ]
         ]
+    },
+    {
+        "id": "fcmreg_http_in0001",
+        "type": "http in",
+        "z": "7bfa17039520b422",
+        "name": "POST /api/fcm/register",
+        "url": "/api/fcm/register",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 740,
+        "wires": [
+            [
+                "fcmreg_validar0001"
+            ]
+        ]
+    },
+    {
+        "id": "fcmreg_validar0001",
+        "type": "function",
+        "z": "7bfa17039520b422",
+        "name": "Validar JWT + token push",
+        "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\n\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\n\nlet usuario;\ntry {\n    usuario = jwt.verify(auth.slice(7), jwtSecret);\n} catch (e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido' };\n    return [null, msg];\n}\n\n// El cuerpo trae la suscripcion del navegador\nconst cuerpo = msg.payload || {};\nconst suscripcion = cuerpo.subscription || cuerpo;\n\nif (!suscripcion || !suscripcion.endpoint) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'Falta la suscripción' };\n    return [null, msg];\n}\n\n// El user_id sale del JWT, nunca del cuerpo (si no, cualquiera\n// podria registrar un token a nombre de otro usuario).\nconst userId = usuario.user_id || usuario.id || null;\nif (!userId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'El token no identifica al usuario' };\n    return [null, msg];\n}\n\nconst tenantId = usuario.tenant_id || null;\nmsg.params = [userId, tenantId, JSON.stringify(suscripcion)];\nmsg._usuario = userId;\nreturn [msg, null];",
+        "outputs": 2,
+        "noerr": 0,
+        "timeout": 0,
+        "libs": [],
+        "x": 380,
+        "y": 740,
+        "wires": [
+            [
+                "fcmreg_preparar001"
+            ],
+            [
+                "fcmreg_error00001"
+            ]
+        ]
+    },
+    {
+        "id": "fcmreg_preparar001",
+        "type": "function",
+        "z": "7bfa17039520b422",
+        "name": "Preparar upsert token",
+        "func": "// Un usuario puede tener varios dispositivos. Se guarda uno por\n// endpoint: si vuelve el mismo navegador, se actualiza la fecha.\nmsg.queryParams = msg.params;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "timeout": 0,
+        "libs": [],
+        "x": 590,
+        "y": 740,
+        "wires": [
+            [
+                "fcmreg_insert0001"
+            ]
+        ]
+    },
+    {
+        "id": "fcmreg_insert0001",
+        "type": "postgresql",
+        "z": "7bfa17039520b422",
+        "name": "INSERT token push",
+        "query": "INSERT INTO user_fcm_tokens (user_id, tenant_id, token, updated_at)\nVALUES ($1, $2, $3::jsonb, NOW())\nRETURNING id, user_id, tenant_id, updated_at;",
+        "postgreSQLConfig": "s360_pg_alarmas",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 790,
+        "y": 740,
+        "wires": [
+            [
+                "fcmreg_ok00000001"
+            ]
+        ]
+    },
+    {
+        "id": "fcmreg_ok00000001",
+        "type": "function",
+        "z": "7bfa17039520b422",
+        "name": "Respuesta registro push",
+        "func": "msg.statusCode = 201;\nmsg.payload = { success: true, mensaje: \"Dispositivo registrado para notificaciones\" };\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "timeout": 0,
+        "libs": [],
+        "x": 990,
+        "y": 740,
+        "wires": [
+            [
+                "fcmreg_http_resp1"
+            ]
+        ]
+    },
+    {
+        "id": "fcmreg_http_resp1",
+        "type": "http response",
+        "z": "7bfa17039520b422",
+        "name": "HTTP 201 registro",
+        "statusCode": "",
+        "headers": {},
+        "x": 1200,
+        "y": 740,
+        "wires": []
+    },
+    {
+        "id": "fcmreg_error00001",
+        "type": "function",
+        "z": "7bfa17039520b422",
+        "name": "Error registro push",
+        "func": "msg.statusCode = msg.statusCode || 500;\nmsg.payload = msg.payload || { error: \"Error al registrar el dispositivo\" };\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "timeout": 0,
+        "libs": [],
+        "x": 590,
+        "y": 840,
+        "wires": [
+            [
+                "fcmreg_http_err1"
+            ]
+        ]
+    },
+    {
+        "id": "fcmreg_http_err1",
+        "type": "http response",
+        "z": "7bfa17039520b422",
+        "name": "HTTP Error registro",
+        "statusCode": "",
+        "headers": {},
+        "x": 800,
+        "y": 840,
+        "wires": []
     }
 ]

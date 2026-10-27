@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crear cuenta - Seguimiento 360</title>
+<link rel="stylesheet" href="estilo.css?v=20261025b">
+</head>
+<body>
+<div class="centrado">
+  <div class="tarjeta">
+    <h1>Crear cuenta</h1>
+    <p class="sub">Registrate para monitorear tus dispositivos</p>
+
+    <div class="msg" id="msg"></div>
+
+    <form id="form" novalidate>
+      <div class="campo">
+        <label for="nombre">Nombre completo</label>
+        <input type="text" id="nombre" autocomplete="name"
+               placeholder="Tu nombre" required>
+      </div>
+      <div class="campo">
+        <label for="email">Correo electronico</label>
+        <input type="email" id="email" autocomplete="email"
+               placeholder="tu@correo.com" required>
+      </div>
+      <div class="campo">
+        <label for="pass">Contrasena</label>
+        <input type="password" id="pass" autocomplete="new-password"
+               placeholder="Minimo 8 caracteres" required>
+      </div>
+      <div class="campo">
+        <label for="pass2">Repite la contrasena</label>
+        <input type="password" id="pass2" autocomplete="new-password"
+               placeholder="La misma de arriba" required>
+      </div>
+      <button type="submit" class="btn" id="btn">Crear cuenta</button>
+    </form>
+
+    <div class="pie">
+      ¿Ya tienes cuenta? <a href="/portal/">Inicia sesion</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, Sesion } from '/portal/comun.js?v=20261027a';
+
+const msg = document.getElementById('msg');
+const btn = document.getElementById('btn');
+
+if (Sesion.vigente()) location.href = '/portal/dashboard.html';
+
+function mostrar(texto, ok) {
+  msg.textContent = texto;
+  msg.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = document.getElementById('nombre').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const pass = document.getElementById('pass').value;
+  const pass2 = document.getElementById('pass2').value;
+
+  if (!nombre || !email || !pass) { mostrar('Completa todos los campos.'); return; }
+  if (pass.length < 8) { mostrar('La contrasena debe tener al menos 8 caracteres.'); return; }
+  if (pass !== pass2) { mostrar('Las contrasenas no coinciden.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Creando...';
+  msg.className = 'msg';
+
+  try {
+    const r = await api('/api/auth/register', {
+      method: 'POST', auth: false,
+      body: { email: email, password: pass, full_name: nombre }
+    });
+    if (r && r.token && r.user) {
+      Sesion.guardar(r.token, r.user);
+      mostrar('Cuenta creada. Entrando...', true);
+      setTimeout(() => { location.href = '/portal/dashboard.html'; }, 500);
+    } else {
+      mostrar('Cuenta creada. Ya puedes iniciar sesion.', true);
+      setTimeout(() => { location.href = '/portal/'; }, 1200);
+    }
+  } catch (err) {
+    mostrar(err.message || 'No se pudo crear la cuenta.');
+    btn.disabled = false;
+    btn.textContent = 'Crear cuenta';
+  }
+});
+</script>
+</body>
+</html>

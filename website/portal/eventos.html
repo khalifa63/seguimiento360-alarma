@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eventos - Seguimiento 360</title>
+<link rel="stylesheet" href="estilo.css?v=20261025b">
+</head>
+<body>
+<div id="cabecera"></div>
+<main>
+  <h2 class="titulo">Eventos</h2>
+  <p class="desc" id="sub">Historial de actividad de tus dispositivos</p>
+
+  <div class="bloque" style="margin-bottom:18px;">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="campo" style="flex:1;min-width:150px;margin:0;">
+        <label for="f-tipo">Tipo</label>
+        <select id="f-tipo"><option value="">Todos</option></select>
+      </div>
+      <div class="campo" style="flex:1;min-width:150px;margin:0;">
+        <label for="f-nodo">Dispositivo</label>
+        <select id="f-nodo"><option value="">Todos</option></select>
+      </div>
+      <div class="campo" style="flex:0 0 auto;margin:0;">
+        <label for="f-cant">Mostrar</label>
+        <select id="f-cant">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <button class="btn" id="f-refrescar"
+              style="width:auto;padding:12px 22px;">Actualizar</button>
+    </div>
+  </div>
+
+  <div id="contenido">
+    <div class="cargando"><div class="girador"></div>Cargando...</div>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;
+  margin-top:18px;gap:12px;">
+    <button class="salir" id="ant" style="padding:10px 18px;">← Anteriores</button>
+    <span id="pag" style="color:var(--txt2);font-size:.9rem;"></span>
+    <button class="salir" id="sig" style="padding:10px 18px;">Siguientes →</button>
+  </div>
+</main>
+
+<script type="module">
+import { api, cabecera, conectarSalir, exigirSesion, esc, fecha,
+         evento, EVENTOS } from '/portal/comun.js?v=20261027a';
+
+if (!exigirSesion()) throw new Error('sin sesion');
+document.getElementById('cabecera').innerHTML = cabecera('eventos');
+conectarSalir();
+
+const cont = document.getElementById('contenido');
+const sub  = document.getElementById('sub');
+let offset = 0;
+let total = 0;
+let tipos = [];
+
+function limite() { return Number(document.getElementById('f-cant').value); }
+
+/* El filtro por tipo y por nodo se aplica en el navegador: la API
+   devuelve la pagina completa y aqui se descarta lo que no encaja.
+   Con 50-100 filas por pagina es instantaneo. */
+function visibles(lista) {
+  const t = document.getElementById('f-tipo').value;
+  const n = document.getElementById('f-nodo').value;
+  return lista.filter(e =>
+    (!t || e.event_type === t) && (!n || e.node_mac === n));
+}
+
+async function cargar() {
+  cont.innerHTML = '<div class="cargando"><div class="girador"></div>Cargando...</div>';
+  try {
+    const r = await api('/api/events?limit=' + limite() + '&offset=' + offset);
+    const todos = r.events || [];
+    total = r.total != null ? r.total : todos.length;
+
+    /* Rellenar los desplegables solo la primera vez */
+    if (tipos.length === 0) {
+      const st = document.getElementById('f-tipo');
+      for (const k of Object.keys(EVENTOS)) {
+        if (todos.some(e => e.event_type === k)) {
+          tipos.push(k);
+          const o = document.createElement('option');
+          o.value = k; o.textContent = EVENTOS[k].txt;
+          st.appendChild(o);
+        }
+      }
+      const sn = document.getElementById('f-nodo');
+      const vistos = new Map();
+      for (const e of todos) {
+        if (e.node_mac && !vistos.has(e.node_mac)) {
+          vistos.set(e.node_mac, e.node_name || e.node_mac);
+        }
+      }
+      for (const [mac, nom] of vistos) {
+        const o = document.createElement('option');
+        o.value = mac; o.textContent = nom;
+        sn.appendChild(o);
+      }
+    }
+
+    const lista = visibles(todos);
+
+    if (lista.length === 0) {
+      cont.innerHTML = '<div class="bloque"><div class="vacio">'
+        + (todos.length === 0
+            ? 'Sin eventos registrados.'
+            : 'Ningun evento coincide con el filtro.')
+        + '</div></div>';
+    } else {
+      let h = '<div class="tabla-env"><table>';
+      h += '<thead><tr><th>Fecha y hora</th><th>Evento</th>'
+         + '<th>Dispositivo</th><th>Ubicacion</th><th>Distancia</th>'
+         + '<th>Bateria</th><th>Sec.</th></tr></thead><tbody>';
+      for (const e of lista) {
+        const ev2 = evento(e.event_type);
+        const p = e.payload || {};
+        h += '<tr>';
+        h += '<td class="mono" style="white-space:nowrap;">' + fecha(e.created_at) + '</td>';
+        h += '<td><span class="pastilla ' + ev2.cls + '">' + ev2.txt + '</span></td>';
+        h += '<td>' + esc(e.node_name || e.node_mac) + '</td>';
+        h += '<td style="color:var(--txt2);">'
+           + esc(p.room || p.location || '-') + '</td>';
+        h += '<td>' + (e.distance_cm != null ? e.distance_cm + ' cm' : '-') + '</td>';
+        h += '<td>' + (e.battery_level != null ? e.battery_level + '%' : '-') + '</td>';
+        h += '<td class="mono" style="color:var(--txt2);">'
+           + (e.sequence_number != null ? e.sequence_number : '-') + '</td>';
+        h += '</tr>';
+      }
+      h += '</tbody></table></div>';
+      cont.innerHTML = h;
+    }
+
+    const desde = total === 0 ? 0 : offset + 1;
+    const hasta = Math.min(offset + limite(), total);
+    sub.textContent = lista.length !== todos.length
+      ? 'Mostrando ' + lista.length + ' de ' + todos.length
+        + ' en esta pagina (filtrado)'
+      : 'Historial de actividad de tus dispositivos';
+    document.getElementById('pag').textContent =
+      total ? desde + '-' + hasta + ' de ' + total : 'sin eventos';
+    document.getElementById('ant').disabled = offset === 0;
+    document.getElementById('sig').disabled = offset + limite() >= total;
+  } catch (err) {
+    cont.innerHTML = '<div class="bloque"><div class="vacio">'
+      + esc(err.message) + '</div></div>';
+  }
+}
+
+document.getElementById('f-refrescar').addEventListener('click', () => {
+  offset = 0; cargar();
+});
+document.getElementById('f-tipo').addEventListener('change', cargar);
+document.getElementById('f-nodo').addEventListener('change', cargar);
+document.getElementById('f-cant').addEventListener('change', () => {
+  offset = 0; cargar();
+});
+document.getElementById('ant').addEventListener('click', () => {
+  offset = Math.max(0, offset - limite()); cargar();
+});
+document.getElementById('sig').addEventListener('click', () => {
+  if (offset + limite() < total) { offset += limite(); cargar(); }
+});
+
+cargar();
+</script>
+</body>
+</html>

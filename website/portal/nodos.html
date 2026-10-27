@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nodos - Seguimiento 360</title>
+<link rel="stylesheet" href="estilo.css?v=20261025b">
+</head>
+<body>
+<div id="cabecera"></div>
+<main>
+  <h2 class="titulo">Nodos</h2>
+  <p class="desc">Tus sensores y sus hubs</p>
+
+  <div class="msg" id="msg"></div>
+  <div id="contenido">
+    <div class="cargando"><div class="girador"></div>Cargando...</div>
+  </div>
+</main>
+
+<!-- Formulario de edicion -->
+<div id="modal" style="display:none;position:fixed;inset:0;
+background:rgba(0,0,0,.65);align-items:center;justify-content:center;
+padding:20px;z-index:50;">
+  <div class="tarjeta" style="max-width:460px;">
+    <h1 style="font-size:1.2rem;">Editar nodo</h1>
+    <p class="sub" id="modal-mac" style="font-family:monospace;"></p>
+    <form id="form-editar">
+      <div class="campo">
+        <label for="f-nombre">Nombre</label>
+        <input type="text" id="f-nombre" required>
+      </div>
+      <div class="campo">
+        <label for="f-ubicacion">Ubicacion</label>
+        <input type="text" id="f-ubicacion" placeholder="Casa Principal">
+      </div>
+      <div class="campo">
+        <label for="f-cuarto">Cuarto</label>
+        <input type="text" id="f-cuarto" placeholder="Garaje">
+      </div>
+      <div class="campo">
+        <label for="f-umbral">Umbral de distancia (cm)</label>
+        <input type="number" id="f-umbral" min="10" max="400" step="5">
+      </div>
+      <button type="submit" class="btn" id="f-btn">Guardar</button>
+      <button type="button" class="btn" id="f-cancelar"
+              style="background:var(--panel2);margin-top:8px;">Cancelar</button>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+import { api, cabecera, conectarSalir, exigirSesion, esc, hace,
+         evento } from '/portal/comun.js?v=20261027a';
+
+if (!exigirSesion()) throw new Error('sin sesion');
+document.getElementById('cabecera').innerHTML = cabecera('nodos');
+conectarSalir();
+
+const cont = document.getElementById('contenido');
+const msg = document.getElementById('msg');
+const modal = document.getElementById('modal');
+let nodos = [];
+
+function aviso(texto, ok) {
+  msg.textContent = texto;
+  msg.className = 'msg ' + (ok ? 'ok' : 'err');
+  if (ok) setTimeout(() => { msg.className = 'msg'; }, 3000);
+}
+
+async function cargar() {
+  try {
+    /* /api/overview trae la jerarquia sitio > hub > nodos, que es
+       justo lo que hace falta para agrupar. */
+    const ov = await api('/api/overview');
+    nodos = [];
+    for (const s of ov.sites || []) {
+      for (const hub of s.hubs || []) {
+        for (const n of hub.nodes || []) {
+          nodos.push(Object.assign({}, n, {
+            sitio: s.site_name,
+            hub: hub.hub_name,
+            hub_estado: hub.hub_status,
+            hub_visto: hub.last_seen
+          }));
+        }
+      }
+    }
+
+    let h = '';
+    if (nodos.length === 0) {
+      h = '<div class="bloque"><div class="vacio">No tienes nodos vinculados.'
+        + '<br><br>Vincula uno pulsando el boton BOOT del hub, o abriendo '
+        + 'la ventana de emparejamiento desde el panel.</div></div>';
+      cont.innerHTML = h;
+      return;
+    }
+
+    h += '<div class="tabla-env"><table>';
+    h += '<thead><tr><th>Nombre</th><th>MAC</th><th>Ubicacion</th>'
+       + '<th>Umbral</th><th>Hub</th><th>Estado</th><th></th></tr></thead><tbody>';
+    for (const n of nodos) {
+      const vivo = n.status === 'active';
+      h += '<tr>';
+      h += '<td><strong>' + esc(n.node_name || '(sin nombre)') + '</strong></td>';
+      h += '<td class="mono">' + esc(n.node_mac) + '</td>';
+      h += '<td>' + esc(n.location || '-')
+         + (n.room ? ' / ' + esc(n.room) : '') + '</td>';
+      h += '<td>' + (n.distance_threshold != null
+            ? n.distance_threshold + ' cm' : '-') + '</td>';
+      h += '<td>' + esc(n.hub) + '<br><span style="color:var(--txt2);'
+         + 'font-size:.78rem;">' + hace(n.hub_visto) + '</span></td>';
+      h += '<td><span class="pastilla ' + (vivo ? 'p-ok' : 'p-gris') + '">'
+         + (vivo ? 'activo' : esc(n.status || '-')) + '</span></td>';
+      h += '<td><button class="salir" data-editar="' + n.node_id
+         + '">Editar</button></td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '<p style="color:var(--txt2);font-size:.85rem;margin-top:14px;">'
+       + nodos.length + ' nodo' + (nodos.length === 1 ? '' : 's') + '.</p>';
+
+    cont.innerHTML = h;
+
+    cont.querySelectorAll('[data-editar]').forEach(b => {
+      b.addEventListener('click', () => abrir(Number(b.dataset.editar)));
+    });
+  } catch (err) {
+    cont.innerHTML = '<div class="bloque"><div class="vacio">'
+      + esc(err.message) + '</div></div>';
+  }
+}
+
+let editando = null;
+
+function abrir(id) {
+  const n = nodos.find(x => x.node_id === id);
+  if (!n) return;
+  editando = n;
+  document.getElementById('modal-mac').textContent = n.node_mac;
+  document.getElementById('f-nombre').value = n.node_name || '';
+  document.getElementById('f-ubicacion').value = n.location || '';
+  document.getElementById('f-cuarto').value = n.room || '';
+  document.getElementById('f-umbral').value =
+    n.distance_threshold != null ? n.distance_threshold : '';
+  modal.style.display = 'flex';
+}
+
+document.getElementById('f-cancelar').addEventListener('click', () => {
+  modal.style.display = 'none';
+  editando = null;
+});
+modal.addEventListener('click', (e) => {
+  if (e.target === modal) { modal.style.display = 'none'; editando = null; }
+});
+
+document.getElementById('form-editar').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editando) return;
+  const btn = document.getElementById('f-btn');
+
+  const cuerpo = {
+    name: document.getElementById('f-nombre').value.trim(),
+    location: document.getElementById('f-ubicacion').value.trim(),
+    room: document.getElementById('f-cuarto').value.trim()
+  };
+  const umbral = document.getElementById('f-umbral').value;
+  if (umbral !== '') cuerpo.distance_threshold = Number(umbral);
+
+  if (!cuerpo.name) { aviso('El nombre no puede quedar vacio.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try {
+    await api('/api/nodes/' + editando.node_id, { method: 'PUT', body: cuerpo });
+    modal.style.display = 'none';
+    editando = null;
+    aviso('Nodo actualizado.', true);
+    cargar();
+  } catch (err) {
+    aviso(err.message || 'No se pudo guardar.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+  }
+});
+
+cargar();
+</script>
+</body>
+</html>

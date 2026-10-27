@@ -552,3 +552,86 @@ Debe aparecer:
     [function:Firebase Push Real] R5 ENVIADO status=201
 
 El `status=201` confirma que Google acepto la notificacion.
+
+## Registro automatico de dispositivos (2026-10-27)
+
+Con esto el usuario ya no necesita tocar la consola del navegador: al abrir el
+portal con sesion iniciada, su dispositivo se registra solo.
+
+### Endpoint
+
+    POST /api/fcm/register
+    Authorization: Bearer <JWT>
+    Content-Type: application/json
+
+    { "subscription": { "endpoint": "...", "keys": { "p256dh": "...", "auth": "..." } } }
+
+Respuestas:
+
+    201  dispositivo registrado
+    400  falta la suscripcion, o el JWT no identifica al usuario
+    401  sin token o token invalido
+
+El `user_id` y el `tenant_id` **salen del JWT**, nunca del cuerpo. Si se
+aceptaran del cuerpo, cualquiera podria registrar un dispositivo a nombre de
+otro usuario.
+
+### Flujo en el portal
+
+`comun.js` incluye `registrarPushDelNavegador()`, que se ejecuta al cargar la
+pagina y cuando vuelve a primer plano. Solo actua si:
+
+1. El navegador soporta Service Worker y PushManager.
+2. Hay sesion iniciada (`Sesion.token`).
+3. El permiso de notificaciones no esta denegado.
+
+Si aun no hay suscripcion, pide el permiso y se suscribe usando la clave
+publica VAPID, que viaja en el HTML:
+
+    <meta name="vapid-public" content="...">
+
+Si algo falla, solo se registra un aviso en consola: nunca interrumpe la
+navegacion del usuario.
+
+### Envio filtrado por dueño del hub
+
+El `SELECT` de tokens ya no trae todos los dispositivos: busca los del tenant
+dueño del hub que genero la alarma.
+
+    SELECT t.token
+    FROM user_fcm_tokens t
+    JOIN hubs h ON h.tenant_id = t.tenant_id
+    WHERE h.serial_number = $1
+    ORDER BY t.updated_at DESC
+    LIMIT 10;
+
+El parser pasa el `hub_mac` como parametro (`msg.params`).
+
+### Tabla final
+
+    CREATE TABLE user_fcm_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INT,
+        tenant_id INT,
+        token JSONB,
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+Un usuario puede tener varios dispositivos (movil, portatil). Cada uno guarda
+su propia fila.
+
+### Como probarlo
+
+    # Sin token: debe dar 401
+    curl -X POST https://seguimiento360.com/api/fcm/register
+
+    # Con token y suscripcion: debe dar 201
+    curl -X POST https://seguimiento360.com/api/fcm/register \
+      -H "Authorization: Bearer $TOKEN" \
+      -H 'Content-Type: application/json' \
+      -d '{"subscription":{"endpoint":"...","keys":{...}}}'
+
+Y para comprobar que llega la notificacion, publicar una alarma y mirar el log:
+
+    docker logs --tail 20 nodered
+    # debe aparecer: R5 ENVIADO status=201

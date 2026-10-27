@@ -871,3 +871,56 @@ lo detecta e intenta reinterpretarlo, para que nunca se muestre un JSON crudo:
     if (!datos.title && datos.body.trim().startsWith('{')) {
       try { datos = JSON.parse(datos.body); } catch (e) { }
     }
+
+## Gotify desactivado (2026-10-27)
+
+Las notificaciones push por Firebase funcionan, asi que Gotify se desconecto del
+flujo. **No se borro**: sigue en la infraestructura y se puede reactivar.
+
+### Que se hizo
+
+| Elemento | Antes | Ahora |
+|---|---|---|
+| Contenedor `gotify` | corriendo, 10 MB RAM | **detenido** |
+| Reinicio automatico | `always` | **`no`** |
+| Cable del parser a Gotify | conectado | **desconectado** |
+| Nodos del flujo | activos | conservados, marcados `disabled` |
+
+### Por que se desconecto el cable y no basta con `disabled`
+
+Marcar un nodo con `disabled: true` en el JSON **no impide que se ejecute** si
+el nodo se creo sin ese campo: Node-RED solo respeta la propiedad cuando la
+carga desde el editor. Se comprobo con una alarma de prueba y el formateador de
+Gotify seguia ejecutandose.
+
+Lo que si detiene la ejecucion es **quitar el cable**:
+
+    parser.wires = [ parser.wires[0],  []  ];
+                     ^ InfluxDB        ^ Gotify, vacio
+
+### Cuidado: la salida 0 va a InfluxDB
+
+El parser `1. Parsear y Separar Flujos` tiene dos salidas:
+
+- **salida 0** -> InfluxDB (telemetria)
+- **salida 1** -> Gotify
+
+Al desactivar Gotify **solo se vacio la salida 1**. La telemetria sigue igual.
+
+### Reactivar
+
+Ver `docs/operaciones/reactivar-gotify.md`, con los pasos y el comando para
+restaurar el cable.
+
+### Respaldo
+
+    /data/flows.json.bak-gotify-sin-cable
+
+### Estado tras desactivarlo
+
+Una alarma produce ahora **solo** los envios de Firebase:
+
+    [function:Firebase Push Real] PUSH OK 201 (critica) -> 🚨 ALARMA — Garaje
+    [function:Firebase Push Real] PUSH OK 201 (critica) -> 🚨 ALARMA — Garaje
+
+Y el evento queda registrado en la tabla `events` como siempre.

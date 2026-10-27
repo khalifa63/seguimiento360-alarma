@@ -179,9 +179,16 @@ Si tocas el aviso, se abre el panel para que veas que ha pasado.
 ### Preguntas sobre los avisos
 
 **¿Necesito tener el navegador abierto?**
-En el movil, no. Los avisos llegan aunque tengas el navegador cerrado y el
-telefono bloqueado. En el computador si hace falta que el navegador este
-abierto, aunque sea minimizado.
+En Android, no: los avisos llegan aunque tengas el navegador cerrado y el
+telefono bloqueado. En iPhone, la app tiene que estar instalada, pero una vez
+instalada no hace falta tenerla abierta. En el computador si hace falta que el
+navegador este abierto, aunque sea minimizado.
+
+**¿Funciona en iPhone?**
+Si, con dos diferencias. Primero, **hay que instalar la app** (en Safari:
+Compartir > Anadir a pantalla de inicio): sin eso no llegan los avisos.
+Segundo, **no vibra**: Apple no permite que una web haga vibrar el telefono.
+El aviso se ve igual, pero sin vibracion.
 
 **¿Por que no suena una sirena?**
 Los navegadores no dejan poner sonidos propios. Se usa el sonido de aviso que
@@ -198,6 +205,54 @@ recibir el mismo aviso a la vez.
 
 **Si borro los datos del navegador, ¿dejo de recibirlos?**
 Si. Vuelve a entrar al portal y activalos otra vez con el boton azul.
+
+## Instalar la app en el movil
+
+El portal se puede instalar como una aplicacion, con su icono en la pantalla
+de inicio. **Es la forma recomendada de usarlo**, y en iPhone es obligatorio
+para recibir los avisos.
+
+### Por que conviene instalarlo
+
+- Se abre a pantalla completa, sin la barra del navegador
+- Arranca mas rapido
+- **En iPhone, sin esto no llegan las notificaciones**
+- Android deja de marcar los avisos como "posible spam"
+
+---
+
+### Android (Chrome)
+
+1. Abre el portal en **Chrome**.
+2. Toca el menu de los **tres puntos** (arriba a la derecha).
+3. Elige **Instalar aplicacion** (o **Anadir a pantalla de inicio**).
+4. Confirma. Aparece el icono en tu pantalla de inicio.
+5. **Abre la app desde ese icono**, no desde Chrome.
+
+### iPhone y iPad (Safari)
+
+En iPhone **es obligatorio** instalarlo: Safari no entrega notificaciones a una
+pagina abierta en el navegador.
+
+1. Abre el portal en **Safari** (tiene que ser Safari, no Chrome).
+2. Toca el boton **Compartir**: el cuadro con la flecha hacia arriba, abajo.
+3. Desliza y elige **Anadir a pantalla de inicio**.
+4. Ponle nombre y toca **Anadir**.
+5. **Abre la app desde el icono nuevo**, no desde Safari.
+6. Dentro de la app, entra y pulsa **Activar notificaciones**.
+
+**Importante en iPhone:** si abres el portal en Safari y pulsas Activar
+notificaciones, parecera que funciona, pero **los avisos no llegaran**. Hay que
+abrir la app instalada.
+
+---
+
+### Desinstalarla
+
+En Android: manten pulsado el icono y elige **Desinstalar** o **Quitar**.
+En iPhone: manten pulsado el icono, **Eliminar app**, y confirma.
+
+No borra tu cuenta ni tus dispositivos: solo quita el acceso directo.
 
 ## Preguntas frecuentes
 

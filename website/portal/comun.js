@@ -140,8 +140,8 @@ export function cabecera(activa) {
      + esc(u.full_name || u.email || '') + '</span>';
   // Acceso al diagnostico de notificaciones: util cuando el usuario
   // no recibe los avisos y no sabe por que.
-  h += '<a href="/portal/diagnostico.html" class="ayuda" title="Comprobar las notificaciones">'
-     + '<span class="ayuda-icono">?</span><span class="ayuda-texto">Ayuda</span></a>';
+  h += '<a href="/portal/diagnostico.html" class="ayuda" title="Diagnóstico de notificaciones">'
+     + '<span class="ayuda-icono">?</span><span class="ayuda-texto">Diagnóstico</span></a>';
   h += '<button class="salir" id="btn-salir">Salir</button>';
   h += '</nav></header>';
   return h;
@@ -428,3 +428,37 @@ export async function avisoNotificaciones(idContenedor) {
     }
   });
 }
+
+
+/* ------------------------------------------------------------------
+   Recarga forzada de la hoja de estilos
+
+   Chrome en Android (y sobre todo la PWA instalada) guarda el CSS
+   mucho tiempo. Subir el ?v= en el HTML no basta si el propio HTML
+   esta cacheado.
+
+   Aqui se comprueba si la hoja cargada tiene la version esperada y,
+   si no, se recarga anadiendo un parametro nuevo. Solo se hace una
+   vez por sesion, para no crear un bucle.
+   ------------------------------------------------------------------ */
+const VERSION_CSS_ESPERADA = '20261027k';
+
+async function forzarCssActualizado() {
+  try {
+    const enlace = document.querySelector('link[rel="stylesheet"][href*="estilo.css"]');
+    if (!enlace) return;
+
+    // Si la URL ya lleva la version esperada, no hay nada que hacer
+    if (enlace.href.includes('v=' + VERSION_CSS_ESPERADA)) return;
+
+    // Evitar bucles: solo un intento por sesion
+    if (sessionStorage.getItem('css_recargado') === VERSION_CSS_ESPERADA) return;
+    sessionStorage.setItem('css_recargado', VERSION_CSS_ESPERADA);
+
+    const url = new URL(enlace.href);
+    url.searchParams.set('v', VERSION_CSS_ESPERADA);
+    enlace.href = url.toString();
+  } catch (e) { /* si falla, no se interrumpe nada */ }
+}
+
+forzarCssActualizado();

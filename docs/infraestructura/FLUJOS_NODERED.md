@@ -986,3 +986,62 @@ durante 4 horas. Ver el apartado del Service Worker.
 - Colores y tamanos base: primeras lineas de `website/portal/estilo.css`
 - Ajustes de movil: `@media (max-width: 700px)` al final del mismo archivo
 - Ajustes para pantallas muy estrechas: `@media (max-width: 400px)`
+
+## Portal en movil: navegacion, cache y iPhone (2026-10-27)
+
+### La barra de navegacion en todas las paginas
+
+`diagnostico.html` era la unica pagina sin el menu de arriba: una vez dentro,
+solo se podia volver con el boton "atras" del navegador.
+
+Ahora usa la misma cabecera que el resto. Al construirse llama a
+`cabecera('diagnostico')`, que pinta la barra con Panel, Nodos, Eventos,
+Diagnostico, el usuario y Salir.
+
+**Si se anade una pagina nueva**, hacer lo mismo: un `<div id="cabecera">` al
+principio del `body` y el script que rellena la cabecera.
+
+### Deteccion de iPhone
+
+En iPhone, Safari **no entrega notificaciones push a una web** abierta en el
+navegador. Solo funciona si la app esta instalada en la pantalla de inicio.
+
+La pagina de diagnostico lo detecta y muestra un aviso con los pasos. La
+deteccion cubre el iPad moderno, que se identifica como Mac:
+
+    const iPadModerno = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+
+Y se considera instalada si:
+
+    window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches
+
+En Android el aviso no aparece.
+
+### Por que no se veian los cambios de estilo en el movil
+
+Subir el CSS y cambiar el `?v=` de los HTML **no basta**: si el navegador tiene
+cacheado el propio HTML, sigue pidiendo la version antigua. Chrome en Android
+guarda los archivos mucho tiempo, y la PWA instalada tiene ademas su propia
+copia.
+
+Se anadio a `comun.js` una comprobacion que fuerza la recarga:
+
+    if (enlace.href.includes('v=' + VERSION_CSS_ESPERADA)) return;
+    enlace.href = url con ?v=VERSION_CSS_ESPERADA
+
+Solo se ejecuta **una vez por sesion** (marca en `sessionStorage`) para no
+provocar un bucle de recargas.
+
+**Al cambiar el CSS hay que subir dos sitios:**
+
+1. El `?v=` del HTML (para que Cloudflare sirva el archivo nuevo)
+2. La constante `VERSION_CSS_ESPERADA` de `comun.js`
+
+### Borrar la cache en el movil, si hiciera falta
+
+Aunque lo anterior lo resuelve solo, para forzarlo a mano:
+
+- **Android:** candado de la URL > Cookies y datos de sitios > Eliminar
+- **iPhone:** Ajustes > Safari > Borrar historial y datos
+- **La PWA instalada:** desinstalarla y volver a instalarla

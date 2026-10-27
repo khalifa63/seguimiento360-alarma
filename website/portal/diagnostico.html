@@ -4,65 +4,73 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="vapid-public" content="BNXGhPeU2YtDPokEZUYUuQjWBKC7p0Rf_YhtyBxMNrcIwqPSLGdKp4rF30axOCr2lQGEIADMped1jRIqxf6Ys_g">
-<title>Diagnostico de notificaciones - Seguimiento 360</title>
+<title>Diagnóstico - Seguimiento 360</title>
 <link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="estilo.css?v=20261027l">
 <style>
-  :root { color-scheme: dark; }
-  body {
-    margin: 0; padding: 16px;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: #0f1420; color: #e8ecf4; line-height: 1.5;
-  }
-  h1 { font-size: 1.2rem; margin: 0 0 4px; }
-  .sub { color: #8e9bb3; font-size: .85rem; margin-bottom: 18px; }
-  .fila {
+  /* Ajustes propios del diagnostico, sobre la hoja compartida */
+  .diag-fila {
     display: flex; justify-content: space-between; align-items: center;
-    background: #1a2131; border-radius: 10px;
-    padding: 12px 14px; margin-bottom: 8px;
-    border: 1px solid #263049;
+    background: var(--panel); border: 1px solid var(--linea);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 8px;
+    gap: 14px;
   }
-  .fila .eti { font-size: .9rem; }
-  .fila .val { font-size: .85rem; font-weight: 600; }
-  .ok    { color: #4ade80; }
-  .mal   { color: #f87171; }
-  .aviso { color: #fbbf24; }
-  .neutro{ color: #8e9bb3; }
-  button {
-    width: 100%; padding: 14px; margin-top: 14px;
-    font-size: 1rem; font-weight: 600;
-    border: 0; border-radius: 10px;
-    background: #4f7cff; color: #fff; cursor: pointer;
-  }
-  button:disabled { background: #2c3448; opacity: .5; cursor: default; }
-  button.sec { background: #2a3348; color: #cfd8e8; }
+  .diag-fila .eti { font-size: 1rem; }
+  .diag-fila .val { font-size: .95rem; font-weight: 600; white-space: nowrap; }
+  .ok    { color: var(--ok); }
+  .mal   { color: var(--err); }
+  .aviso { color: var(--warn); }
+  .neutro{ color: var(--txt2); }
+
+  .diag-botones { margin-top: 18px; display: grid; gap: 10px; }
+  .diag-botones button { width: 100%; }
+
   #log {
-    margin-top: 16px; padding: 12px;
+    margin-top: 18px; padding: 14px;
     background: #0b0f18; border-radius: 10px;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: .78rem; color: #9fb0cc;
-    white-space: pre-wrap; word-break: break-all;
-    border: 1px solid #1e2739;
-    max-height: 40vh; overflow-y: auto;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: .85rem; color: #9fb0cc;
+    white-space: pre-wrap; word-break: break-word;
+    border: 1px solid var(--linea);
+    max-height: 45vh; overflow-y: auto;
   }
   .oculto { display: none; }
 </style>
 </head>
 <body>
 
-<h1>Diagnóstico de notificaciones</h1>
-<div class="sub">Seguimiento 360 · Esta página comprueba el estado de este dispositivo</div>
+<div id="cabecera"></div>
 
-<div class="fila"><span class="eti">Permiso de notificaciones</span><span class="val neutro" id="v-permiso">…</span></div>
-<div class="fila"><span class="eti">Service Worker</span><span class="val neutro" id="v-sw">…</span></div>
-<div class="fila"><span class="eti">Suscripción push</span><span class="val neutro" id="v-sub">…</span></div>
-<div class="fila"><span class="eti">Sesión iniciada</span><span class="val neutro" id="v-sesion">…</span></div>
-<div class="fila"><span class="eti">Usuario</span><span class="val neutro" id="v-usuario">…</span></div>
+<main>
+  <h2 class="titulo">Diagnóstico</h2>
+  <p class="desc">Comprueba si este dispositivo puede recibir las alarmas</p>
 
-<button id="btn-activar">Activar notificaciones en este dispositivo</button>
-<button id="btn-probar" class="sec">Mostrar una notificación de prueba</button>
-<button id="btn-refrescar" class="sec">Volver a comprobar</button>
+  <div class="diag-fila"><span class="eti">Permiso de notificaciones</span><span class="val neutro" id="v-permiso">…</span></div>
+  <div class="diag-fila"><span class="eti">Service Worker</span><span class="val neutro" id="v-sw">…</span></div>
+  <div class="diag-fila"><span class="eti">Suscripción push</span><span class="val neutro" id="v-sub">…</span></div>
+  <div class="diag-fila"><span class="eti">Sesión iniciada</span><span class="val neutro" id="v-sesion">…</span></div>
+  <div class="diag-fila"><span class="eti">Usuario</span><span class="val neutro" id="v-usuario">…</span></div>
 
-<div id="log" class="oculto"></div>
+  <div id="zona-ios"></div>
+
+  <div class="diag-botones">
+    <button id="btn-activar">Activar notificaciones en este dispositivo</button>
+    <button id="btn-probar" class="salir">Mostrar una notificación de prueba</button>
+    <button id="btn-refrescar" class="salir">Volver a comprobar</button>
+  </div>
+
+  <div id="log" class="oculto"></div>
+</main>
+
+<script type="module">
+import { cabecera, conectarSalir, exigirSesion } from '/portal/comun.js?v=20261027l';
+
+if (exigirSesion()) {
+  const caja = document.getElementById('cabecera');
+  if (caja) caja.innerHTML = cabecera('diagnostico');
+  conectarSalir();
+}
+</script>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -90,6 +98,41 @@ function urlBase64ToUint8Array(base64String) {
   return salida;
 }
 
+/* --- Deteccion de iOS ---
+   En iPhone y iPad, Safari no entrega notificaciones push a una web normal:
+   solo funciona si la app esta instalada en la pantalla de inicio. */
+function esIOS() {
+  const ua = navigator.userAgent || '';
+  const iPhone = /iPhone|iPad|iPod/i.test(ua);
+  // iPad moderno se identifica como Mac; se detecta por el tactil
+  const iPadModerno = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+  return iPhone || iPadModerno;
+}
+
+function esStandalone() {
+  return window.navigator.standalone === true ||
+         window.matchMedia('(display-mode: standalone)').matches;
+}
+
+function avisoIOS() {
+  const zona = $('zona-ios');
+  if (!zona) return;
+
+  if (!esIOS() || esStandalone()) { zona.innerHTML = ''; return; }
+
+  zona.innerHTML =
+    '<div class="aviso-push" style="margin-top:18px">' +
+      '<div class="aviso-push-icono">📲</div>' +
+      '<div class="aviso-push-texto">' +
+        '<strong>En iPhone hay que instalar la app</strong>' +
+        '<span>Safari no entrega notificaciones a una web abierta en el navegador. ' +
+        'Para recibir las alarmas: toca <strong>Compartir</strong> (el cuadro con la flecha), ' +
+        'elige <strong>Añadir a pantalla de inicio</strong> y abre la app desde ese icono. ' +
+        'Después vuelve aquí y pulsa Activar.</span>' +
+      '</div>' +
+    '</div>';
+}
+
 async function revisar() {
   // 1. Permiso
   if (!('Notification' in window)) {
@@ -110,25 +153,23 @@ async function revisar() {
     try {
       reg = await navigator.serviceWorker.getRegistration();
       if (!reg) {
-        // No está registrado: registrarlo ahora
         log('Service Worker no encontrado. Registrando…');
         try {
-          reg = await navigator.serviceWorker.register('service-worker.js', { scope: './' });
-          log('Registro lanzado. Esperando activación…');
+          reg = await navigator.serviceWorker.register('service-worker.js');
           reg = await navigator.serviceWorker.ready;
           log('Service Worker activo.');
         } catch (e2) {
           log('FALLO al registrar: ' + e2.name + ' - ' + e2.message);
-          pintar('v-sw', 'error al registrar', 'mal');
           reg = null;
         }
       }
-
       if (reg) {
         if (reg.active) pintar('v-sw', 'activo', 'ok');
         else if (reg.installing) pintar('v-sw', 'instalando', 'aviso');
         else if (reg.waiting) pintar('v-sw', 'en espera', 'aviso');
         else pintar('v-sw', 'registrado', 'aviso');
+      } else {
+        pintar('v-sw', 'error al registrar', 'mal');
       }
     } catch (e) {
       pintar('v-sw', 'error', 'mal');
@@ -136,7 +177,7 @@ async function revisar() {
     }
   }
 
-  // 3. Suscripción
+  // 3. Suscripcion
   if (!reg || !('PushManager' in window)) {
     pintar('v-sub', 'no disponible', 'mal');
   } else {
@@ -145,18 +186,18 @@ async function revisar() {
       pintar('v-sub', sub ? 'activa' : 'ninguna', sub ? 'ok' : 'mal');
     } catch (e) {
       pintar('v-sub', 'error', 'mal');
-      log('Error suscripción: ' + e.message);
     }
   }
 
-  // 4. Sesión
+  // 4. Sesion
   let token = null;
   try { token = localStorage.getItem('s360_token'); } catch (e) {}
   pintar('v-sesion', token ? 'sí' : 'NO', token ? 'ok' : 'mal');
 
   let usuario = null;
   try { usuario = JSON.parse(localStorage.getItem('s360_user') || 'null'); } catch (e) {}
-  pintar('v-usuario', usuario && (usuario.full_name || usuario.email) ? (usuario.full_name || usuario.email) : '—', usuario ? 'ok' : 'neutro');
+  const nombre = usuario && (usuario.full_name || usuario.email);
+  pintar('v-usuario', nombre || '—', usuario ? 'ok' : 'neutro');
 
   return { reg, token, usuario };
 }
@@ -166,24 +207,26 @@ async function activar() {
   log('Iniciando activación…');
 
   try {
+    if (esIOS() && !esStandalone()) {
+      log('iPhone sin instalar: las notificaciones no llegarán hasta que');
+      log('añadas el portal a la pantalla de inicio.');
+    }
+
     const estado = await revisar();
 
     if (!estado.token) {
-      log('AVISO: no hay sesión iniciada. El dispositivo se registrará,');
-      log('pero quedará sin usuario asociado hasta que entres al portal.');
+      log('AVISO: no hay sesión iniciada.');
     }
 
-    // Registrar el Service Worker si hace falta
     if (!estado.reg) {
       log('Registrando Service Worker…');
-      await navigator.serviceWorker.register('service-worker.js?v=2026-10-27-3');
+      await navigator.serviceWorker.register('service-worker.js');
       await navigator.serviceWorker.ready;
       log('Service Worker listo.');
     }
 
-    // Pedir permiso
     if (Notification.permission !== 'granted') {
-      log('Pidiendo permiso de notificaciones…');
+      log('Pidiendo permiso…');
       const pedido = await Notification.requestPermission();
       log('Permiso: ' + pedido);
       if (pedido !== 'granted') {
@@ -194,23 +237,21 @@ async function activar() {
       }
     }
 
-    // Suscribir
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
 
     if (sub) {
-      log('Ya existía una suscripción. Se reutiliza.');
+      log('Ya existía una suscripción.');
     } else {
       const meta = document.querySelector('meta[name="vapid-public"]');
       const clave = meta ? (meta.getAttribute('content') || '').trim() : '';
-      log('Clave VAPID leída: ' + (clave ? clave.slice(0, 25) + '…' : 'VACÍA'));
       if (!clave || clave.indexOf('PLACEHOLDER') === 0) {
-        log('ERROR: falta la clave pública VAPID en la página.');
+        log('ERROR: falta la clave pública VAPID.');
         await revisar();
         $('btn-activar').disabled = false;
         return;
       }
-      log('Suscribiendo al servicio push…');
+      log('Suscribiendo…');
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(clave)
@@ -218,9 +259,8 @@ async function activar() {
       log('Suscripción creada.');
     }
 
-    log('Endpoint: ' + sub.endpoint.slice(0, 60) + '…');
+    log('Endpoint: ' + sub.endpoint.slice(0, 55) + '…');
 
-    // Enviar al servidor
     if (estado.token) {
       log('Enviando al servidor…');
       const r = await fetch('/api/fcm/register', {
@@ -232,7 +272,7 @@ async function activar() {
         body: JSON.stringify({ subscription: sub })
       });
       const texto = await r.text();
-      log('Respuesta del servidor (' + r.status + '): ' + texto);
+      log('Respuesta (' + r.status + '): ' + texto);
     } else {
       log('Sin sesión: no se envió al servidor.');
     }
@@ -254,7 +294,7 @@ $('btn-probar').addEventListener('click', async () => {
     const reg = await navigator.serviceWorker.ready;
     await reg.showNotification('Seguimiento 360', {
       body: 'Notificación de prueba desde el diagnóstico',
-      icon: '/portal/icono.png'
+      icon: '/portal/icono-192.png'
     });
     log('Notificación de prueba enviada.');
   } catch (e) {
@@ -262,7 +302,9 @@ $('btn-probar').addEventListener('click', async () => {
   }
 });
 
+avisoIOS();
 revisar();
 </script>
+
 </body>
 </html>

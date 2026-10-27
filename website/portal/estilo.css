@@ -92,12 +92,7 @@ tbody tr:hover{background:rgba(255,255,255,.02);}
 border-top-color:var(--acc);border-radius:50%;margin:0 auto 14px;
 animation:girar .8s linear infinite;}
 @keyframes girar{to{transform:rotate(360deg);}}
-@media(max-width:600px){
-.tarjeta{padding:26px 20px;}
-header.barra{flex-direction:column;gap:10px;align-items:flex-start;}
-main{padding:18px 14px 50px;}
-th,td{padding:9px 10px;}
-}
+/* (sustituido por el bloque de movil al final del archivo) */
 
 
 /* --- Aviso de activacion de notificaciones --- */
@@ -171,12 +166,7 @@ th,td{padding:9px 10px;}
 }
 .aviso-push-estado:empty { display: none; }
 
-@media (max-width: 520px) {
-  .aviso-push { padding: 14px; gap: 10px; }
-  .aviso-push-texto { flex-basis: 100%; }
-  .aviso-push-acciones { flex-basis: 100%; }
-  .btn-aviso-principal { flex: 1; }
-}
+
 
 
 /* --- Acceso al diagnostico de notificaciones --- */
@@ -212,8 +202,162 @@ th,td{padding:9px 10px;}
   flex-shrink: 0;
 }
 
-/* En pantallas estrechas solo se ve el icono */
-@media (max-width: 640px) {
+
+/* ==================================================================
+   Ajustes para movil  (Seguimiento 360 - Portal)
+   ==================================================================
+   En pantallas estrechas los tamanos en rem quedaban por debajo de los
+   13px: etiquetas de metrica 13.1px, cabeceras de tabla 12.8px, celdas
+   13.1px. Incomodos de leer en un telefono.
+
+   Aqui se suben y se aprovecha mejor el espacio. No afecta al
+   escritorio: todo va dentro de media queries.
+   ================================================================== */
+
+@media (max-width: 700px) {
+
+  /* --- Texto base mas grande --- */
+  body { font-size: 1.0625rem; }              /* 17px en lugar de 16px */
+
+  /* --- Cabecera --- */
+  header.barra {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+  }
+  header.barra .marca {
+    font-size: 1.1rem;
+    width: 100%;
+    margin-bottom: 0;
+  }
+  header.barra nav {
+    gap: 6px;
+    width: 100%;
+  }
+  header.barra nav a {
+    padding: 9px 14px;
+    font-size: .95rem;
+  }
+  .salir {
+    padding: 9px 14px;
+    font-size: .92rem;
+  }
+  .barra .ayuda {
+    padding: 9px 12px;
+    font-size: .92rem;
+  }
+  .ayuda-icono { width: 19px; height: 19px; font-size: .78rem; }
+
+  /* --- Contenido --- */
+  main { padding: 18px 16px 56px; }
+  h2.titulo { font-size: 1.5rem; }
+  p.desc { font-size: 1rem; margin-bottom: 18px; }
+
+  /* --- Metricas: dos por fila, no una --- */
+  .rejilla.d3,
+  .rejilla.d2 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .bloque { padding: 16px 14px; }
+  .metrica { font-size: 2rem; }
+  .metrica + .etq { font-size: .95rem; }
+  .bloque h3 { font-size: 1.12rem; }
+
+  /* --- Tablas: se convierten en tarjetas apiladas ---
+     En un telefono una tabla de cuatro columnas no cabe: la fecha se
+     lleva casi todo el ancho y el resto queda cortado. Cada fila pasa a
+     ser un bloque, con el nombre de la columna delante del valor
+     (viene del atributo data-etiqueta de cada celda). */
+  table, thead, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+
+  table {
+    font-size: 1rem;
+    border: 0;
+    background: none;
+  }
+  tbody tr {
+    background: var(--panel2);
+    border: 1px solid var(--linea);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  tbody tr:hover { background: var(--panel2); }
+
+  td {
+    padding: 5px 0;
+    border: 0;
+    font-size: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    text-align: right;
+  }
+  td::before {
+    content: attr(data-etiqueta);
+    flex: 0 0 auto;
+    color: var(--txt2);
+    font-size: .88rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    text-align: left;
+  }
+  /* La primera celda (la hora) hace de titulo de la tarjeta */
+  td:first-child {
+    font-weight: 600;
+    font-size: 1.02rem;
+    border-bottom: 1px solid var(--linea);
+    padding-bottom: 9px;
+    margin-bottom: 5px;
+  }
+  td:first-child::before { content: none; }
+
+  .mono { font-size: .95rem; }
+
+  /* --- Aviso de notificaciones --- */
+  .aviso-push { padding: 16px; gap: 12px; }
+  .aviso-push-icono { font-size: 1.9rem; }
+  .aviso-push-texto { flex-basis: 100%; }
+  .aviso-push-texto strong { font-size: 1.1rem; }
+  .aviso-push-texto span { font-size: .98rem; }
+  .aviso-push-acciones { flex-basis: 100%; }
+  .btn-aviso-principal { flex: 1; padding: 13px 18px; font-size: 1rem; }
+  .btn-aviso-secundario { width: 44px; height: 44px; font-size: 1.05rem; }
+
+  /* --- Formularios --- */
+  .campo { margin-bottom: 20px; }
+  .campo label { font-size: 1rem; margin-bottom: 9px; }
+  .campo input,
+  .campo select {
+    padding: 14px 14px;
+    font-size: 1rem;                          /* evita el zoom de iOS */
+  }
+
+  /* --- Botones generales --- */
+  button { font-size: 1rem; padding: 13px 18px; }
+
+  /* --- Login y registro --- */
+  .tarjeta { padding: 28px 20px; }
+  .tarjeta h1 { font-size: 1.75rem; }
+  .tarjeta .sub { font-size: 1rem; }
+}
+
+/* --- Pantallas muy estrechas: una metrica por fila --- */
+@media (max-width: 400px) {
+  .rejilla.d3,
+  .rejilla.d2 {
+    grid-template-columns: 1fr;
+  }
+  header.barra nav a { padding: 8px 12px; font-size: .93rem; }
+  .metrica { font-size: 2.1rem; }
+}
+
+/* --- En movil, el boton de Ayuda muestra solo el icono --- */
+@media (max-width: 700px) {
   .barra .ayuda-texto { display: none; }
-  .barra .ayuda { padding: 6px 8px; }
 }

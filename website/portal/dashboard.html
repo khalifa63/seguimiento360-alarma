@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Panel - Seguimiento 360</title>
-<link rel="stylesheet" href="estilo.css?v=20261027g">
+<link rel="stylesheet" href="estilo.css?v=20261027j">
 </head>
 <body>
 <div id="cabecera"></div>
@@ -129,10 +129,10 @@ async function cargar() {
         if (e.battery_level != null) {
           det += (det !== '-' ? ' · ' : '') + e.battery_level + '%';
         }
-        h += '<tr><td class="mono">' + fecha(e.created_at) + '</td>';
-        h += '<td><span class="pastilla ' + ev2.cls + '">' + ev2.txt + '</span></td>';
-        h += '<td>' + esc(e.node_name || e.node_mac) + '</td>';
-        h += '<td style="color:var(--txt2);">' + det + '</td></tr>';
+        h += '<tr><td data-etiqueta="Hora" class="mono">' + fecha(e.created_at) + '</td>';
+        h += '<td data-etiqueta="Evento"><span class="pastilla ' + ev2.cls + '">' + ev2.txt + '</span></td>';
+        h += '<td data-etiqueta="Dispositivo">' + esc(e.node_name || e.node_mac) + '</td>';
+        h += '<td data-etiqueta="Detalle" style="color:var(--txt2);">' + det + '</td></tr>';
       }
       h += '</tbody></table></div>';
       h += '<p style="margin-top:12px;"><a href="/portal/eventos.html">'

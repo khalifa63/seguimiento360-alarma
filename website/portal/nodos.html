@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nodos - Seguimiento 360</title>
-<link rel="stylesheet" href="estilo.css?v=20261027g">
+<link rel="stylesheet" href="estilo.css?v=20261027j">
 </head>
 <body>
 <div id="cabecera"></div>
@@ -102,15 +102,15 @@ async function cargar() {
     for (const n of nodos) {
       const vivo = n.status === 'active';
       h += '<tr>';
-      h += '<td><strong>' + esc(n.node_name || '(sin nombre)') + '</strong></td>';
-      h += '<td class="mono">' + esc(n.node_mac) + '</td>';
-      h += '<td>' + esc(n.location || '-')
+      h += '<td data-etiqueta="Nombre"><strong>' + esc(n.node_name || '(sin nombre)') + '</strong></td>';
+      h += '<td data-etiqueta="MAC" class="mono">' + esc(n.node_mac) + '</td>';
+      h += '<td data-etiqueta="Ubicacion">' + esc(n.location || '-')
          + (n.room ? ' / ' + esc(n.room) : '') + '</td>';
-      h += '<td>' + (n.distance_threshold != null
+      h += '<td data-etiqueta="Umbral">' + (n.distance_threshold != null
             ? n.distance_threshold + ' cm' : '-') + '</td>';
-      h += '<td>' + esc(n.hub) + '<br><span style="color:var(--txt2);'
+      h += '<td data-etiqueta="Hub">' + esc(n.hub) + '<br><span style="color:var(--txt2);'
          + 'font-size:.78rem;">' + hace(n.hub_visto) + '</span></td>';
-      h += '<td><span class="pastilla ' + (vivo ? 'p-ok' : 'p-gris') + '">'
+      h += '<td data-etiqueta="Estado"><span class="pastilla ' + (vivo ? 'p-ok' : 'p-gris') + '">'
          + (vivo ? 'activo' : esc(n.status || '-')) + '</span></td>';
       h += '<td><button class="salir" data-editar="' + n.node_id
          + '">Editar</button></td>';

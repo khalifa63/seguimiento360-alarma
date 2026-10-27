@@ -934,3 +934,55 @@ en todas las rutas `/api/`, aunque el nombre siga resolviendo bien.
 Solucion: `docker restart nginx`.
 
 Detalle completo en `docs/operaciones/nginx-ip-cacheada.md`.
+
+## Legibilidad del portal en movil (2026-10-27)
+
+En el telefono el portal se veia bien de estructura, pero el texto era
+demasiado pequeno. Medido en un viewport de 390px:
+
+| Elemento | Antes | Ahora |
+|---|---|---|
+| Cuerpo | 16px | 17px |
+| Etiqueta de metrica | 13.1px | 15.2px |
+| Cabecera de tabla | 12.8px | 15.2px |
+| Celda de tabla | 13.1px | 16.3px |
+| Descripcion | 14.4px | 16px |
+| Boton del aviso | 14.1px | 16px |
+
+En escritorio **no cambia nada**: todo va dentro de `@media (max-width: 700px)`.
+
+### La tabla pasa a tarjetas
+
+Una tabla de cuatro columnas no cabe en un telefono. La fecha se lleva casi
+todo el ancho y el resto queda cortado.
+
+En pantallas estrechas, cada fila se convierte en una tarjeta: la fecha como
+titulo, y cada valor precedido del nombre de su columna. El nombre sale del
+atributo `data-etiqueta` de cada celda, que se pinta con `::before`:
+
+    td::before { content: attr(data-etiqueta); }
+
+Ese atributo lo genera el portal al construir la tabla. **Si se anade una
+columna nueva, hay que anadir su etiqueta** en la lista del archivo que
+corresponda (`dashboard.html`, `nodos.html`, `eventos.html`).
+
+### Trampas encontradas
+
+**1. `rem` no sigue al `body`.** Se subio el texto base con
+`body { font-size: 1.0625rem }` (17px), pero los tamanos en `rem` seguian
+calculandose sobre el `html` (16px). Para que una regla siga al cuerpo hay que
+usar `em`, no `rem`.
+
+**2. `em` dentro de un `th` no sirve.** El `font-size` en `em` de un `th` se
+calcula sobre el del propio `th` (herencia), no sobre el `body`. Ahi hay que
+usar `rem` con el valor ya ajustado.
+
+**3. Cloudflare cachea el CSS.** Subir el archivo no basta: hay que subir el
+`?v=` de la URL en los HTML, o el navegador seguira con la version vieja
+durante 4 horas. Ver el apartado del Service Worker.
+
+### Donde esta cada cosa
+
+- Colores y tamanos base: primeras lineas de `website/portal/estilo.css`
+- Ajustes de movil: `@media (max-width: 700px)` al final del mismo archivo
+- Ajustes para pantallas muy estrechas: `@media (max-width: 400px)`

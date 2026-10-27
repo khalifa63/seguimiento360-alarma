@@ -177,3 +177,43 @@ th,td{padding:9px 10px;}
   .aviso-push-acciones { flex-basis: 100%; }
   .btn-aviso-principal { flex: 1; }
 }
+
+
+/* --- Acceso al diagnostico de notificaciones --- */
+.barra .ayuda {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px;
+  padding: 6px 12px;
+  border: 1px solid #35507f;
+  border-radius: 8px;
+  color: var(--txt2, #8e9bb3);
+  text-decoration: none;
+  font-size: .85rem;
+  white-space: nowrap;
+}
+.barra .ayuda:hover {
+  border-color: var(--acc, #4f7cff);
+  color: var(--txt, #e8ecf4);
+}
+.ayuda-icono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #35507f;
+  color: #e8ecf4;
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* En pantallas estrechas solo se ve el icono */
+@media (max-width: 640px) {
+  .barra .ayuda-texto { display: none; }
+  .barra .ayuda { padding: 6px 8px; }
+}

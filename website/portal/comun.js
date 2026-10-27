@@ -138,6 +138,10 @@ export function cabecera(activa) {
   }
   h += '<span style="color:var(--txt2);font-size:.85rem;margin:0 6px;">'
      + esc(u.full_name || u.email || '') + '</span>';
+  // Acceso al diagnostico de notificaciones: util cuando el usuario
+  // no recibe los avisos y no sabe por que.
+  h += '<a href="/portal/diagnostico.html" class="ayuda" title="Comprobar las notificaciones">'
+     + '<span class="ayuda-icono">?</span><span class="ayuda-texto">Ayuda</span></a>';
   h += '<button class="salir" id="btn-salir">Salir</button>';
   h += '</nav></header>';
   return h;

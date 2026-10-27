@@ -141,9 +141,18 @@ abrirlo a mano:
 3. Cambialo a **Permitir**.
 4. Recarga la pagina y pulsa otra vez el boton azul.
 
-Tambien puedes usar la pagina de ayuda, que te dice que falta:
+Tambien tienes una **pagina de ayuda** que te dice exactamente que falta. Se
+abre desde el boton **? Ayuda** que hay arriba a la derecha, en cualquier
+pagina del portal.
 
-    https://seguimiento360.com/portal/diagnostico.html
+Esa pagina te muestra cuatro cosas:
+
+- Si diste permiso a las notificaciones
+- Si el aviso esta registrado en este aparato
+- Si tienes la sesion abierta
+- Un boton para activarlo todo otra vez
+
+Si algo sale en rojo, ese es el problema.
 
 ### Que avisos llegan
 

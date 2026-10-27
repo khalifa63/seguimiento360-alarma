@@ -466,3 +466,89 @@ lee de `settings.js`:
     database: 'seguimiento360_alarmas'
 
 Consultar la base equivocada devuelve `relation "nodes" does not exist`.
+
+## Notificaciones push propias (2026-10-27)
+
+Se anadio un segundo canal de aviso, **independiente de Gotify**: notificaciones
+push del navegador (Web Push con VAPID). Gotify sigue funcionando igual y sirve
+como plan B.
+
+### Recorrido del evento
+
+El parser de eventos (`Parsear evento a params`) ahora tiene **dos salidas**:
+
+    salida 1 -> INSERT event             (guarda el evento, como siempre)
+    salida 2 -> SELECT tokens push       (solo si el evento es una alarma)
+                 -> Firebase Push Real   (envia la notificacion)
+
+La salida 2 se activa solo con eventos de alarma (`ALRM`, `GAS`, `SMOKE`,
+`FIRE`, `PANIC`, `SOS`, `SEIS`, `HUM`, `DOOR`, `MOV`). Los latidos (`HEAR`)
+siguen su camino normal y no generan notificacion.
+
+### Donde se guardan los tokens
+
+Tabla `user_fcm_tokens` en la base `seguimiento360_alarmas`:
+
+    CREATE TABLE user_fcm_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INT,
+        token JSONB,          -- la suscripcion del navegador
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+El `token` es el objeto que devuelve el navegador:
+
+    { "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+      "keys": { "p256dh": "...", "auth": "..." } }
+
+### Claves VAPID
+
+En `/data/vapid.json` dentro del contenedor. La publica va en el portal
+(`index.html`) y la privada solo en el servidor.
+
+### Modulos: hay que cargarlos en el contexto global
+
+Los nodos Function de Node-RED **no tienen `require`**. Los modulos se cargan
+en `settings.js`, dentro del `functionGlobalContext` que ya existia:
+
+    functionGlobalContext: {
+        webpush: require('web-push'),
+        pgPush: require('pg'),
+        fsPush: require('fs'),
+        bcrypt: require('bcryptjs'),
+        ...
+    }
+
+Se anaden ahi, **no** en un segundo `functionGlobalContext` (rompe el archivo).
+
+### Dos trampas que costaron tiempo
+
+**1. El nodo Function no mantiene conexiones abiertas.** Consultar PostgreSQL
+con `pg.Client` dentro del nodo y usar `await`/promesas deja el codigo colgado
+tras la primera linea: Node-RED destruye el contexto al terminar la funcion.
+Por eso la consulta va en un **nodo PostgreSQL nativo** (`SELECT tokens push`)
+y el nodo Function solo hace el envio.
+
+**2. Node-RED sobrescribe `flows.json` al reiniciar.** Editar el archivo con el
+contenedor en marcha no sirve: al arrancar, Node-RED carga su copia en memoria
+y vuelve a escribir la suya. Hay que editar el volumen con el contenedor
+**detenido**:
+
+    docker stop nodered
+    docker run --rm -v iot-alarma_nodered-data:/data \
+      -v /tmp/cambio.js:/aplicar.js:ro node:20-alpine node /aplicar.js
+    docker start nodered
+
+### Como comprobarlo
+
+Publicar una alarma de prueba y mirar el log:
+
+    docker logs --tail 20 nodered
+
+Debe aparecer:
+
+    [function:Firebase Push Real] R1 entra, filas=1
+    [function:Firebase Push Real] R2 filas normalizadas=1
+    [function:Firebase Push Real] R5 ENVIADO status=201
+
+El `status=201` confirma que Google acepto la notificacion.

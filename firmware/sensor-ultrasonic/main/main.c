@@ -43,7 +43,17 @@ static const char *TAG = "NODE_ULTRASONIC";
 #define HEARTBEAT_INTERVAL_SEC   (10 * 60)
 #define MEASUREMENT_INTERVAL_SEC 5
 #define DISTANCE_THRESHOLD_CM    50
-#define MAX_DISTANCE_CM          400
+#define MAX_DISTANCE_CM          250
+
+/* Codigos que van en distance_cm cuando no hay medida.
+ *
+ * El campo del frame es un uint8_t, y antes se devolvia 0 para todo: 'no volvio
+ * el eco', 'el eco se paso del rango' y 'objeto pegado' llegaban iguales al
+ * backend, que ademas los interpretaba como una distancia real de 0 cm. Con 250
+ * como maxima fisica quedan 254 y 255 libres, y el hub no los mira: solo los
+ * reenvia, asi que no cambia el protocolo ni hay que re-emparejar nodos. */
+#define DIST_SIN_ECO_CM          255
+#define DIST_OUT_OF_RANGE_CM     254
 
 // ============================================================================
 // VINCULACIÓN CON EL HUB (FW-008)
@@ -119,6 +129,11 @@ static esp_err_t ensure_hub_peer(void);
 // ============================================================================
 // 3. SENSOR HC-SR04
 // ============================================================================
+/* Para poder decir en el log 'de N intentos, M sin eco'. */
+static uint32_t s_intentos_lectura = 0;
+static uint32_t s_lecturas_sin_eco = 0;
+static uint32_t s_lecturas_fuera_rango = 0;
+
 static float measure_distance(void)
 {
     uint64_t start_us, end_us;
@@ -130,12 +145,16 @@ static float measure_distance(void)
     gpio_set_level(TRIG_PIN, 0);
 
     uint32_t timeout = 10000;
+    s_intentos_lectura++;
     while (gpio_get_level(ECHO_PIN) == 0 && timeout > 0) {
         esp_rom_delay_us(1);
         timeout--;
     }
     if (timeout == 0) {
-        return 0;
+        /* El TRIG salio y no volvio nada: la linea ECHO no se esta moviendo.
+         * Es un problema de montaje, no una distancia. */
+        s_lecturas_sin_eco++;
+        return (float)DIST_SIN_ECO_CM;
     }
 
     start_us = esp_timer_get_time();
@@ -144,11 +163,17 @@ static float measure_distance(void)
         esp_rom_delay_us(1);
         timeout--;
     }
+    if (timeout == 0) {
+        /* 100 ms de eco son ~17 m: no es una distancia posible en esta vida. */
+        s_lecturas_fuera_rango++;
+        return (float)DIST_OUT_OF_RANGE_CM;
+    }
     end_us = esp_timer_get_time();
 
     float distance_cm = ((end_us - start_us) * 0.0343f) / 2.0f;
     if (distance_cm > MAX_DISTANCE_CM || distance_cm < 0) {
-        return 0;
+        s_lecturas_fuera_rango++;
+        return (float)DIST_OUT_OF_RANGE_CM;
     }
     return distance_cm;
 }
@@ -535,7 +560,16 @@ void app_main(void)
             last_distance = distance;
             last_measurement = now;
 
-            ESP_LOGI(TAG, "Distancia: %.1f cm", distance);
+            if (distance >= (float)DIST_OUT_OF_RANGE_CM) {
+                ESP_LOGW(TAG, "%s (de %lu intentos: %lu sin eco, %lu fuera de rango)",
+                         distance >= (float)DIST_SIN_ECO_CM ? "SIN PULSO EN ECHO"
+                                                           : "ECO FUERA DE RANGO",
+                         (unsigned long)s_intentos_lectura,
+                         (unsigned long)s_lecturas_sin_eco,
+                         (unsigned long)s_lecturas_fuera_rango);
+            } else {
+                ESP_LOGI(TAG, "Distancia: %.1f cm", distance);
+            }
 
             if (distance > 0 && distance < DISTANCE_THRESHOLD_CM) {
                 ESP_LOGW(TAG, "OBJETO DETECTADO: %.1f cm", distance);

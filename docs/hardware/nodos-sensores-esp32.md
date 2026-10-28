@@ -9,6 +9,9 @@
 - **Tabla B** — Módulos LoRa
 - **Tabla C** — Módulos GPS/GNSS
 - **Tabla D** — Cargadores de batería de respaldo (UPS)
+- **Tabla E** — Nodo de botón de pánico
+- **Tabla F** — Nodo sirena
+- **Tabla G** — Nodo de video
 - Combinaciones recomendadas por escenario de alarma
 
 ---
@@ -308,6 +311,203 @@ power path) y el enlace (LoRa o 4G como camino alterno al Wi-Fi del hogar). Un s
 batería pero sin enlace alterno protege el hardware y falla en la función.
 
 ---
+
+---
+
+# Nodos de Actuación: Pánico, Sirena y Video
+
+Las secciones anteriores catalogan **sensores**: elementos que *miden* algo del
+entorno. Los tres nodos de esta sección son distintos — **actúan** o **capturan**:
+
+| Nodo | Función | Dirección del flujo |
+|---|---|---|
+| **Botón de pánico** | El usuario declara una emergencia | Entrada → sistema |
+| **Sirena** | El sistema disuade o alerta | Sistema → entorno |
+| **Video** | Evidencia y verificación visual | Sistema → usuario |
+
+Por eso van aparte: tienen requisitos de **fiabilidad** (el pánico), de
+**energía** (la sirena) y de **ancho de banda** (el video) que ningún sensor de
+la tabla principal plantea.
+
+---
+
+## Tabla E — Nodo de botón de pánico
+
+Un botón de pánico parece el nodo más simple del sistema. **Es el que más
+cuidado exige**, porque su único propósito es funcionar en el peor momento
+posible: cuando alguien tiene prisa, miedo o está siendo coaccionado.
+
+| Elemento | Opción recomendada | Alternativas | Interfaz | Costo Unitario (USD) | Proveedor Confiable | Notas |
+|---|---|---|---|---|---|---|
+| **Pulsador** | Pulsador de seta con enclavamiento (tipo parada de emergencia) | Pulsador de membrana industrial (50.000+ pulsaciones) | GPIO (digital) | 1 – 4 | Listados reputados de material eléctrico | **La seta evita pulsaciones accidentales y es fácil de encontrar a ciegas.** Un pulsador de protoboard falla justo cuando importa. |
+| **Carcasa** | Caja con tapa rompible o tapa abatible | Caja estanca IP54 con membrana | — | 1 – 3 | Listados reputados | La tapa **obliga a una acción deliberada**: evita falsas alarmas por un roce. Documentar cómo se abre. |
+| **Retención del estado** | **Reed switch de enclavamiento (latching)** | Condensador de retención | GPIO | 0.30 – 0.80 | Listados reputados | **Aunque el ESP32 esté dormido o reiniciándose, el estado queda registrado.** Si no, un reinicio durante la pulsación pierde la alarma. |
+| **Alimentación** | Pila de litio **no recargable** (CR123A o 2× AA litio) | LiPo + bq24074 (ver Tabla D) | — | 2 – 6 | Distribuidores autorizados | **Un pánico no debe depender de que haya luz eléctrica.** Pila primaria: dura años y no necesita cargarse. |
+| **Confirmación local** | LED + zumbador piezo | Solo LED | GPIO | 0.50 – 2 | Listados reputados | El usuario **debe saber** que su pulsación se registró. Sin confirmación, pulsa dos veces o se queda con la duda. |
+| **Micrófono (opcional)** | MAX9814 (con AGC) | INMP441 (I2S digital) | ADC1 o I2S | 2 – 6 | Adafruit · listados reputados | Permite **capturar audio tras la pulsación** como evidencia. Es la mejora más valiosa del nodo, y la que más debate legal genera (ver advertencias). |
+
+### Advertencias críticas sobre el botón de pánico
+
+1. **Un pánico con batería recargable es un pánico que puede estar descargado.**
+   Es el único nodo del sistema donde una **pila primaria** (no recargable) es la
+   opción correcta: dura años en reposo y no depende de que alguien se acuerde de
+   cargarla. Reservar la LiPo para el resto del sistema.
+
+2. **El consumo en reposo define el nodo.** Un ESP32 despierto consume decenas de
+   mA y agota cualquier pila en días. El diseño debe ser **deep sleep con
+   interrupción GPIO**: el pulsador despierta al chip, que transmite y vuelve a
+   dormir. Consumo objetivo: **decenas de microamperios** en reposo.
+
+3. **Anti-sabotaje: el nodo puede ser atacado.** Un botón de pánico alcanzable
+   puede ser arrancado o tapado. Conviene detectar:
+   - **Pérdida de continuidad** del cable del pulsador (circuito de supervisión
+     con resistencia de fin de línea)
+   - **Apertura de la carcasa** (switch de manipulación)
+   - **Pérdida de latido**: si el nodo deja de reportar, el sistema debe avisar
+
+4. **La confirmación al usuario no es opcional.** Un pánico sin LED ni zumbador
+   deja al usuario sin saber si funcionó, y repetirá la pulsación. Eso genera
+   falsos duplicados que confunden el registro de eventos.
+
+5. **Enlace: no depender solo del Wi-Fi del hogar.** El escenario real de un
+   pánico suele incluir corte de luz o de internet. Ver las tablas A y B: un
+   enlace LoRa punto a punto es la redundancia natural, y es más importante aquí
+   que en cualquier otro nodo.
+
+6. **Sobre el audio como evidencia — leer antes de implementarlo.** Grabar audio
+   en una vivienda tiene implicaciones legales distintas en cada país, y las
+   personas presentes pueden no haber consentido. **No activar grabación sin
+   revisar la normativa aplicable** y sin que el usuario lo sepa. Un sistema de
+   alarma que graba a escondidas es un problema legal, no una función.
+
+---
+
+## Tabla F — Nodo sirena
+
+La sirena es el único nodo del sistema cuyo trabajo es **consumir energía a
+propósito**. Eso la vuelve incompatible con las decisiones de bajo consumo del
+resto del catálogo.
+
+| Elemento | Opción recomendada | Alternativas | Interfaz | Costo Unitario (USD) | Proveedor Confiable | Notas |
+|---|---|---|---|---|---|---|
+| **Sirena** | Sirena piezoeléctrica de 12 V, 110–120 dB | Zumbador piezo de 3.3 V (débil, no disuasorio) | Relé o MOSFET | 5 – 15 | Listados reputados de material de seguridad | **Los dB caen rápido con la distancia.** 120 dB a 1 m son ~90 dB a 10 m: suficiente para disuadir dentro, no para toda una manzana. |
+| **Conmutación** | **Relé de estado sólido o MOSFET de canal N** | Relé mecánico (más lento, desgaste) | GPIO | 1 – 4 | Listados reputados | El ESP32 **no puede alimentar la sirena directamente** (ver advertencia 1). El MOSFET debe llevar **diodo de recirculación** si la carga es inductiva. |
+| **Alimentación** | Fuente dedicada 12 V | Batería 12 V o pack 3S con convertidor | — | 5 – 15 | Listados reputados | **Circuito independiente del ESP32.** Una sirena que hunde la fuente compartida reinicia el controlador justo cuando está sonando. |
+| **Respaldo** | Batería 12 V con cargador con *power path* | Pack 3S Li-ion + BMS | — | 15 – 40 | Ver Tabla D | Aplican las mismas advertencias de la Tabla D. **"Cargador" no es "UPS".** |
+| **Sensor de presencia de sirena** | Supervisión por corriente (shunt) o por resistencia de fin de línea | — | ADC1 | 1 – 3 | Listados reputados | Detecta que **cortaron el cable de la sirena** antes de la intrusión. Sin esto, el atacante desactiva la disuasión sin que nadie lo sepa. |
+| **Limitador de tiempo** | **Temporizador por hardware** (no solo por software) | Temporizador del propio ESP32 | — | 0.50 – 2 | Listados reputados | Ver advertencia 4: la sirena **debe** cortarse sola aunque el firmware se cuelgue. |
+
+### Advertencias críticas sobre la sirena
+
+1. **El ESP32 no puede manejar la corriente de una sirena.** Un GPIO entrega
+   ~12 mA a 3.3 V; una sirena de 12 V consume **cientos de mA o amperios**. Hace
+   falta conmutación por MOSFET o relé, con la fuente adecuada. Conectar la
+   sirena directa a un GPIO no "funciona mal": **destruye el pin**.
+
+2. **La sirena no comparte fuente con el controlador.** El pico de arranque de
+   una sirena hunde la tensión, y un ESP32 con la tensión hundida se reinicia.
+   El resultado es un sistema que se reinicia mientras suena — y deja de sonar.
+   **Fuente separada, o al menos rama separada con condensador de reserva.**
+
+3. **El cable de la sirena es el punto débil físico.** Está fuera del panel,
+   accesible, y es lo primero que corta un atacante. Por eso la **supervisión de
+   línea** (medir la resistencia del circuito) es más valiosa que la potencia de
+   la propia sirena.
+
+4. **Límite de tiempo obligatorio, y por hardware.** Una sirena que no se apaga
+   por un fallo de firmware es una denuncia por ruido y un vecindario en contra.
+   La normativa de muchos países limita la duración (típicamente 3–15 minutos).
+   **El corte debe ser independiente del software.**
+
+5. **La sirena no sustituye a la notificación.** Su función es **disuadir** y
+   alertar a quien esté cerca. No avisa al dueño si está fuera. Es un complemento
+   del push del portal, nunca un reemplazo.
+
+6. **Distinguir sirena interior de exterior.** Una exterior necesita certificación
+   IP y su nivel de dB está regulado. Una interior puede ser más discreta. **No es
+   el mismo producto ni el mismo costo.**
+
+7. **Cuidado con el lazo de realimentación.** Si el nodo que detecta la intrusión
+   es el mismo que dispara la sirena, una falsa alarma genera un evento ruidoso e
+   imborrable. Conviene un **tiempo de confirmación** o una segunda señal antes de
+   disparar, configurable por el usuario.
+
+---
+
+## Tabla G — Nodo de video
+
+El nodo de video **no es un sensor con cámara**: es un sistema de captura con
+requisitos propios de ancho de banda, almacenamiento y energía que **exceden el
+resto del catálogo por un orden de magnitud**.
+
+| Elemento | Opción recomendada | Alternativas | Interfaz | Costo Unitario (USD) | Proveedor Confiable | Notas |
+|---|---|---|---|---|---|---|
+| **Módulo** | **ESP32-S3-WROOM-1 con PSRAM de 8 MB** | ESP32-S3 con cámara integrada (ESP32-S3-EYE, Freenove) | DVP o SPI | 8 – 25 | Espressif · listados reputados | ⚠️ **PSRAM obligatoria.** Sin ella no hay buffer para un fotograma JPEG. Un ESP32 clásico (sin S) **no sirve** para video. |
+| **Cámara** | **OV2640** (JPEG por hardware, 2 MP) | OV5640 (5 MP, autofoco, más consumo) | DVP | 3 – 12 | Listados reputados | **El OV2640 comprime JPEG en el propio sensor**: el ESP32 solo mueve bytes. Sin eso, el chip no da abasto. |
+| **Almacenamiento local** | **Tarjeta microSD por SPI** | Flash interna (insuficiente para video) | SPI | 3 – 8 (módulo) + 5–15 (tarjeta) | Listados reputados | **El video no cabe en la flash del ESP32.** Sin SD, cada captura debe salir por red o perderse. |
+| **Conectividad** | Wi-Fi (nativo del ESP32-S3) | 4G (ver Tabla A) para sitios sin internet | — | — | — | **El video es lo que más ancho de banda consume del sistema.** Ver advertencia 2. |
+| **Visión nocturna** | Módulo con LED IR 850 nm + filtro IR removible | Sin IR (inútil de noche) | GPIO (control de LED) | 2 – 8 | Listados reputados | Algunos módulos traen el **filtro IR fijo**: no sirven de noche. Verificar que sea removible (el clic audible al cambiar es la señal). |
+| **Detección de movimiento** | El propio ESP32 comparando fotogramas | Sensor PIR (ver tabla principal) | — | 0 | — | **Comparar dos JPEG en el chip es suficiente** para decidir si vale la pena subir. Ahorra ancho de banda y batería. Preferible al PIR si ya hay cámara. |
+| **Energía** | Alimentación fija (no batería) | Batería + panel solar (solo capturas espaciadas) | — | — | Ver Tabla D | Ver advertencia 3: **la batería y el video casi no se llevan.** |
+
+### Advertencias críticas sobre el video
+
+1. **Sin PSRAM no hay video.** Un ESP32 sin PSRAM no tiene memoria para un
+   fotograma. Incluso con ella, la resolución práctica para envío continuo es
+   **QVGA o VGA**, no 2 MP. El sensor puede más de lo que el chip puede mover.
+
+2. **El ancho de banda es el límite real, no la cámara.** Un video fluido por
+   Wi-Fi satura una conexión doméstica y consume el plan de datos si es 4G.
+   Estrategia recomendada para una alarma: **no transmitir video continuo**.
+   Enviar **un fotograma por evento**, y video solo si el usuario lo pide en ese
+   momento. Es la diferencia entre un sistema viable y uno que gasta datos sin
+   aportar más seguridad.
+
+3. **El video y la batería son incompatibles en la práctica.** Un nodo que
+   captura video consume cientos de mA durante la captura. Un nodo a batería con
+   video dura **días, no meses**. Si el nodo debe ser autónomo, usar **PIR o
+   radar para despertar** y capturar pocos fotogramas por evento.
+
+4. **El almacenamiento es un problema de privacidad, no solo de espacio.** Las
+   grabaciones de una vivienda son datos personales sensibles. Aplican las mismas
+   consideraciones legales que el audio del botón de pánico, y con más motivo.
+   **Definir política de retención** (cuánto se guarda) y avisar al usuario.
+
+5. **La cámara en la nube cambia el modelo de confianza.** Subir video a un
+   servicio externo significa que un tercero tiene imágenes del interior de la
+   casa. Si el proyecto promete que los datos son del cliente, **el video debe
+   quedarse en el servidor propio** o no salir del hogar.
+
+6. **El nodo de video no debe ser también el de detección crítica.** Si la alarma
+   depende de un nodo que además mueve video, la carga de trabajo del chip puede
+   retrasar la detección. **Separar responsabilidades**: detección en un nodo
+   ligero, evidencia visual en otro.
+
+7. **Considerar si el video aporta o solo complica.** Para la mayoría de alarmas
+   domésticas, un **fotograma al activarse** más el aviso push cubre la necesidad
+   ("¿qué pasó?") a una fracción del costo, la energía y la complejidad legal de
+   un flujo de video continuo. **Empezar por el fotograma** y añadir video solo si
+   un requisito concreto lo justifica.
+
+---
+
+## Resumen: los tres nodos activos frente a los sensores
+
+| Aspecto | Sensores (tabla principal) | Pánico | Sirena | Video |
+|---|---|---|---|---|
+| **Consumo** | Bajo, apto para batería | Muy bajo en reposo | **Alto** | **Muy alto** |
+| **Batería viable** | Sí (varios modelos) | Sí, con pila primaria | No | No |
+| **Ancho de banda** | Mínimo (unos bytes) | Mínimo | Ninguno | **El mayor del sistema** |
+| **Riesgo principal** | Clon del componente | **Fallar cuando se necesita** | **Hundir la fuente** | **Privacidad y datos** |
+| **Redundancia necesaria** | Recomendable | **Obligatoria** | Recomendable | Opcional |
+| **Complejidad legal** | Ninguna | Media si graba audio | Baja (ruido) | **Alta** |
+
+**Conclusión de prioridades:** si el sistema tiene que elegir, el orden de valor
+por esfuerzo es **pánico → sirena → video**. El botón de pánico es barato,
+insustituible y su ausencia es la que más se nota en una emergencia real. El video
+es el más costoso en dinero, energía y responsabilidad legal, y el que menos
+aporta si el push ya avisa y el fotograma ya muestra qué pasó.
+
 
 ## Limitaciones declaradas de este documento
 

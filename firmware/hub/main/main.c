@@ -562,7 +562,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         mac_str, active_config.hub_name, running_ver, part_label,
         (unsigned long)uptime_s, rr_str);
     
-    esp_mqtt_client_publish(mqtt_client, "seguimiento360/hub/status", online_payload, 0, 1, 0);
+    /* Retenido, igual que el last will: asi el broker guarda la ultima verdad
+     * del hub y el que se suscribe despues (Node-RED al arrancar) no hereda un
+     * OFFLINE fantasma. */
+    esp_mqtt_client_publish(mqtt_client, "seguimiento360/hub/status", online_payload, 0, 1, 1);
     ESP_LOGI(TAG, "📡 Publicado HUB_ONLINE al servidor central");
 
             mqtt_is_connected = true;
@@ -1160,7 +1163,7 @@ static void hub_latido_cb(void *arg)
         (unsigned long)(esp_timer_get_time() / 1000000ULL));
 
     if (esp_mqtt_client_publish(mqtt_client, "seguimiento360/hub/status",
-                                buf, 0, 1, 0) < 0) {
+                                buf, 0, 1, 1) < 0) {
         ESP_LOGW(TAG, "No se publico el latido de estado.");
     } else {
         ESP_LOGI(TAG, "Latido de estado publicado.");

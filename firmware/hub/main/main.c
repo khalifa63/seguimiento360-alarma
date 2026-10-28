@@ -188,6 +188,33 @@ static httpd_handle_t server = NULL;
 static uint8_t router_channel = S360_ESPNOW_CHANNEL;
 static char hub_mac_str[18];
 static uint8_t hub_mac[6];   /* MAC STA; el frame v1 la lleva como src_mac */
+
+/* --- Prueba de enlace ESP-NOW pedida desde la app -----------------------
+ * Solo puede haber una prueba en vuelo: la app lanza una por nodo y espera
+ * su resultado, y tener dos simultaneas obligaria a casar respuestas por
+ * identificador. El tid se devuelve tal cual para que el portal sepa a que
+ * pulsacion corresponde lo que llego. */
+typedef struct {
+    uint8_t mac[6];
+    char    tid[16];
+    int     intentos;
+    int64_t enviado_us;
+    bool    pendiente;
+    bool    fallo_radio;
+} ping_test_t;
+static ping_test_t s_ping;
+static esp_timer_handle_t s_ping_timer = NULL;
+
+/* Tres intentos separados 3 s: suficiente para un nodo con el enlace justo,
+ * y lo bastante corto para que la app no tenga que esperar un minuto. */
+#define PING_INTENTOS_MAX 3
+#define PING_ESPERA_US    (3 * 1000 * 1000)
+
+/* Van a continuacion, pero el handler de MQTT las necesita antes. */
+static void publish_ping_result(const uint8_t *mac, bool ok, const char *razon,
+                                int rtt_ms, int intentos, int seq);
+static void hub_enviar_ping(void);
+static void on_espnow_sent(const uint8_t *mac_addr, esp_now_send_status_t status);
 /* Eventos que no llegaron a publicarse. Se reporta en cada publicacion
  * fallida para que una perdida no pase inadvertida. */
 static uint32_t s_events_dropped = 0;
@@ -695,6 +722,45 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                         return;
                     }
 
+                    /* Prueba de enlace en vivo pedida desde la pantalla de
+                     * nodos. Responde por /diag, no por aqui. */
+                    if (strstr(cmd_data, "ping") != NULL) {
+                        cJSON *raiz = cJSON_Parse(cmd_data);
+                        cJSON *mac_json = raiz ? cJSON_GetObjectItem(raiz, "mac") : NULL;
+                        cJSON *tid_json = raiz ? cJSON_GetObjectItem(raiz, "tid") : NULL;
+                        uint8_t objetivo[6];
+
+                        if (cJSON_IsString(mac_json) &&
+                            sscanf(mac_json->valuestring, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                                   &objetivo[0], &objetivo[1], &objetivo[2],
+                                   &objetivo[3], &objetivo[4], &objetivo[5]) == 6) {
+                            memset(&s_ping, 0, sizeof(s_ping));
+                            memcpy(s_ping.mac, objetivo, 6);
+                            if (cJSON_IsString(tid_json) && tid_json->valuestring) {
+                                strncpy(s_ping.tid, tid_json->valuestring,
+                                        sizeof(s_ping.tid) - 1);
+                            }
+
+                            if (find_node_index(objetivo) < 0) {
+                                /* El hub no lo tiene: la app se entera de que
+                                 * el problema no es de radio sino de vinculo. */
+                                s_ping.pendiente = false;
+                                publish_ping_result(objetivo, false, "no_vinculado",
+                                                    0, 0, -1);
+                            } else {
+                                s_ping.pendiente = true;
+                                s_ping.intentos = 1;
+                                hub_enviar_ping();
+                                esp_timer_start_once(s_ping_timer, PING_ESPERA_US);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "ping: falta 'mac' en el comando.");
+                        }
+                        if (raiz) cJSON_Delete(raiz);
+                        free(cmd_data);
+                        return;
+                    }
+
                     sm_alarm_cmd_t cmd = SM_ALARM_CMD_NONE;
                     if (strstr(cmd_data, "arm") != NULL && strstr(cmd_data, "disarm") == NULL) {
                         cmd = SM_ALARM_CMD_ARM;
@@ -1030,6 +1096,139 @@ esp_err_t hub_send_ota_config(const uint8_t *node_mac, const char *ota_url)
     return err;
 }
 
+/* Publica el resultado de la prueba en el topico /diag del hub. No va por
+ * /event a proposito: un PING no es una alarma, y si pasara por alli acabaria
+ * en la base de datos y en el movil de todos como si fuera un aviso. */
+static void publish_ping_result(const uint8_t *mac, bool ok, const char *razon,
+                                int rtt_ms, int intentos, int seq) {
+    if (mqtt_client == NULL || !mqtt_is_connected) {
+        ESP_LOGW(TAG, "PING_RESULT no publicado: MQTT caido.");
+        return;
+    }
+
+    char topic[128];
+    get_mqtt_topic(topic, sizeof(topic), "diag");
+
+    char mac_str[18];
+    format_mac(mac, mac_str, sizeof(mac_str));
+
+    char payload[320];
+    snprintf(payload, sizeof(payload),
+             "{\"event\":\"PING_RESULT\",\"mac\":\"%s\",\"ok\":%s,"
+             "\"rtt_ms\":%d,\"attempts\":%d,\"seq\":%d,"
+             "\"reason\":\"%s\",\"tid\":\"%s\"}",
+             mac_str, ok ? "true" : "false", rtt_ms, intentos, seq,
+             razon ? razon : "", s_ping.tid);
+
+    esp_mqtt_client_publish(mqtt_client, topic, payload, 0, 1, 0);
+    ESP_LOGI(TAG, "Diag: PING %s -> %s (rtt=%d ms, intentos=%d)",
+             mac_str, ok ? "OK" : razon, rtt_ms, intentos);
+}
+
+
+/* Latido de estado por MQTT.
+
+   Sin esto el hub solo se anunciaba al conectar, y como el broker conserva el
+   last will como mensaje retenido, cada reinicio de Node-RED vuelve a recibir
+   ese HUB_OFFLINE y deja el hub como caido hasta que alguien lo reinicia a
+   mano. Con un latido cada cinco minutos, hubs.last_seen pasa a ser de verdad
+   una prueba de vida: si deja de subir, es que el hub se cayo. El margen
+   cubre el ventana de "vivo" que usa el backend (600 s). */
+#define HUB_LATIDO_US (5 * 60 * 1000 * 1000)
+static esp_timer_handle_t s_latido_timer = NULL;
+
+static void hub_latido_cb(void *arg)
+{
+    (void)arg;
+    if (mqtt_client == NULL || !mqtt_is_connected) {
+        ESP_LOGW(TAG, "Latido de estado omitido: MQTT caido.");
+        return;
+    }
+
+    char mac_str[18];
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    format_mac(mac, mac_str, sizeof(mac_str));
+
+    const esp_app_desc_t *app = esp_app_get_description();
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "{\"event\":\"HUB_HEARTBEAT\",\"mac\":\"%s\",\"hub_name\":\"%s\","
+        "\"version\":\"%s\",\"uptime_s\":%lu}",
+        mac_str, active_config.hub_name,
+        (app != NULL) ? app->version : "desconocida",
+        (unsigned long)(esp_timer_get_time() / 1000000ULL));
+
+    if (esp_mqtt_client_publish(mqtt_client, "seguimiento360/hub/status",
+                                buf, 0, 1, 0) < 0) {
+        ESP_LOGW(TAG, "No se publico el latido de estado.");
+    } else {
+        ESP_LOGI(TAG, "Latido de estado publicado.");
+    }
+}
+
+static void hub_enviar_ping(void) {
+    espnow_payload_ping_t ping;
+    memset(&ping, 0, sizeof(ping));
+    ping.magic = ESPNOW_PING_MAGIC;
+    ping.nonce = (uint8_t)(esp_timer_get_time() & 0xFF);
+    strncpy(ping.tid, s_ping.tid, sizeof(ping.tid) - 1);
+
+    espnow_frame_t frame;
+    if (espnow_build_frame(&frame, ESPNOW_FT_CMD, (uint16_t)s_ping.intentos,
+                           hub_mac, s_ping.mac,
+                           (const uint8_t *)&ping, sizeof(ping)) != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo construir el PING.");
+        s_ping.pendiente = false;
+        publish_ping_result(s_ping.mac, false, "frame", 0, s_ping.intentos, -1);
+        return;
+    }
+
+    s_ping.enviado_us = esp_timer_get_time();
+    s_ping.fallo_radio = false;
+
+    esp_err_t err = esp_now_send(s_ping.mac, (const uint8_t *)&frame,
+                                 espnow_frame_size(sizeof(ping)));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "PING no enviado: %s", esp_err_to_name(err));
+        s_ping.pendiente = false;
+        publish_ping_result(s_ping.mac, false, "radio", 0, s_ping.intentos, -1);
+        return;
+    }
+    ESP_LOGI(TAG, "PING %d/%d al nodo (esperando PONG).",
+             s_ping.intentos, PING_INTENTOS_MAX);
+}
+
+static void ping_timer_cb(void *arg) {
+    if (!s_ping.pendiente) {
+        return;
+    }
+    if (s_ping.intentos < PING_INTENTOS_MAX) {
+        s_ping.intentos++;
+        hub_enviar_ping();
+        esp_timer_start_once(s_ping_timer, PING_ESPERA_US);
+        return;
+    }
+    /* Se agotaron los reintentos. Importa el matiz: si la radio nos dijo que
+     * el nodo no contesta ni a nivel de enlace, el problema es de canal o de
+     * alcance; si el enlace fue bueno pero no hubo PONG, el nodo esta vivo
+     * pero su firmware no responde a la prueba. */
+    s_ping.pendiente = false;
+    publish_ping_result(s_ping.mac, false,
+                        s_ping.fallo_radio ? "radio" : "sin_respuesta",
+                        0, s_ping.intentos, -1);
+}
+
+/* Enterado del resultado del envio a nivel 802.11. Un ESP_NOW_SEND_FAIL no
+ * significa "el nodo no funciona": significa que su radio no devolvio ACK,
+ * que es justo lo que falla cuando hub y nodo no estan en el mismo canal. */
+static void on_espnow_sent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+    if (s_ping.pendiente && memcmp(mac_addr, s_ping.mac, 6) == 0 &&
+        status == ESP_NOW_SEND_FAIL) {
+        s_ping.fallo_radio = true;
+    }
+}
+
 static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     /* Instante de recepcion, lo primero que se ejecuta: todo lo que se haga
      * antes se imputaria al presupuesto del ACK. */
@@ -1133,6 +1332,21 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             blink_indicator(3, 100); 
 
             send_ack_v1(sender_mac, payload->seq, rx_us);
+        }
+        return;
+    }
+
+    /* Respuesta a la prueba de enlace. Se resuelve aqui mismo y no sube como
+     * evento: no es una lectura del sensor, y contaminaria el historial. */
+    if (memcmp(payload->event_code, "PONG", 4) == 0) {
+        if (s_ping.pendiente && memcmp(sender_mac, s_ping.mac, 6) == 0) {
+            uint32_t ms = (uint32_t)((rx_us - s_ping.enviado_us) / 1000);
+            s_ping.pendiente = false;
+            esp_timer_stop(s_ping_timer);
+            publish_ping_result(sender_mac, true, "ok", (int)ms,
+                                s_ping.intentos, payload->seq);
+        } else {
+            ESP_LOGW(TAG, "PONG de %s sin prueba pendiente: descartado.", mac_str);
         }
         return;
     }
@@ -2035,6 +2249,22 @@ void app_main(void) {
     // 9. Inicializar ESP-NOW
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_recv_cb(on_data_recv));
+    /* Para saber si el nodo siquiera entiendo el nivel de enlace. */
+    ESP_ERROR_CHECK(esp_now_register_send_cb(on_espnow_sent));
+
+    const esp_timer_create_args_t ping_timer_args = {
+        .callback = &ping_timer_cb,
+        .name     = "ping_to"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&ping_timer_args, &s_ping_timer));
+
+    /* Latido de estado: mismo sitio donde se arma el timer del ping. */
+    const esp_timer_create_args_t latido_args = {
+        .callback = &hub_latido_cb,
+        .name     = "hub_latido"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&latido_args, &s_latido_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_latido_timer, HUB_LATIDO_US));
 
     // 10. Cargar registro de nodos y restaurar peers en ESP-NOW
     load_node_registry();

@@ -89,6 +89,26 @@ typedef struct __attribute__((packed)) {
     char     ota_url[ESPNOW_OTA_URL_MAX];
 } espnow_payload_config_t;
 
+/* ---------------------------------------------------------------------------
+ * Prueba de enlace en tiempo real (HUB-IF-014)
+ *
+ * La app pregunta "este nodo escucha de verdad?". No basta con que el hub
+ * tenga la MAC en su lista: puede estar emparejado pero apagado, fuera de
+ * alcance o en otro canal. El hub manda este CMD y el nodo responde un
+ * DATA_EVENT con codigo "PONG". Va en el mismo tipo de frame que la
+ * configuracion, y el primer byte distingue una cosa de la otra.
+ * ------------------------------------------------------------------------ */
+#define ESPNOW_PING_MAGIC      0xE7
+
+typedef struct __attribute__((packed)) {
+    uint8_t magic;                    /* ESPNOW_PING_MAGIC */
+    uint8_t nonce;                    /* se devuelve tal cual en el PONG */
+    char    tid[12];                  /* identificador de la prueba, opaco */
+} espnow_payload_ping_t;
+
+_Static_assert(sizeof(espnow_payload_ping_t) <= ESPNOW_MAX_PAYLOAD,
+               "El payload de prueba no cabe en un frame ESP-NOW");
+
 _Static_assert(sizeof(espnow_payload_config_t) <= ESPNOW_MAX_PAYLOAD,
                "El payload de configuracion no cabe en un frame ESP-NOW");
 

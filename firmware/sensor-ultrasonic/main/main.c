@@ -36,9 +36,9 @@ static const char *TAG = "NODE_ULTRASONIC";
 // ============================================================================
 // 1. CONFIGURACIÓN DE HARDWARE (pines para SuperMini)
 // ============================================================================
-#define TRIG_PIN                 GPIO_NUM_5
-#define ECHO_PIN                 GPIO_NUM_4
-#define LED_PIN                  GPIO_NUM_2
+#define TRIG_PIN                 GPIO_NUM_2
+#define ECHO_PIN                 GPIO_NUM_3
+#define LED_PIN                  GPIO_NUM_8
 #define WIFI_CHANNEL             5
 #define HEARTBEAT_INTERVAL_SEC   (10 * 60)
 #define MEASUREMENT_INTERVAL_SEC 5
@@ -113,6 +113,8 @@ static uint32_t last_link_check = 0;
 /* Intentos de PAIR fallidos seguidos. Se pone a cero en cuanto llega un ACK. */
 static uint32_t pair_retry_count = 0;
 static bool     peer_registered = false;
+/* Se define mas abajo; la respuesta a la prueba la necesita desde on_data_recv. */
+static esp_err_t ensure_hub_peer(void);
 
 // ============================================================================
 // 3. SENSOR HC-SR04
@@ -194,6 +196,36 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
      * la URL del servidor OTA. Es la unica via por la que el nodo puede
      * enterarse de la red de la casa, y sin red no puede descargar nada. */
     if (frame.frame_type == ESPNOW_FT_CMD) {
+        /* Prueba de enlace: el hub quiere saber si seguimos ahi. Se contesta
+         * antes de la comprobacion de la configuracion porque el payload de
+         * la prueba es mucho mas corto. */
+        if (frame.payload_len >= 1 && frame.payload[0] == ESPNOW_PING_MAGIC) {
+            if (!pairing_is_linked()) {
+                ESP_LOGW(TAG, "PING del hub sin vinculo: no se responde.");
+                return;
+            }
+            espnow_payload_v1_t pong = {0};
+            memcpy(pong.event_code, "PONG", 4);
+            pong.seq           = seq_counter++;
+            pong.battery_level = 95;
+            pong.distance_cm   = 0;
+
+            espnow_frame_t respuesta;
+            if (espnow_build_frame(&respuesta, ESPNOW_FT_DATA_EVENT, pong.seq,
+                                   own_mac, hub_mac,
+                                   (const uint8_t *)&pong, sizeof(pong)) != ESP_OK) {
+                ESP_LOGE(TAG, "No se pudo construir el PONG.");
+                return;
+            }
+            if (ensure_hub_peer() != ESP_OK) {
+                return;
+            }
+            ESP_LOGI(TAG, "PING recibido: respondiendo PONG (seq=%d).", pong.seq);
+            esp_now_send(hub_mac, (const uint8_t *)&respuesta,
+                         espnow_frame_size(sizeof(pong)));
+            return;
+        }
+
         if (frame.payload_len != sizeof(espnow_payload_config_t)) {
             ESP_LOGW(TAG, "Config de %u bytes, se esperaban %u",
                      frame.payload_len, (unsigned)sizeof(espnow_payload_config_t));

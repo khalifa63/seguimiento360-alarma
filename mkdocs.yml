@@ -30,6 +30,7 @@ nav:
       - hardware/README.md
       - hardware/ARQUITECTURA_HUB.md
       - hardware/PROTOCOLO_ESPNOW.md
+      - hardware/nodos-sensores-esp32.md
       - hardware/validacion-m2bis.md
       - hardware/INFRA-REAL.md
       - hardware/A1-TAREAS-FREERTOS.md

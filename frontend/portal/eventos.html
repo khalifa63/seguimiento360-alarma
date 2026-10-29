@@ -116,7 +116,7 @@ async function cargar() {
     } else {
       let h = '<div class="tabla-env"><table>';
       h += '<thead><tr><th>Fecha y hora</th><th>Evento</th>'
-         + '<th>Dispositivo</th><th>Ubicacion</th><th>Distancia</th>'
+         + '<th>Dispositivo</th><th>Ubicacion</th><th>Estado</th>'
          + '<th>Bateria</th><th>Sec.</th></tr></thead><tbody>';
       for (const e of lista) {
         const ev2 = evento(e.event_type);
@@ -127,11 +127,13 @@ async function cargar() {
         h += '<td data-etiqueta="Dispositivo">' + esc(e.node_name || e.node_mac) + '</td>';
         h += '<td data-etiqueta="Ubicacion" style="color:var(--txt2);">'
            + esc(p.room || p.location || '-') + '</td>';
-        h += '<td data-etiqueta="Distancia">' + (e.distance_cm != null
-                    ? (e.distance_cm >= 254
-                        ? (e.distance_cm === 255 ? 'sin eco' : 'eco fuera de rango')
-                        : e.distance_cm + ' cm')
-                    : '-') + '</td>';
+        h += '<td data-etiqueta="Estado">' + (e.event_type === 'DOOR'
+                    ? (e.distance_cm === 1 ? 'Cerrado' : (e.distance_cm === 0 ? 'Abierto' : '-'))
+                    : (e.distance_cm != null
+                        ? (e.distance_cm >= 254
+                            ? (e.distance_cm === 255 ? 'sin eco' : 'eco fuera de rango')
+                            : e.distance_cm + ' cm')
+                        : '-')) + '</td>';
         h += '<td data-etiqueta="Bateria">' + (e.battery_level != null ? e.battery_level + '%' : '-') + '</td>';
         h += '<td data-etiqueta="Sec." class="mono" style="color:var(--txt2);">'
            + (e.sequence_number != null ? e.sequence_number : '-') + '</td>';

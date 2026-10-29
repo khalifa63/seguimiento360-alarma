@@ -127,9 +127,13 @@ async function cargar() {
       for (const e of lista) {
         const ev2 = evento(e.event_type);
         let det = '-';
-        if (e.distance_cm != null) det = (e.distance_cm >= 254
+        if (e.event_type === 'DOOR') {
+          det = (e.distance_cm === 1 ? 'Cerrado' : (e.distance_cm === 0 ? 'Abierto' : '-'));
+        } else if (e.distance_cm != null) {
+          det = (e.distance_cm >= 254
                     ? (e.distance_cm === 255 ? 'sin eco' : 'eco fuera de rango')
                     : e.distance_cm + ' cm');
+        }
         if (e.battery_level != null) {
           det += (det !== '-' ? ' · ' : '') + e.battery_level + '%';
         }

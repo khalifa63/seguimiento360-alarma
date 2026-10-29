@@ -1,6 +1,6 @@
 # Prototipo Reed Switch con ESP32 DevKit V1
 
-Firmware ESP-IDF que monitorea el estado de un **Reed Switch magnético de 28 mm** conectado a un **ESP32 DevKit V1** y lo reporta por el monitor serial **solo cuando el estado cambia**: `Switch Cerrado` (imán cerca) o `Switch Abierto` (imán lejos). Es el prototipo del sensor de apertura (puertas/ventanas) del proyecto **seguimiento360-alarma** y sigue la convención del prototipo hermano [Sensor_de_movimiento_PIR_HC_SR501](../Sensor_de_movimiento_PIR_HC_SR501/).
+Firmware ESP-IDF que monitorea el estado de un **Reed Switch magnético de 28 mm** conectado a un **ESP32 DevKit V1** y lo reporta por el monitor serial **solo cuando el estado cambia**: `Switch Cerrado` (imán cerca) o `Switch Abierto` (imán lejos). Es el prototipo del sensor de apertura (puertas/ventanas) del proyecto **seguimiento360-alarma**. Proyecto autónomo: no comparte código ni dependencias con otros prototipos de `pruebas/`.
 
 - Ubicación en el servidor: `antonio@server:~/seguimiento360-alarma/pruebas/reed_switch_prototype/`
 - Estado: compilado, flasheado y verificado en hardware (ESP-IDF v5.2, DevKit V1 en `/dev/ttyUSB0`); reporta solo los cambios de estado.

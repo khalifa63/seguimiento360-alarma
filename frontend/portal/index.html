@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js?v=2026-10-27-3');
+    }
+  </script>
+  
+<meta charset="UTF-8">
+<meta name="vapid-public" content="BNXGhPeU2YtDPokEZUYUuQjWBKC7p0Rf_YhtyBxMNrcIwqPSLGdKp4rF30axOCr2lQGEIADMped1jRIqxf6Ys_g">
+<link rel="manifest" href="manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iniciar sesion - Seguimiento 360</title>
+<link rel="stylesheet" href="estilo-2026f.css">
+
+</head>
+<body>
+<div class="centrado">
+  <div class="tarjeta">
+    <h1>🛡️ Seguimiento 360</h1>
+    <p class="sub">Sistema de alarma y monitoreo</p>
+
+    <div class="msg" id="msg"></div>
+
+    <form id="form" novalidate>
+      <div class="campo">
+        <label for="email">Correo electronico</label>
+        <input type="email" id="email" autocomplete="username"
+               placeholder="tu@correo.com" required>
+      </div>
+      <div class="campo">
+        <label for="pass">Contrasena</label>
+        <input type="password" id="pass" autocomplete="current-password"
+               placeholder="Tu contrasena" required>
+      </div>
+      <button type="submit" class="btn" id="btn">Entrar</button>
+    </form>
+
+    <div class="pie">
+      ¿No tienes cuenta? <a href="/portal/registro.html">Registrate</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, Sesion, esc } from '/portal/comun-2026c.js';
+
+const msg = document.getElementById('msg');
+const btn = document.getElementById('btn');
+
+/* Si ya hay sesion valida, derechito al panel. */
+if (Sesion.vigente()) location.href = '/portal/dashboard.html';
+
+function mostrar(texto, ok) {
+  msg.textContent = texto;
+  msg.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const pass = document.getElementById('pass').value;
+  if (!email || !pass) { mostrar('Completa correo y contrasena.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Entrando...';
+  msg.className = 'msg';
+
+  try {
+    const r = await api('/api/auth/login', {
+      method: 'POST', auth: false,
+      body: { email: email, password: pass }
+    });
+    Sesion.guardar(r.token, r.user);
+    mostrar('Bienvenido ' + esc(r.user.full_name || r.user.email), true);
+    setTimeout(() => { location.href = '/portal/dashboard.html'; }, 400);
+  } catch (err) {
+    mostrar(err.message || 'No se pudo entrar.');
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+});
+</script>
+
+<!-- Aviso para instalar la aplicacion (lo pinta comun.js si el navegador lo ofrece) -->
+<div id="zona-instalar" style="max-width:420px;margin:0 auto 30px"></div>
+
+<script type="module">
+  import { avisoInstalar } from '/portal/comun-2026c.js';
+  avisoInstalar('zona-instalar');
+</script>
+
+</body>
+</html>

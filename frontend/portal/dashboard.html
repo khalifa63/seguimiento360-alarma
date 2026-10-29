@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel - Seguimiento 360</title>
+<link rel="stylesheet" href="estilo-2026f.css">
+</head>
+<body>
+<div id="cabecera"></div>
+<main>
+  <h2 class="titulo">Panel</h2>
+  <p class="desc" id="sub">Resumen de tus sitios y dispositivos</p>
+  <div id="zona-instalar"></div>
+  <div id="aviso-push-zona"></div>
+  <div id="contenido">
+    <div class="cargando"><div class="girador"></div>Cargando...</div>
+  </div>
+</main>
+
+<script type="module">
+import { api, cabecera, conectarSalir, exigirSesion, esc, hace,
+         evento, fecha, avisoNotificaciones, avisoInstalar } from '/portal/comun-2026c.js';
+
+if (!exigirSesion()) throw new Error('sin sesion');
+document.getElementById('cabecera').innerHTML = cabecera('panel');
+conectarSalir();
+
+// Aviso si este dispositivo no tiene las notificaciones activadas
+avisoInstalar('zona-instalar');
+avisoNotificaciones('aviso-push-zona');
+
+const cont = document.getElementById('contenido');
+
+async function cargar() {
+  try {
+    const [ov, ev] = await Promise.all([
+      api('/api/overview'),
+      api('/api/events?limit=5')
+    ]);
+
+    const sitios = ov.sites || [];
+    const hubs = sitios.flatMap(s => s.hubs || []);
+    const nodos = hubs.flatMap(h => h.nodes || []);
+    const armados = hubs.filter(h => h.alarm_state === 'armed').length;
+    const activos = hubs.filter(h => h.hub_status === 'active').length;
+
+    let h = '';
+
+    /* --- Metricas --- */
+    h += '<div class="rejilla d3" style="margin-bottom:24px;">';
+    const m = [
+      [nodos.length,  'Dispositivos',           'var(--acc)'],
+      [hubs.length,   'Hubs',                   'var(--acc)'],
+      [activos,       'Hubs en linea',          'var(--ok)'],
+      [armados,       'Hubs armados',
+        armados > 0 ? 'var(--err)' : 'var(--txt2)']
+    ];
+    for (const [n, etq, col] of m) {
+      h += '<div class="bloque"><div class="metrica" style="color:' + col + '">'
+         + n + '</div><div class="etq">' + etq + '</div></div>';
+    }
+    h += '</div>';
+
+    /* --- Sitios --- */
+    if (sitios.length === 0) {
+      h += '<div class="bloque"><div class="vacio">Todavia no tienes sitios.'
+         + '<br><br>Reclama tu hub con el codigo que viene en la caja.</div></div>';
+    } else {
+      for (const s of sitios) {
+        h += '<div class="bloque" style="margin-bottom:16px;">';
+        h += '<h3>📍 ' + esc(s.site_name) + '</h3>';
+        const hs = s.hubs || [];
+        if (hs.length === 0) {
+          h += '<p style="color:var(--txt2);font-size:.9rem;">Sin hubs en este sitio.</p>';
+        }
+        for (const hub of hs) {
+          const armado = hub.alarm_state === 'armed';
+          const vivo = hub.hub_status === 'active';
+          h += '<div style="background:var(--panel2);border-radius:8px;'
+             + 'padding:14px;margin-top:10px;">';
+          h += '<div style="display:flex;justify-content:space-between;'
+             + 'align-items:center;flex-wrap:wrap;gap:8px;">';
+          h += '<strong>' + esc(hub.hub_name) + '</strong>';
+          h += '<span>';
+          h += '<span class="pastilla ' + (vivo ? 'p-ok' : 'p-err') + '">'
+             + (vivo ? 'en linea' : 'sin conexion') + '</span> ';
+          h += '<span class="pastilla ' + (armado ? 'p-err' : 'p-gris') + '">'
+             + (armado ? 'armado' : 'desarmado') + '</span>';
+          h += '</span></div>';
+          h += '<div style="color:var(--txt2);font-size:.82rem;margin-top:8px;">';
+          h += 'MAC <span class="mono">' + esc(hub.hub_mac) + '</span>'
+             + ' &middot; visto ' + hace(hub.last_seen) + '</div>';
+
+          const ns = hub.nodes || [];
+          if (ns.length) {
+            h += '<div style="margin-top:10px;font-size:.88rem;">';
+            for (const n of ns) {
+              h += '<div style="display:flex;justify-content:space-between;'
+                 + 'padding:6px 0;border-top:1px solid var(--linea);">';
+              h += '<span>' + esc(n.node_name || n.node_mac) + '</span>';
+              h += '<span style="color:var(--txt2);">'
+                 + esc(n.room || n.location || '-') + '</span>';
+              h += '</div>';
+            }
+            h += '</div>';
+          } else {
+            h += '<div style="color:var(--txt2);font-size:.85rem;'
+               + 'margin-top:8px;">Sin dispositivos vinculados.</div>';
+          }
+          h += '</div>';
+        }
+        h += '</div>';
+      }
+    }
+
+    /* --- Ultimos eventos --- */
+    const lista = (ev.events || []).slice(0, 5);
+    h += '<div class="bloque" style="margin-top:24px;">';
+    h += '<h3>🕐 Ultimos eventos</h3>';
+    if (lista.length === 0) {
+      h += '<p style="color:var(--txt2);font-size:.9rem;">Sin actividad todavia.</p>';
+    } else {
+      h += '<div class="tabla-env" style="margin-top:10px;"><table>';
+      h += '<thead><tr><th>Hora</th><th>Evento</th><th>Dispositivo</th>'
+         + '<th>Detalle</th></tr></thead><tbody>';
+      for (const e of lista) {
+        const ev2 = evento(e.event_type);
+        let det = '-';
+        if (e.distance_cm != null) det = (e.distance_cm >= 254
+                    ? (e.distance_cm === 255 ? 'sin eco' : 'eco fuera de rango')
+                    : e.distance_cm + ' cm');
+        if (e.battery_level != null) {
+          det += (det !== '-' ? ' · ' : '') + e.battery_level + '%';
+        }
+        h += '<tr><td data-etiqueta="Hora" class="mono">' + fecha(e.created_at) + '</td>';
+        h += '<td data-etiqueta="Evento"><span class="pastilla ' + ev2.cls + '">' + ev2.txt + '</span></td>';
+        h += '<td data-etiqueta="Dispositivo">' + esc(e.node_name || e.node_mac) + '</td>';
+        h += '<td data-etiqueta="Detalle" style="color:var(--txt2);">' + det + '</td></tr>';
+      }
+      h += '</tbody></table></div>';
+      h += '<p style="margin-top:12px;"><a href="/portal/eventos.html">'
+         + 'Ver todos los eventos →</a></p>';
+    }
+    h += '</div>';
+
+    cont.innerHTML = h;
+  } catch (err) {
+    cont.innerHTML = '<div class="bloque"><div class="vacio">'
+      + esc(err.message) + '</div></div>';
+  }
+}
+
+cargar();
+</script>
+</body>
+</html>

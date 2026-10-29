@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nodos - Seguimiento 360</title>
+<link rel="stylesheet" href="estilo-2026f.css">
+<style>
+  /* Ajustes propios de la pantalla de nodos, sobre la hoja compartida */
+  .acciones { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .mini {
+    background: none; border: 1px solid var(--linea); color: var(--txt2);
+    border-radius: 7px; padding: 5px 10px; font-size: .78rem; cursor: pointer;
+    font-family: inherit; line-height: 1.2;
+  }
+  .mini:hover:not(:disabled) { border-color: var(--acc); color: var(--txt); }
+  .mini:disabled { opacity: .45; cursor: default; }
+  .mini.peligro:hover:not(:disabled) { border-color: var(--err); color: #fca5a5; }
+
+  #panel { margin-top: 18px; }
+  #panel[hidden] { display: none; }
+  .panel-cab { display: flex; justify-content: space-between; align-items: center;
+               gap: 12px; margin-bottom: 12px; }
+  .panel-cab h3 { margin: 0; }
+  .panel-cerr { background: none; border: none; color: var(--txt2); cursor: pointer;
+                font-size: 1.2rem; line-height: 1; padding: 4px 8px; }
+
+  .prueba { display: flex; justify-content: space-between; align-items: flex-start;
+            gap: 14px; padding: 11px 0; border-bottom: 1px dashed var(--linea); }
+  .prueba:last-child { border-bottom: none; }
+  .prueba .eti { font-weight: 600; font-size: .92rem; }
+  .prueba .det { color: var(--txt2); font-size: .82rem; margin-top: 3px; }
+  .prueba .val { text-align: right; white-space: nowrap; }
+
+  .veredicto { padding: 12px 14px; border-radius: 9px; font-size: .92rem;
+               margin-bottom: 14px; }
+  .v-ok   { background: rgba(16,185,129,.14); color: #6ee7b7; }
+  .v-aviso{ background: rgba(245,158,11,.14); color: #fcd34d; }
+  .v-mal  { background: rgba(239,68,68,.14);  color: #fca5a5; }
+  .v-neutro { background: var(--panel2); color: var(--txt2); }
+
+  .espera { color: var(--warn); font-size: .9rem; }
+  .oculto { display: none; }
+</style>
+</head>
+<body>
+<div id="cabecera"></div>
+<main>
+  <h2 class="titulo">Nodos</h2>
+  <p class="desc">Tus sensores y sus hubs</p>
+
+  <div class="msg" id="msg"></div>
+  <div id="contenido">
+    <div class="cargando"><div class="girador"></div>Cargando...</div>
+  </div>
+
+  <!-- Panel de resultados de pruebas y salud -->
+  <div class="bloque" id="panel" hidden>
+    <div class="panel-cab">
+      <h3 id="panel-titulo">Resultado</h3>
+      <button type="button" class="panel-cerr" id="panel-cerrar" title="Cerrar">&times;</button>
+    </div>
+    <div id="panel-cuerpo"></div>
+  </div>
+</main>
+
+<!-- Formulario de edicion -->
+<div id="modal" style="display:none;position:fixed;inset:0;
+background:rgba(0,0,0,.65);align-items:center;justify-content:center;
+padding:20px;z-index:50;">
+  <div class="tarjeta" style="max-width:460px;">
+    <h1 style="font-size:1.2rem;">Editar nodo</h1>
+    <p class="sub" id="modal-mac" style="font-family:monospace;"></p>
+    <form id="form-editar">
+      <div class="campo">
+        <label for="f-nombre">Nombre</label>
+        <input type="text" id="f-nombre" required>
+      </div>
+      <div class="campo">
+        <label for="f-ubicacion">Ubicacion</label>
+        <input type="text" id="f-ubicacion" placeholder="Casa Principal">
+      </div>
+      <div class="campo">
+        <label for="f-cuarto">Cuarto</label>
+        <input type="text" id="f-cuarto" placeholder="Garaje">
+      </div>
+      <div class="campo">
+        <label for="f-umbral">Umbral de distancia (cm)</label>
+        <input type="number" id="f-umbral" min="10" max="400" step="5">
+      </div>
+      <button type="submit" class="btn" id="f-btn">Guardar</button>
+      <button type="button" class="btn" id="f-cancelar"
+              style="background:var(--panel2);margin-top:8px;">Cancelar</button>
+    </form>
+  </div>
+</div>
+
+<!-- Confirmacion de borrado: es la unica accion irreversible de la pantalla -->
+<div id="modal-borrar" style="display:none;position:fixed;inset:0;
+background:rgba(0,0,0,.65);align-items:center;justify-content:center;
+padding:20px;z-index:50;">
+  <div class="tarjeta" style="max-width:460px;">
+    <h1 style="font-size:1.2rem;">Borrar nodo</h1>
+    <p class="sub" id="borrar-texto"></p>
+    <button type="button" class="btn" id="borrar-btn"
+            style="background:var(--err);">Si, borrarlo</button>
+    <button type="button" class="btn" id="borrar-cancelar"
+            style="background:var(--panel2);margin-top:8px;">Cancelar</button>
+  </div>
+</div>
+
+<script type="module">
+import { api, cabecera, conectarSalir, exigirSesion, esc, hace, fecha,
+         evento } from '/portal/comun-2026c.js';
+
+if (!exigirSesion()) throw new Error('sin sesion');
+document.getElementById('cabecera').innerHTML = cabecera('nodos');
+conectarSalir();
+
+const cont = document.getElementById('contenido');
+const msg = document.getElementById('msg');
+const modal = document.getElementById('modal');
+const modalBorrar = document.getElementById('modal-borrar');
+const panel = document.getElementById('panel');
+const panelTitulo = document.getElementById('panel-titulo');
+const panelCuerpo = document.getElementById('panel-cuerpo');
+let nodos = [];
+
+function aviso(texto, ok) {
+  msg.textContent = texto;
+  msg.className = 'msg ' + (ok ? 'ok' : 'err');
+  if (ok) setTimeout(() => { msg.className = 'msg'; }, 3000);
+}
+
+/* ------------------------------------------------------------------ panel */
+function abrirPanel(titulo, html) {
+  panelTitulo.textContent = titulo;
+  panelCuerpo.innerHTML = html;
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function cerrarPanel() { panel.hidden = true; panelCuerpo.innerHTML = ''; }
+document.getElementById('panel-cerrar').addEventListener('click', cerrarPanel);
+
+const CLASE = { ok: 'p-ok', aviso: 'p-warn', mal: 'p-err', neutro: 'p-gris' };
+const PALABRA = { ok: 'normal', aviso: 'revisar', mal: 'falla', neutro: 'sin datos' };
+
+/* --------------------------------------------------------------- la tabla */
+async function cargar() {
+  try {
+    /* /api/overview trae la jerarquia sitio > hub > nodos, que es
+       justo lo que hace falta para agrupar. */
+    const ov = await api('/api/overview');
+    nodos = [];
+    for (const s of ov.sites || []) {
+      for (const hub of s.hubs || []) {
+        for (const n of hub.nodes || []) {
+          nodos.push(Object.assign({}, n, {
+            sitio: s.site_name,
+            hub: hub.hub_name,
+            hub_estado: hub.hub_status,
+            hub_visto: hub.last_seen
+          }));
+        }
+      }
+    }
+
+    let h = '';
+    if (nodos.length === 0) {
+      h = '<div class="bloque"><div class="vacio">No tienes nodos vinculados.'
+        + '<br><br>Vincula uno pulsando el boton BOOT del hub, o abriendo '
+        + 'la ventana de emparejamiento desde el panel.</div></div>';
+      cont.innerHTML = h;
+      return;
+    }
+
+    h += '<div class="tabla-env"><table>';
+    h += '<thead><tr><th>Nombre</th><th>MAC</th><th>Ubicacion</th>'
+       + '<th>Umbral</th><th>Hub</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
+    for (const n of nodos) {
+      /* nodes.status en la base nobody lo baja cuando el nodo calla: se queda
+         en 'active' para siempre. La senal real es el ultimo mensaje que subio
+         por MQTT, y el hub da por perdido a un nodo tras tres corazones (30 min). */
+      const edad = n.last_seen ? (Date.now() - new Date(n.last_seen).getTime()) / 1000 : null;
+      const vivo = edad != null && edad < 1800;
+      const clase = vivo ? 'p-ok' : (n.status === 'pending' ? 'p-warn' : 'p-gris');
+      const texto = vivo ? ('activo · ' + hace(n.last_seen))
+                : (n.last_seen ? ('sin senales · ' + hace(n.last_seen))
+                               : (n.status === 'pending' ? 'sin emparejar' : 'sin datos'));
+      h += '<tr>';
+      h += '<td data-etiqueta="Nombre"><strong>' + esc(n.node_name || '(sin nombre)') + '</strong></td>';
+      h += '<td data-etiqueta="MAC" class="mono">' + esc(n.node_mac) + '</td>';
+      h += '<td data-etiqueta="Ubicacion">' + esc(n.location || '-')
+         + (n.room ? ' / ' + esc(n.room) : '') + '</td>';
+      h += '<td data-etiqueta="Umbral">' + (n.distance_threshold != null
+            ? n.distance_threshold + ' cm' : '-') + '</td>';
+      h += '<td data-etiqueta="Hub">' + esc(n.hub) + '<br><span style="color:var(--txt2);'
+         + 'font-size:.78rem;">' + hace(n.hub_visto) + '</span></td>';
+      h += '<td data-etiqueta="Estado"><span class="pastilla ' + clase + '">'
+         + texto + '</span></td>';
+      h += '<td data-etiqueta="Acciones"><div class="acciones">'
+         + '<button class="mini" data-probar="' + n.node_id + '">Probar ESP-NOW</button>'
+         + '<button class="mini" data-salud="' + n.node_id + '">Salud</button>'
+         + '<button class="mini" data-editar="' + n.node_id + '">Editar</button>'
+         + '<button class="mini peligro" data-borrar="' + n.node_id + '">Borrar</button>'
+         + '</div></td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '<p style="color:var(--txt2);font-size:.85rem;margin-top:14px;">'
+       + nodos.length + ' nodo' + (nodos.length === 1 ? '' : 's')
+       + '. <strong>Probar ESP-NOW</strong> le pide al hub que hable al nodo y mide si contesta.'
+       + ' <strong>Salud</strong> resume enlace, bateria y lecturas del sensor.</p>';
+
+    cont.innerHTML = h;
+
+    cont.querySelectorAll('[data-editar]').forEach(b => {
+      b.addEventListener('click', () => abrir(Number(b.dataset.editar)));
+    });
+    cont.querySelectorAll('[data-borrar]').forEach(b => {
+      b.addEventListener('click', () => preguntarBorrar(Number(b.dataset.borrar)));
+    });
+    cont.querySelectorAll('[data-probar]').forEach(b => {
+      b.addEventListener('click', () => probarEsnow(Number(b.dataset.probar), b));
+    });
+    cont.querySelectorAll('[data-salud]').forEach(b => {
+      b.addEventListener('click', () => verSalud(Number(b.dataset.salud), b));
+    });
+  } catch (err) {
+    cont.innerHTML = '<div class="bloque"><div class="vacio">'
+      + esc(err.message) + '</div></div>';
+  }
+}
+
+/* ------------------------------------------------------------------ edicion */
+let editando = null;
+
+function abrir(id) {
+  const n = nodos.find(x => x.node_id === id);
+  if (!n) return;
+  editando = n;
+  document.getElementById('modal-mac').textContent = n.node_mac;
+  document.getElementById('f-nombre').value = n.node_name || '';
+  document.getElementById('f-ubicacion').value = n.location || '';
+  document.getElementById('f-cuarto').value = n.room || '';
+  document.getElementById('f-umbral').value =
+    n.distance_threshold != null ? n.distance_threshold : '';
+  modal.style.display = 'flex';
+}
+
+document.getElementById('f-cancelar').addEventListener('click', () => {
+  modal.style.display = 'none';
+  editando = null;
+});
+modal.addEventListener('click', (e) => {
+  if (e.target === modal) { modal.style.display = 'none'; editando = null; }
+});
+
+document.getElementById('form-editar').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editando) return;
+  const btn = document.getElementById('f-btn');
+
+  const cuerpo = {
+    name: document.getElementById('f-nombre').value.trim(),
+    location: document.getElementById('f-ubicacion').value.trim(),
+    room: document.getElementById('f-cuarto').value.trim()
+  };
+  const umbral = document.getElementById('f-umbral').value;
+  if (umbral !== '') cuerpo.distance_threshold = Number(umbral);
+
+  if (!cuerpo.name) { aviso('El nombre no puede quedar vacio.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try {
+    await api('/api/nodes/' + editando.node_id, { method: 'PUT', body: cuerpo });
+    modal.style.display = 'none';
+    editando = null;
+    aviso('Nodo actualizado.', true);
+    cargar();
+  } catch (err) {
+    aviso(err.message || 'No se pudo guardar.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+  }
+});
+
+/* ------------------------------------------------------------------ borrar */
+let borrando = null;
+
+function preguntarBorrar(id) {
+  const n = nodos.find(x => x.node_id === id);
+  if (!n) return;
+  borrando = n;
+  document.getElementById('borrar-texto').innerHTML =
+    'Se saca <strong>' + esc(n.node_name || n.node_mac) + '</strong> ('
+    + esc(n.node_mac) + ') de la lista y se le ordena al hub <strong>'
+    + esc(n.hub) + '</strong> que lo olvide.<br><br>'
+    + 'Para volver a usarlo habra que emparejarlo otra vez.';
+  modalBorrar.style.display = 'flex';
+}
+
+function cerrarBorrar() { modalBorrar.style.display = 'none'; borrando = null; }
+document.getElementById('borrar-cancelar').addEventListener('click', cerrarBorrar);
+modalBorrar.addEventListener('click', (e) => { if (e.target === modalBorrar) cerrarBorrar(); });
+
+document.getElementById('borrar-btn').addEventListener('click', async () => {
+  if (!borrando) return;
+  const btn = document.getElementById('borrar-btn');
+  const id = borrando.node_id, nombre = borrando.node_name || borrando.node_mac;
+  btn.disabled = true; btn.textContent = 'Borrando...';
+  try {
+    await api('/api/nodes/' + id, { method: 'DELETE' });
+    cerrarBorrar();
+    aviso('Nodo ' + nombre + ' borrado.', true);
+    cargar();
+  } catch (err) {
+    aviso(err.message || 'No se pudo borrar el nodo.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Si, borrarlo';
+  }
+});
+
+/* ------------------------------------------------------ prueba ESP-NOW live */
+const RAZON_ESPANOL = {
+  no_vinculado: 'el hub no tiene este nodo en su lista: hay que emparejarlo',
+  sin_peers: 'el hub no tiene ningun nodo emparejado todavia',
+  radio: 'la radio del hub rechazo la trama (canal o peers de ESP-NOW)',
+  sin_respuesta: 'el nodo no contesto: sin bateria, fuera de alcance o apagado',
+  hub_sin_red: 'el hub esta desconectado de la red y no se le pudo enviar la orden'
+};
+
+const ESTADO_PING = {
+  ok:            { txt: 'El nodo contesto por ESP-NOW', cls: 'v-ok' },
+  falla:         { txt: 'El hub no pudo hablarle al nodo', cls: 'v-mal' },
+  sin_respuesta: { txt: 'El hub llamo, el nodo no contesto', cls: 'v-mal' },
+  pendiente:     { txt: 'Esperando respuesta...', cls: 'v-neutro' }
+};
+
+async function probarEsnow(id, btn) {
+  const n = nodos.find(x => x.node_id === id);
+  if (!n) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Probando...';
+  cerrarPanel();
+
+  try {
+    const r = await api('/api/nodes/' + id + '/test', { method: 'post' });
+    if (r.hub_status !== 'active') {
+      /* El backend ya corta aqui: si el hub no da senales, esperar el ping
+         solo haria perder medio minuto al instalador. */
+      const visto = r.hub_visto ? ' (ultimo latido hace ' + esc(r.hub_visto) + ')' : '';
+      abrirPanel('Prueba ESP-NOW',
+        '<div class="veredicto v-mal"><strong>' + esc(n.node_name || n.node_mac)
+        + '</strong><br>El hub ' + esc(r.hub_serial) + visto + ' no esta conectado a la red,'
+        + ' asi que no se le puede pedir la prueba. Revisa su alimentacion y el WiFi'
+        + ' antes de probar el enlace con el nodo.</div>');
+      return;
+    }
+
+    const inicio = Date.now();
+    abrirPanel('Prueba ESP-NOW · ' + (n.node_name || n.node_mac),
+      '<div class="espera" id="espera">El hub ' + esc(r.hub_serial)
+      + ' esta llamando al nodo ' + esc(n.node_mac) + '…</div>');
+
+    /* El hub reintenta el ping unas cuantas veces antes de rendirse: damos
+       30 s y mostramos el cronometro para que no parezca que se colgo. */
+    let res = null;
+    while (Date.now() - inicio < 30000) {
+      await new Promise(resuelto => setTimeout(resuelto, 1500));
+      res = await api('/api/nodes/' + id + '/test/result');
+      if (res.state !== 'pendiente') break;
+      const el = document.getElementById('espera');
+      if (el) el.textContent = 'Esperando la respuesta del nodo... '
+        + Math.round((Date.now() - inicio) / 1000) + ' s';
+    }
+
+    if (!res) throw new Error('No se pudo consultar el resultado.');
+
+    if (res.state === 'pendiente') {
+      res.state = 'sin_respuesta';
+      res.razon = 'sin_respuesta';
+    }
+    const cab = ESTADO_PING[res.state] || ESTADO_PING.pendiente;
+    const seg = ((res.resuelto_en ? new Date(res.resuelto_en).getTime() : Date.now())
+                 - inicio) / 1000;
+
+    let detalle = '';
+    if (res.state === 'ok') {
+      detalle = 'Round-trip por el aire: <strong>'
+        + (res.rtt_ms != null ? res.rtt_ms + ' ms' : '-') + '</strong>';
+      if (res.seq_nodo != null) detalle += ' · secuencia del nodo #' + esc(res.seq_nodo);
+      if (res.intentos > 1) detalle += ' · al intento ' + esc(res.intentos);
+    } else {
+      const clave = String(res.razon || '').toLowerCase();
+      detalle = esc(RAZON_ESPANOL[clave] || res.razon ||
+                    'el hub no devolvio motivo: puede que su firmware todavia no'
+                  + ' reconozca la orden de prueba (ping)');
+      if (res.intentos) detalle += ' (intentos: ' + esc(res.intentos) + ')';
+    }
+
+    abrirPanel('Prueba ESP-NOW · ' + (n.node_name || n.node_mac),
+      '<div class="veredicto ' + cab.cls + '"><strong>' + cab.txt + '</strong>'
+      + '<br>' + esc(n.node_mac) + ' via ' + esc(r.hub_serial)
+      + ' · ' + Math.max(1, Math.round(seg)) + ' s'
+      + '<br><span style="font-size:.85rem;">' + detalle + '</span></div>'
+      + '<p style="color:var(--txt2);font-size:.82rem;margin:0;">Prueba marcada a las '
+      + esc(fecha(res.desde ? new Date(res.desde).toISOString() : new Date().toISOString()))
+      + '.</p>');
+  } catch (err) {
+    abrirPanel('Prueba ESP-NOW', '<div class="veredicto v-mal">'
+      + esc(err.message || 'La prueba no se pudo ejecutar.') + '</div>');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+/* ------------------------------------------------------------------- salud */
+async function verSalud(id, btn) {
+  const n = nodos.find(x => x.node_id === id);
+  if (!n) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Comprobando...';
+  try {
+    const s = await api('/api/nodes/' + id + '/health');
+    const TEXTO = {
+      ok:    'El nodo esta sano: habla, reporta y tiene datos.',
+      aviso: 'Funciona, pero hay cosas que conviene mirar.',
+      mal:   'Hay un problema: el nodo no esta reportando bien.',
+      neutro:'Datos insuficientes para dar un veredicto.'
+    };
+    let h = '<div class="veredicto v-' + esc(s.veredicto) + '"><strong>'
+          + (TEXTO[s.veredicto] || 'Sin veredicto.') + '</strong></div>';
+
+    for (const p of s.pruebas || []) {
+      h += '<div class="prueba"><div>'
+         + '<div class="eti">' + esc(p.etiqueta) + '</div>'
+         + '<div class="det">' + esc(p.detalle || '') + '</div></div>'
+         + '<div class="val"><div style="font-size:.9rem;">' + esc(p.valor || '-') + '</div>'
+         + '<span class="pastilla ' + (CLASE[p.estado] || 'p-gris') + '">'
+         + (PALABRA[p.estado] || esc(p.estado)) + '</span></div></div>';
+    }
+
+    h += '<p style="color:var(--txt2);font-size:.82rem;margin:14px 0 0;">'
+       + 'Ultimo evento: ' + esc(s.ultimo_evento ? fecha(s.ultimo_evento) : 'nunca')
+       + (s.ultimo_tipo ? ' (' + esc(s.ultimo_tipo) + ')' : '')
+       + ' · estado en la base de datos: ' + esc(s.estado_bd || '-')
+       + ' · medido a las ' + esc(fecha(s.ahora)) + '.</p>';
+
+    abrirPanel('Salud · ' + (s.node_name || s.node_mac), h);
+  } catch (err) {
+    abrirPanel('Salud', '<div class="veredicto v-mal">'
+      + esc(err.message || 'No se pudo leer la salud del nodo.') + '</div>');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+cargar();
+</script>
+</body>
+</html>

@@ -1,0 +1,440 @@
+/* Seguimiento 360 - Portal. Hoja compartida. */
+:root{--bg:#0f172a;--panel:#1e293b;--panel2:#26344a;--linea:#334155;
+--txt:#e2e8f0;--txt2:#94a3b8;--acc:#667eea;--acc2:#5568d3;
+--ok:#10b981;--warn:#f59e0b;--err:#ef4444;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);
+color:var(--txt);min-height:100vh;line-height:1.5;}
+a{color:var(--acc);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* --- Login / registro --- */
+.centrado{min-height:100vh;display:flex;align-items:center;
+justify-content:center;padding:20px;}
+.tarjeta{background:var(--panel);padding:40px;border-radius:12px;
+box-shadow:0 10px 25px rgba(0,0,0,.3);max-width:420px;width:100%;}
+.tarjeta h1{font-size:1.6rem;margin-bottom:6px;text-align:center;}
+.tarjeta .sub{color:var(--txt2);text-align:center;margin-bottom:26px;
+font-size:.9rem;}
+.campo{margin-bottom:18px;}
+.campo label{display:block;margin-bottom:7px;font-size:.9rem;font-weight:500;}
+.campo input,.campo select{width:100%;padding:12px;border:2px solid var(--linea);
+border-radius:8px;font-size:.95rem;background:var(--bg);color:var(--txt);
+font-family:inherit;}
+.campo input:focus,.campo select:focus{outline:none;border-color:var(--acc);}
+.btn{width:100%;padding:13px;background:var(--acc);color:#fff;border:none;
+border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;
+font-family:inherit;transition:.2s;}
+.btn:hover:not(:disabled){background:var(--acc2);}
+.btn:disabled{opacity:.6;cursor:not-allowed;}
+.pie{text-align:center;margin-top:22px;padding-top:18px;
+border-top:1px solid var(--linea);font-size:.9rem;color:var(--txt2);}
+.msg{padding:12px;border-radius:8px;margin-bottom:18px;display:none;
+font-size:.9rem;}
+.msg.ok{background:rgba(16,185,129,.15);color:#6ee7b7;
+border:1px solid var(--ok);display:block;}
+.msg.err{background:rgba(239,68,68,.15);color:#fca5a5;
+border:1px solid var(--err);display:block;}
+
+/* --- Cabecera de la app --- */
+header.barra{background:var(--panel);border-bottom:1px solid var(--linea);
+padding:14px 20px;display:flex;justify-content:space-between;
+align-items:center;position:sticky;top:0;z-index:10;}
+header.barra .marca{font-weight:700;font-size:1.05rem;}
+header.barra nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+header.barra nav a{padding:7px 13px;border-radius:7px;font-size:.88rem;
+color:var(--txt2);}
+header.barra nav a:hover{background:var(--panel2);color:var(--txt);
+text-decoration:none;}
+header.barra nav a.act{background:var(--acc);color:#fff;}
+.salir{background:none;border:1px solid var(--linea);color:var(--txt2);
+padding:7px 13px;border-radius:7px;cursor:pointer;font-size:.85rem;
+font-family:inherit;}
+.salir:hover{border-color:var(--err);color:#fca5a5;}
+main{max-width:1100px;margin:0 auto;padding:24px 20px 60px;}
+h2.titulo{font-size:1.35rem;margin-bottom:4px;}
+p.desc{color:var(--txt2);font-size:.9rem;margin-bottom:22px;}
+
+/* --- Tarjetas --- */
+.rejilla{display:grid;gap:16px;}
+.rejilla.d2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));}
+.rejilla.d3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+.bloque{background:var(--panel);border:1px solid var(--linea);
+border-radius:10px;padding:18px;}
+.bloque h3{font-size:1rem;margin-bottom:10px;}
+.metrica{font-size:1.9rem;font-weight:700;line-height:1.1;}
+.metrica+.etq{color:var(--txt2);font-size:.82rem;margin-top:4px;}
+
+/* --- Estados --- */
+.pastilla{display:inline-block;padding:3px 10px;border-radius:20px;
+font-size:.75rem;font-weight:600;text-transform:uppercase;
+letter-spacing:.03em;}
+.p-ok{background:rgba(16,185,129,.18);color:#6ee7b7;}
+.p-err{background:rgba(239,68,68,.18);color:#fca5a5;}
+.p-warn{background:rgba(245,158,11,.18);color:#fcd34d;}
+.p-gris{background:var(--panel2);color:var(--txt2);}
+
+/* --- Tablas --- */
+.tabla-env{overflow-x:auto;border:1px solid var(--linea);
+border-radius:10px;background:var(--panel);}
+table{width:100%;border-collapse:collapse;font-size:.88rem;}
+th{background:var(--panel2);padding:11px 14px;text-align:left;
+font-weight:600;font-size:.8rem;text-transform:uppercase;
+letter-spacing:.04em;color:var(--txt2);white-space:nowrap;}
+td{padding:11px 14px;border-top:1px solid var(--linea);}
+tbody tr:hover{background:rgba(255,255,255,.02);}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:.82rem;}
+
+/* --- Estados de carga --- */
+.cargando{text-align:center;padding:50px 20px;color:var(--txt2);}
+.vacio{text-align:center;padding:50px 20px;color:var(--txt2);}
+.girador{width:34px;height:34px;border:3px solid var(--linea);
+border-top-color:var(--acc);border-radius:50%;margin:0 auto 14px;
+animation:girar .8s linear infinite;}
+@keyframes girar{to{transform:rotate(360deg);}}
+/* (sustituido por el bloque de movil al final del archivo) */
+
+
+/* --- Aviso de activacion de notificaciones --- */
+.aviso-push {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, #1e2a44 0%, #1a2131 100%);
+  border: 1px solid #35507f;
+  border-left: 4px solid var(--acc, #4f7cff);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+}
+.aviso-push-icono {
+  font-size: 1.7rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.aviso-push-texto {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.aviso-push-texto strong {
+  font-size: .98rem;
+  color: var(--txt, #e8ecf4);
+}
+.aviso-push-texto span {
+  font-size: .85rem;
+  color: var(--txt2, #8e9bb3);
+  line-height: 1.45;
+}
+.aviso-push-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.btn-aviso-principal {
+  background: var(--acc, #4f7cff);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: .88rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-aviso-principal:disabled { opacity: .6; cursor: default; }
+.btn-aviso-secundario {
+  background: transparent;
+  color: var(--txt2, #8e9bb3);
+  border: 1px solid #35507f;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: .95rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.aviso-push-estado {
+  flex-basis: 100%;
+  font-size: .82rem;
+  color: var(--ok, #4ade80);
+  min-height: 0;
+}
+.aviso-push-estado:empty { display: none; }
+
+
+
+
+/* --- Acceso al diagnostico de notificaciones --- */
+.barra .ayuda {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px;
+  padding: 6px 12px;
+  border: 1px solid #35507f;
+  border-radius: 8px;
+  color: var(--txt2, #8e9bb3);
+  text-decoration: none;
+  font-size: .85rem;
+  white-space: nowrap;
+}
+.barra .ayuda:hover {
+  border-color: var(--acc, #4f7cff);
+  color: var(--txt, #e8ecf4);
+}
+.ayuda-icono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #35507f;
+  color: #e8ecf4;
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+
+/* ==================================================================
+   Ajustes para movil  (Seguimiento 360 - Portal)
+   ==================================================================
+   En pantallas estrechas los tamanos en rem quedaban por debajo de los
+   13px: etiquetas de metrica 13.1px, cabeceras de tabla 12.8px, celdas
+   13.1px. Incomodos de leer en un telefono.
+
+   Aqui se suben y se aprovecha mejor el espacio. No afecta al
+   escritorio: todo va dentro de media queries.
+   ================================================================== */
+
+@media (max-width: 700px) {
+
+  /* --- Texto base mas grande --- */
+  body { font-size: 1.125rem; }               /* 18px en lugar de 16px */
+
+  /* --- Cabecera --- */
+  header.barra {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+  }
+  header.barra .marca {
+    font-size: 1.1rem;
+    width: 100%;
+    margin-bottom: 0;
+  }
+  header.barra nav {
+    gap: 6px;
+    width: 100%;
+  }
+  header.barra nav a {
+    padding: 9px 14px;
+    font-size: .95rem;
+  }
+  .salir {
+    padding: 9px 14px;
+    font-size: .92rem;
+  }
+  .barra .ayuda {
+    padding: 9px 12px;
+    font-size: .92rem;
+  }
+  .ayuda-icono { width: 19px; height: 19px; font-size: .78rem; }
+
+  /* --- Contenido --- */
+  main { padding: 18px 16px 56px; }
+  h2.titulo { font-size: 1.5rem; }
+  p.desc { font-size: 1.05rem; margin-bottom: 18px; }
+
+  /* --- Metricas: dos por fila, no una --- */
+  .rejilla.d3,
+  .rejilla.d2 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .bloque { padding: 16px 14px; }
+  .metrica { font-size: 2rem; }
+  .metrica + .etq { font-size: 1rem; }
+  .bloque h3 { font-size: 1.12rem; }
+
+  /* --- Tablas: se convierten en tarjetas apiladas ---
+     En un telefono una tabla de cuatro columnas no cabe: la fecha se
+     lleva casi todo el ancho y el resto queda cortado. Cada fila pasa a
+     ser un bloque, con el nombre de la columna delante del valor
+     (viene del atributo data-etiqueta de cada celda). */
+  table, thead, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+
+  table {
+    font-size: 1rem;
+    border: 0;
+    background: none;
+  }
+  tbody tr {
+    background: var(--panel2);
+    border: 1px solid var(--linea);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  tbody tr:hover { background: var(--panel2); }
+
+  td {
+    padding: 5px 0;
+    border: 0;
+    font-size: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    text-align: right;
+  }
+  td::before {
+    content: attr(data-etiqueta);
+    flex: 0 0 auto;
+    color: var(--txt2);
+    font-size: .95rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    text-align: left;
+  }
+  /* La primera celda (la hora) hace de titulo de la tarjeta */
+  td:first-child {
+    font-weight: 600;
+    font-size: 1.02rem;
+    border-bottom: 1px solid var(--linea);
+    padding-bottom: 9px;
+    margin-bottom: 5px;
+  }
+  td:first-child::before { content: none; }
+
+  .mono { font-size: 1rem; }
+
+  /* --- Aviso de notificaciones --- */
+  .aviso-push { padding: 16px; gap: 12px; }
+  .aviso-push-icono { font-size: 1.9rem; }
+  .aviso-push-texto { flex-basis: 100%; }
+  .aviso-push-texto strong { font-size: 1.1rem; }
+  .aviso-push-texto span { font-size: .98rem; }
+  .aviso-push-acciones { flex-basis: 100%; }
+  .btn-aviso-principal { flex: 1; padding: 13px 18px; font-size: 1rem; }
+  .btn-aviso-secundario { width: 44px; height: 44px; font-size: 1.05rem; }
+
+  /* --- Formularios --- */
+  .campo { margin-bottom: 20px; }
+  .campo label { font-size: 1rem; margin-bottom: 9px; }
+  .campo input,
+  .campo select {
+    padding: 14px 14px;
+    font-size: 1rem;                          /* evita el zoom de iOS */
+  }
+
+  /* --- Botones generales --- */
+  button { font-size: 1rem; padding: 13px 18px; }
+
+  /* --- Login y registro --- */
+  .tarjeta { padding: 28px 20px; }
+  .tarjeta h1 { font-size: 1.75rem; }
+  .tarjeta .sub { font-size: 1rem; }
+}
+
+/* --- Pantallas muy estrechas: una metrica por fila --- */
+@media (max-width: 400px) {
+  .rejilla.d3,
+  .rejilla.d2 {
+    grid-template-columns: 1fr;
+  }
+  header.barra nav a { padding: 8px 12px; font-size: .93rem; }
+  .metrica { font-size: 2.1rem; }
+}
+
+/* --- En movil, el boton de Ayuda muestra solo el icono --- */
+@media (max-width: 700px) {
+  .barra .ayuda-texto { display: none; }
+}
+
+/* ==================================================================
+   Respaldo para pantallas tactiles
+
+   El bloque anterior depende del ancho (max-width: 700px). Si un
+   dispositivo tiene pantalla ancha (tablet, o el movil con "sitio de
+   escritorio" activado), ese bloque no se aplica y el texto se ve
+   pequeno igual.
+
+   Estas reglas se activan por el tipo de puntero: cualquier pantalla
+   tactil, sin importar su ancho. Asi el texto se ve bien tambien en
+   esos casos.
+   ================================================================== */
+@media (pointer: coarse) {
+
+  body { font-size: 1.125rem; }               /* 18px */
+
+  /* La tabla como tarjetas, igual que en movil */
+  table, thead, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+  table { font-size: 1rem; border: 0; background: none; }
+
+  tbody tr {
+    background: var(--panel2);
+    border: 1px solid var(--linea);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  td {
+    padding: 6px 0;
+    border: 0;
+    font-size: 1.05rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    text-align: right;
+  }
+  td::before {
+    content: attr(data-etiqueta);
+    flex: 0 0 auto;
+    color: var(--txt2);
+    font-size: .95rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    text-align: left;
+  }
+  td:first-child {
+    font-weight: 600;
+    font-size: 1.1rem;
+    border-bottom: 1px solid var(--linea);
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+  }
+  td:first-child::before { content: none; }
+
+  /* Textos secundarios, mas legibles */
+  .metrica + .etq { font-size: 1rem; }
+  p.desc { font-size: 1.05rem; }
+  th { font-size: 1rem; }
+  .mono { font-size: 1rem; }
+
+  /* Controles comodos para el dedo */
+  header.barra nav a,
+  .salir,
+  .barra .ayuda { padding: 11px 15px; font-size: 1rem; }
+
+  button, .btn { font-size: 1.05rem; padding: 14px 20px; }
+  .campo input, .campo select { font-size: 1.05rem; padding: 14px; }
+  .campo label { font-size: 1.05rem; }
+
+  /* Dos metricas por fila en pantallas grandes y tactiles */
+  .rejilla.d3, .rejilla.d2 { grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .metrica { font-size: 2.2rem; }
+  .bloque h3 { font-size: 1.2rem; }
+}

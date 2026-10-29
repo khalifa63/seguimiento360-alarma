@@ -119,7 +119,7 @@ typedef struct {
     uint8_t event_code[4];    // "PAIR", "ALRM", "HEAR"
     uint8_t seq;              // Contador de secuencia (0-255)
     uint8_t battery_level;    // Nivel de batería (0-100%)
-    uint8_t distance_cm;      // Distancia medida (0 si no aplica)
+    uint8_t value;            // Dato del evento; semántica según event_code (SPEC-02 v0.3)
 } __attribute__((packed)) security_payload_t;
 
 // Verificación en tiempo de compilación
@@ -960,7 +960,7 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
     const char *node_name = "Nodo Desconocido";
     const char *location = "Sin Ubicación";
     const char *room = "Sin Habitación";
-    uint8_t distance = payload->distance_cm;
+    uint8_t value = payload->value;   // dato del evento (semántica por event_code)
 
     if (node_idx >= 0) {
         node_name = node_registry.nodes[node_idx].name;
@@ -979,12 +979,12 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
         "\"event\":\"%s\","
         "\"seq\":%d,"
         "\"battery\":%d,"
-        "\"distance_cm\":%d,"
+        "\"value\":%d,"
         "\"tenant\":\"%s\","
         "\"site\":\"%s\""
         "}",
         mac_str, node_name, location, room, event_str, 
-        payload->seq, payload->battery_level, distance,
+        payload->seq, payload->battery_level, value,
         active_config.tenant_id, active_config.site_id
     );
 

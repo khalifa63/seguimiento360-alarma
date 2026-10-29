@@ -49,19 +49,22 @@ typedef enum {
 } espnow_frame_type_t;
 
 /* ---------------------------------------------------------------------------
- * Payload v1 por tipo de nodo (HUB-IF-002)
+ * Payload v1 por tipo de nodo (HUB-IF-002, v0.3)
  *
  * Son los 7 bytes que el nodo y el hub ya intercambiaban. Se conservan tal cual
  * para que la lógica de negocio del hub no cambie.
  *
- * El último byte se llama 'distance_cm' en ambos lados. En el nodo se llamaba
- * 'reserved', lo que invitaba a reutilizarlo y romper la telemetría sin aviso.
+ * El último byte es genérico: 'value'. Su significado lo define el event_code
+ * (SPEC-02 v0.3): DOOR -> estado de la puerta (0 = Abierto, 1 = Cerrado);
+ * ALRM/HEAR del nodo ultrasónico -> distancia en cm (legado); PAIR -> 0.
+ * Hasta v0.2 se llamaba 'distance_cm', un nombre que no encajaba con los
+ * nuevos tipos de nodo que llegan (apertura, humo, pánico, etc.).
  * ------------------------------------------------------------------------ */
 typedef struct __attribute__((packed)) {
-    uint8_t event_code[4];   /* "PAIR", "ALRM", "HEAR" */
+    uint8_t event_code[4];   /* "PAIR", "DOOR", "HEAR", "ALRM", ... */
     uint8_t seq;             /* contador 0-255, anti-replay */
     uint8_t battery_level;   /* 0-100 % */
-    uint8_t distance_cm;     /* distancia medida, 0 si no aplica */
+    uint8_t value;           /* dato del evento; semántica según event_code */
 } espnow_payload_v1_t;
 
 _Static_assert(sizeof(espnow_payload_v1_t) == 7,

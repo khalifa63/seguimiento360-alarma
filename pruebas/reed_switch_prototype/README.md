@@ -168,6 +168,7 @@ Prueba rápida: acerca y aleja el imán del tubo del Reed (a menos de ~1–2 cm)
 - **Pines a evitar**: GPIO0, GPIO2, GPIO5, GPIO12 y GPIO15 son pines de *strapping* y pueden impedir el arranque si quedan en nivel indebido; GPIO6–GPIO11 pertenecen a la flash interna; GPIO34–GPIO39 son de entrada únicamente y **no tienen pull-ups internas** (un Reed ahí quedaría flotante).
 - **Pull-up interna débil (~45 k Ohm)**: con cables largos o ruido eléctrico el pin puede leer errático. Usa pull-up externa de 10 k Ohm (y desactiva la interna en el firmware).
 - **Reporte solo en cambios**: el serial permanece en silencio mientras el estado no cambie (comportamiento esperado, no un fallo). El sondeo de 500 ms filtra rebotes, pero para contar aperturas con precisión de milisegundos conviene pasar a interrupciones con debounce.
+- **Placa en silencio tras reinicio remoto**: puede haber quedado en modo download (`boot:0x3 (DOWNLOAD_BOOT)`, "waiting for download"). Causa típica: en un reinicio remoto por DTR/RTS, DTR en alto durante la liberación de EN deja IO0 en bajo y el chip entra en modo download. Recuperación: `idf.py monitor` (hace el reset correcto), `esptool --chip esp32 --port /dev/ttyUSB0 --before default_reset --after hard_reset chip_id`, o un reset con DTR en BAJO.
 - **Logs con `ESP_LOGI`**: si prefieres salida plana con `printf` (como en otros ejemplos), sustituye `ESP_LOGI(TAG, ...)` por `printf("...\n")`; el comportamiento es idéntico.
 
 ## Mejoras futuras

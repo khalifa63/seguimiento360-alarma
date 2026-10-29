@@ -1,11 +1,17 @@
-# SPEC-02 — Contratos de Interface del Hub (v0.2)
+# SPEC-02 — Contratos de Interface del Hub (v0.3)
 
 Contratos entre nodo, hub, broker y backend. Es la fuente de verdad: el código
 deriva de aquí, no al revés. Un cambio incompatible exige *change request*.
 
-> **Estado:** v0.2 documenta lo que el firmware implementa hoy. La v0.1 describía
+> **Estado:** v0.3 documenta lo que el firmware implementa hoy. La v0.1 describía
 > un contrato aspiracional que nunca se implementó; el detalle de la brecha está
 > en [Hallazgos](#hallazgos-v01--v02).
+>
+> **Cambios v0.3 (2026-10-29):** el byte 6 del payload v1 pasa de `distance_cm`
+> a `value`, genérico, con semántica definida por `event_code` (HUB-IF-002); el
+> JSON del evento publica `value` (HUB-IF-004); `DOOR` deja de estar reservado y
+> pasa a describir el nodo REED de apertura (HUB-IF-005). **El frame en el aire
+> no cambia**: siguen siendo 7 bytes de payload.
 
 ## HUB-IF-001: Frame ESP-NOW v1
 
@@ -18,35 +24,37 @@ hub y el nodo aún no lo usan**: ambos hablan el payload crudo de 7 bytes
 
 ## HUB-IF-002: Payload ESP-NOW de 7 bytes (vigente)
 
-Contrato **real** entre nodo y hub. Definido de forma idéntica en
-`firmware/sensor-ultrasonic/main/main.c` y `firmware/hub/main/main.c`.
+Contrato **real** entre nodo y hub. La definición canónica vive en
+`firmware/shared/espnow_protocol/include/espnow_protocol.h`
+(`espnow_payload_v1_t`); el hub mantiene la misma estructura en
+`firmware/hub/main/main.c` y el nodo REED en `firmware/reed-sensor/main/main.c`.
 
     typedef struct {
-        uint8_t event_code[4];    // "PAIR", "ALRM", "HEAR"
+        uint8_t event_code[4];    // "PAIR", "DOOR", "HEAR", "ALRM", ...
         uint8_t seq;              // contador 0-255, anti-replay
         uint8_t battery_level;    // 0-100 %
-        uint8_t distance_cm;      // distancia medida, 0 si no aplica
+        uint8_t value;            // dato del evento; semántica según event_code
     } __attribute__((packed)) security_payload_t;
 
-Ambos archivos declaran `_Static_assert(sizeof(security_payload_t) == 7)`, de
-modo que una divergencia de tamaño rompe la compilación.
+Ambos lados declaran `_Static_assert(sizeof(...) == 7)`, de modo que una
+divergencia de tamaño rompe la compilación. **El frame en el aire no cambió con
+v0.3**: siguen siendo 7 bytes; lo que cambió es el nombre del byte 6.
 
-### ⚠️ El byte 6 tiene dos nombres
+### Semántica de `value` según `event_code`
 
-| Archivo | Línea | Declaración |
+| event_code | Nodo | `value` |
 |---|---|---|
-| `firmware/hub/main/main.c` | 105 | `uint8_t distance_cm;` |
-| `firmware/sensor-ultrasonic/main/main.c` | 36 | `uint8_t reserved;` |
+| `DOOR` | REED de apertura (`firmware/reed-sensor`) | 1 = Cerrado (imán cerca), 0 = Abierto |
+| `ALRM`, `HEAR` | ultrasónico (legado) | distancia medida en cm |
+| `PAIR` | todos | 0 |
+| nuevos (`SMOKE`, `PANIC`, ...) | futuros nodos | su métrica propia, documentada aquí al darlos de alta |
 
-Es el **mismo byte** y el nodo escribe ahí la distancia
-(`payload.reserved = distance_cm`), así que hoy funciona. Pero el nombre
-`reserved` sugiere un campo libre: quien lo reutilice para otra cosa romperá la
-telemetría de distancia **sin que el compilador lo detecte**, porque el
-`_Static_assert` solo verifica el tamaño, no el significado.
+### Historia del byte 6 (v0.2)
 
-**Acción (FW-001):** unificar el nombre a `distance_cm` en ambos archivos antes
-de congelar el frame v1. No es un cambio de contrato: es corregir la
-documentación del contrato en el código.
+Hasta v0.2 el byte se llamaba `distance_cm` (antes `reserved` en el nodo), un
+nombre que solo encajaba con el nodo ultrasónico y que no escala a los nuevos
+tipos de nodo. La v0.3 lo renombra a `value`; el detalle histórico queda en el
+historial git.
 
 ## HUB-IF-003: Topics MQTT (implementados)
 
@@ -76,10 +84,16 @@ Publicado por el hub en el topic de evento:
       "event": "ALRM",
       "seq": 42,
       "battery": 95,
-      "distance_cm": 195,
+      "value": 195,
       "tenant": "1",
       "site": "1"
     }
+
+`value` es el byte 6 del payload (HUB-IF-002, v0.3): para `DOOR` es el estado
+de la puerta (0 = Abierto, 1 = Cerrado); para el ultrasónico, la distancia en
+cm (legado). Nota de transición: la API de eventos del backend lo expone
+transitoriamente con la clave histórica `distance_cm` mientras la UI termina
+su migración; el JSON del hub ya usa `value`.
 
 `node_name`, `location` y `room` los añade el hub desde su registro de nodos en
 NVS; si el nodo no está vinculado, publica `"Nodo Desconocido"`,
@@ -96,12 +110,14 @@ parsean `msg.topic.split('/')` y usan las posiciones 2 y 4.
 | Código | Significado |
 |---|---|
 | `PAIR` | solicitud de vinculación del nodo |
-| `ALRM` | alarma por umbral de distancia |
+| `DOOR` | apertura/cierre del nodo REED: `value` 1 = Cerrado, 0 = Abierto |
+| `ALRM` | alarma por umbral de distancia (nodo ultrasónico) |
 | `HEAR` | latido periódico |
-| `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `DOOR`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
+| `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
 
-Node-RED considera críticos los que empiezan por `ALRM`, `GAS`, `SMOKE`,
-`FIRE`, `PANIC`, `MOV`, `DOOR`, `SEIS`, `SOS` o `HUM`, y los notifica por Gotify.
+Node-RED clasifica la gravedad para la notificación por Gotify: **crítica** para
+`ALRM`, `GAS`, `SMOKE`, `FIRE`, `PANIC`, `SOS` y `SEIS`; **media** para `DOOR`,
+`MOV` y `HUM` (v0.3 documenta lo que el flujo en vivo implementa).
 
 ## HUB-IF-006: Comandos al hub
 
@@ -388,7 +404,7 @@ Por eso el nodo necesita saber a quién preguntar antes de poder descubrir nada.
 Un nodo de fábrica no tiene nada en NVS. Para el primer `PAIR` usa unas
 constantes compiladas:
 
-    HUB_MAC_SEED_0..5   (main.c del nodo)
+    HUB_MAC_SEED_0..5   (main.c del nodo; `firmware/reed-sensor` lo implementa)
 
 **No son la MAC definitiva.** Son solo el destino de la primera pregunta. Una
 vez que el hub contesta, su MAC real se guarda en NVS y la semilla deja de

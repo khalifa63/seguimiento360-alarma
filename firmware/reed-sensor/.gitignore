@@ -1,0 +1,5 @@
+# Reglas del repo (AGENTS.md): no versionar artefactos de build ni sdkconfig.
+build/
+build.log
+sdkconfig
+sdkconfig.old

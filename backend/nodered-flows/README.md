@@ -61,3 +61,11 @@ esta desfasado.
 3. Importar en Node-RED y desplegar.
 4. Volver a exportar y actualizar el snapshot, para que lo versionado sea lo
    que corre.
+
+## Snapshot 2026-10-29
+
+`docs/infraestructura/snapshots/flows-produccion-20261029.json`: 154 nodos
+exportados del contenedor nodered, segun la convencion de este README.
+Verificado sin credenciales: los nodos postgresql usan referencias de entorno
+(PG_PASSWORD) y las credenciales del broker MQTT van blanqueadas en el
+snapshot (los valores reales viven solo en el contenedor).

@@ -6,7 +6,8 @@ PostgreSQL 16 en contenedor postgres (usuario admin), red iot-alarma_default.
 docker exec -i postgres psql -U admin -d seguimiento360_alarmas < backend/database/schema.sql
 
 ## Tablas
-users, tenants, sites, devices, device_credentials, device_audit_log
+users, tenants, sites, devices, device_credentials, device_audit_log,
+hubs, nodes, events, alarm_state, claim_codes, user_fcm_tokens
 
 ## Conexion desde Node-RED
 Host postgres (DNS interno de Docker), puerto 5432. Config en functionGlobalContext.dbConfig.
@@ -32,8 +33,7 @@ Regenerarlo:
 Tablas centrales del flujo de eventos:
 
 - `events`: una fila por evento (event_type, battery_level, sequence_number,
-  payload jsonb). La columna de medicion hoy es `distance_cm`; pasara a
-  llamarse `value` con el cambio de contrato del payload v1 (semantica por
-  event_code).
+  payload jsonb). La columna de medicion es `value` (SPEC-02 v0.3; antes
+  `distance_cm`, renombrada el 2026-10-29 conservando el historico).
 - `nodes`: registro runtime del nodo (mac_address, name, location, room,
   status, last_seen); la ingesta de eventos la actualiza en cada contacto.

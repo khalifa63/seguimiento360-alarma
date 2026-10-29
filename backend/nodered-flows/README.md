@@ -69,3 +69,9 @@ exportados del contenedor nodered, segun la convencion de este README.
 Verificado sin credenciales: los nodos postgresql usan referencias de entorno
 (PG_PASSWORD) y las credenciales del broker MQTT van blanqueadas en el
 snapshot (los valores reales viven solo en el contenedor).
+
+Actualizacion 2026-10-29 (SPEC-02 v0.3): la ingesta escribe la columna
+`events.value` (antes `distance_cm`) y acepta tanto la clave nueva `value`
+como la historica `distance_cm` del JSON del hub, para la transicion hasta
+reflashear el hub. La consulta de eventos expone `value AS distance_cm`
+mientras la UI termina su migracion.

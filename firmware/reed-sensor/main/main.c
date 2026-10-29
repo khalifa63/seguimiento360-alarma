@@ -238,10 +238,13 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
     if (!hub_confirmed) {
         hub_confirmed = true;
         ESP_LOGI(TAG, "Enlace confirmado: se inician los eventos de estado.");
-        if (pending_state) {
-            pending_state = false;
-            send_frame("DOOR", (uint8_t)reed_value());
-        }
+    }
+    /* El estado actual se reporta al primer ACK de cada sesion (tras el
+     * pairing o tras un reinicio), para que el hub conozca la posicion de
+     * la puerta aunque no haya habido transicion. */
+    if (pending_state) {
+        pending_state = false;
+        send_frame("DOOR", (uint8_t)reed_value());
     }
 }
 
@@ -290,6 +293,15 @@ void app_main(void)
         ESP_LOGW(TAG, "Aviso canal: %s", esp_err_to_name(err_channel));
     }
 
+    /* Mitigacion de brownout: potencia maxima del radio reducida. El arranque
+     * del RF (phy_init) derruba la alimentacion de este puerto USB; para
+     * ESP-NOW a corto alcance 10 dBm sobran. Revisar al corregir la
+     * alimentacion (ver README del nodo). */
+    esp_err_t err_txp = esp_wifi_set_max_tx_power(40);   /* 40 = 10 dBm */
+    if (err_txp != ESP_OK) {
+        ESP_LOGW(TAG, "No se pudo limitar la potencia TX: %s", esp_err_to_name(err_txp));
+    }
+
     /* La MAC propia va dentro del frame: el hub identifica al nodo por ella. */
     ESP_ERROR_CHECK(esp_read_mac(own_mac, ESP_MAC_WIFI_STA));
 
@@ -317,6 +329,9 @@ void app_main(void)
     reed_init();
     last_reported_level = reed_level();
     prev_sample = last_reported_level;
+    /* El estado de arranque se reporta al confirmar el enlace: el hub debe
+     * conocer la posicion de la puerta aunque no haya habido transicion. */
+    pending_state = true;
 
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "  NODO REED v1.0 (GPIO %d, pull-up interna)", REED_GPIO);

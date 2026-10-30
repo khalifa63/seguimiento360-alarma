@@ -66,3 +66,14 @@ hallazgos y lo que quedó pendiente.
   Candidato a mover a la BD si molesta.
 - **Cambios ajenos sin commitear en el árbol** (`sensor-ultrasonic/`,
   `backend/nodered-flows/README.md`): proyectos independientes, no se tocaron.
+
+## Hallazgo posterior (2026-10-30, salud del buzzer)
+
+- **El panel de salud mostraba "Sensor de distancia 0 cm"** para el buzzer:
+  la funcion `Calcular salud` solo tenia rama especial para `sensor_magnetic`
+  y todo lo demas caia en las ramas del HC-SR04, que interpretaban el
+  `value` del HEAR/BUZZ como centimetros. Corregido en el flow: la SQL de
+  salud trae `n.buzzer_seconds` y la funcion tiene rama
+  `actuador_buzzer` que reporta `Sirena: Sonando/En silencio` (segun el
+  ultimo reporte), eventos de 24 h (activaciones vs corazones) y la duracion
+  configurada (`0 = desactivada`). Sin cambios de contrato ni de firmware.

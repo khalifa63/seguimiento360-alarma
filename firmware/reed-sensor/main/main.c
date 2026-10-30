@@ -51,6 +51,8 @@ static const char *TAG = "NODE_REED";
 #define SAMPLE_MS               100          // Sondeo del reed (filtra rebote mecánico)
 #define HEARTBEAT_INTERVAL_SEC  (10 * 60)   // = NODE_HEARTBEAT_SEC del hub (600 s)
 #define PAIR_RETRY_SEC          30           // PAIR en modo SIN VINCULAR
+#define PAIR_SWEEP_SEC          8            // barrido de canales cada 8 s
+#define PAIR_CHANNELS           13           // 2.4 GHz: canales 1..13
 #define LINK_CHECK_SEC          10           // Chequeo de enlace en modo vinculado
 #define ACK_LOST_MAX            6            // 6 fallos = 60 s -> desvincular
 #define BATTERY_FIXED           100          // Prototipo alimentado por USB
@@ -121,7 +123,7 @@ static esp_err_t ensure_hub_peer(void)
     }
     memset(&peer_info, 0, sizeof(peer_info));
     memcpy(peer_info.peer_addr, hub_mac, 6);
-    peer_info.channel = WIFI_CHANNEL;
+    if (peer_info.channel == 0) peer_info.channel = WIFI_CHANNEL;
     peer_info.ifidx   = ESP_IF_WIFI_STA;
     peer_info.encrypt = false;
 
@@ -165,6 +167,31 @@ static void send_frame(const char *event_code, uint8_t value)
     set_led(1);
     vTaskDelay(pdMS_TO_TICKS(60));
     set_led(0);
+}
+
+/* Barrido de canales para el PAIR (ampliacion de HUB-IF-011).
+ *
+ * El hub es estacion de su router: su radio queda en el canal del router,
+ * que el usuario no controla y que puede cambiar solo. Fijar el nodo en un
+ * canal unico rompe el enlace sin aviso (le paso al prototipo REED el
+ * 2026-10-30). El barrido manda el PAIR por los 13 canales con una
+ * habitacion corta en cada uno: en cuanto el hub contesta, el canal actual
+ * ya es el del hub y ahi se queda. Si el router cambia de canal mas
+ * adelante, los chequeos de enlace fallan, el nodo se desvincula y el
+ * barrido vuelve a encontrar el canal nuevo. */
+static void send_pair_request(void);
+
+static void pair_channel_sweep(void)
+{
+    for (int ch = 1; ch <= PAIR_CHANNELS; ch++) {
+        if (pairing_is_linked()) return;
+        if (esp_wifi_set_channel((uint8_t)ch, WIFI_SECOND_CHAN_NONE) != ESP_OK) continue;
+        vTaskDelay(pdMS_TO_TICKS(20));       /* asentar el canal */
+        peer_info.channel = (uint8_t)ch;
+        if (peer_registered) esp_now_mod_peer(&peer_info);
+        send_pair_request();                 /* registra el peer si faltaba */
+        vTaskDelay(pdMS_TO_TICKS(180));      /* habitacion para el ACK */
+    }
 }
 
 /* PAIR: solicitud de emparejamiento y chequeo de enlace.
@@ -365,10 +392,10 @@ void app_main(void)
             }
         }
 
-        /* Modo SIN VINCULAR: PAIR cada 30 s a la semilla; sin eventos. */
+        /* Modo SIN VINCULAR: barrido de canales; sin eventos. */
         if (!pairing_is_linked()) {
-            if (now - last_pair_sent >= PAIR_RETRY_SEC) {
-                send_pair_request();
+            if (now - last_pair_sent >= PAIR_SWEEP_SEC) {
+                pair_channel_sweep();
                 last_pair_sent = now;
             }
             set_led(now % 2);   /* parpadeo: buscando hub */

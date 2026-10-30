@@ -1,11 +1,19 @@
-# SPEC-02 — Contratos de Interface del Hub (v0.4)
+# SPEC-02 — Contratos de Interface del Hub (v0.5)
 
 Contratos entre nodo, hub, broker y backend. Es la fuente de verdad: el código
 deriva de aquí, no al revés. Un cambio incompatible exige *change request*.
 
-> **Estado:** v0.4 documenta lo que el firmware implementa hoy, más el nuevo
-> nodo buzzer. La v0.1 describía un contrato aspiracional que nunca se
-> implementó; el detalle de la brecha está en [Hallazgos](#hallazgos-v01--v02).
+> **Estado:** v0.5 agrega el **ciclo de sirena** (HUB-IF-015) y el paro
+> inmediato (`seconds=0`). La v0.4 documentaba el nodo buzzer; la v0.1
+> describía un contrato aspiracional que nunca se implementó; el detalle de
+> la brecha está en [Hallazgos](#hallazgos-v01--v02).
+>
+> **Cambios v0.5 (2026-10-30):** ciclo de sirena local del hub (ráfaga X s →
+> pausa 5 s → repetir mientras el sensor que disparó siga en alarma);
+> cancelación por cierre de puerta, `disarm`, comando de paro (`seconds=0`)
+> o pérdida del nodo sensor; el comando buzzer lleva `src_mac`. La decisión
+> de disparar sigue viniendo de Node-RED: esto entrega la mitad del CR-002
+> (la continuación del ciclo es local, el disparo inicial no cambia).
 >
 > **Cambios v0.4 (2026-10-30):** nuevo código de evento `BUZZ` (HUB-IF-005),
 > nuevo comando `buzzer` de activación de la sirena (HUB-IF-006) y nuevo
@@ -120,7 +128,7 @@ parsean `msg.topic.split('/')` y usan las posiciones 2 y 4.
 | `ALRM` | alarma por umbral de distancia (nodo ultrasónico) |
 | `HEAR` | latido periódico |
 | `PONG` | respuesta del nodo al ping del hub (prueba de enlace, ver HUB-IF-006); se resuelve en el hub y no sube a la BD |
-| `BUZZ` | activación confirmada de la sirena (nodo buzzer, ver HUB-IF-015): `value` 1 = sonando; **sí** sube a la BD (dato operativo auditable) |
+| `BUZZ` | activación/paro confirmado de la sirena (nodo buzzer, ver HUB-IF-015): `value` 1 = sonando, 0 = silenciado por paro (`seconds=0`); **sí** sube a la BD (dato operativo auditable) |
 | `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
 
 Node-RED clasifica la gravedad para la notificación: **crítica** para `ALRM`,
@@ -163,20 +171,31 @@ resultado en el topic `.../hub/<mac>/diag`:
   `on_data_recv` del reed). El nodo ultrasónico v1 no implementa esta
   respuesta: el portal le reportará `sin_respuesta`.
 
-**Comando buzzer (HUB-IF-015, v0.4):** Node-RED publica en el topic `command`
+**Comando buzzer (HUB-IF-015, v0.5):** Node-RED publica en el topic `command`
 al detectar una alarma que deba sonar la sirena:
 
     {"command":"buzzer","mac":"aa:bb:cc:dd:ee:ff","seconds":30,
-     "tid":"<id-alarma>","src_event":"DOOR"}
+     "tid":"<id-alarma>","src_event":"DOOR","src_mac":"<mac-sensor>"}
 
 - `src_event` es **opcional**: el código del evento que disparó la alarma
   (`DOOR`, `ALRM`, ...). Si no viene, el hub rellena el payload con `ALRM`.
   Alimenta `espnow_payload_buzzer_t.src_event` (HUB-IF-015), para que el nodo
   pueda diferenciar el sonido según el origen.
+- `src_mac` es **opcional** (v0.5): la MAC del sensor que disparó la alarma.
+  El hub la guarda junto al ciclo de sirena (HUB-IF-015) para saber qué
+  vigilar en las re-verificaciones: si ese sensor vuelve a estado normal, el
+  ciclo termina aunque Node-RED no mande nada más. No entra al payload
+  ESP-NOW: vive solo en el estado RAM del hub.
 - El hub parsea `mac`/`seconds`/`tid` con cJSON (mismo patrón que `ping`),
   busca el nodo en su `node_registry` y envía un frame `ESPNOW_FT_CMD` con
   `espnow_payload_buzzer_t` (magia `0xE8`, ver HUB-IF-015).
-- `seconds` debe estar entre 1 y 300; el hub descarta fuera de rango.
+- `seconds` entre 1 y 300 arranca el ciclo de sirena (HUB-IF-015).
+  **`seconds=0` es un comando de paro (v0.5):** el hub cancela el ciclo
+  activo y manda al buzzer un frame de paro (magia `0xE8`, `seconds=0`) que
+  silencia la salida de inmediato; el buzzer responde `BUZZ` con `value=0`
+  ("silenciado"), que también sube a `events`. Lo emite Node-RED al pulsar
+  **Silenciar** en el portal y el propio hub al recibir `disarm`. Fuera de
+  0..300 el hub descarta el comando con advertencia.
 - **Confirmación (BUZZ):** a diferencia del PONG, la activación de la sirena
   **sí es dato operativo auditable**: el nodo responde con un `BUZZ`
   (`DATA_EVENT`, `value=1`) al iniciar, el hub lo publica por MQTT como
@@ -601,8 +620,10 @@ LEDC (2700 Hz, duty 90 %).
         +-- suena N segundos y responde BUZZ (DATA_EVENT) --> HUB --> MQTT --> BD
 
 - **La decisión de disparar vive en Node-RED** (config en la BD: columna
-  `nodes.buzzer_seconds`). **CR-002** (pendiente): disparo local en el hub
-  para operar sin internet, sin re-derivar la decisión en el firmware.
+  `nodes.buzzer_seconds`). **CR-002** queda **parcialmente entregado** con la
+  v0.5: la *continuación* del ciclo de sirena es local del hub (opera sin
+  internet una vez disparado); la *decisión inicial* de disparar sigue
+  viniendo de Node-RED.
 - **Comando (topic `command` del hub):** `{"command":"buzzer","mac":"<mac-buzzer>","seconds":N,"tid":"<id>"}` (HUB-IF-006).
 - **Frame ESP-NOW:** `ESPNOW_FT_CMD` con payload nuevo `espnow_payload_buzzer_t`
   — `uint8_t magic; /*0xE8*/ uint16_t seconds; uint8_t src_event[4];
@@ -635,7 +656,54 @@ LEDC (2700 Hz, duty 90 %).
   Node-RED al construir el comando, que es la única fuente de la duración.
 - **Anti-retrigger:** Node-RED guarda en contexto la última activación por
   MAC del buzzer (cooldown 60 s) para no re-disparar con los `DOOR`
-  repetidos que produce la transición de la puerta.
+  repetidos que produce la transición de la puerta. El cooldown solo
+  limita despatches nuevos de Node-RED: **el ciclo de sirena no pasa por
+  él** (HUB-IF-015).
+
+### Ciclo de sirena (v0.5): ráfaga, pausa y cancelación
+
+Con `seconds` entre 1 y 300, el hub no dispara un tiro único: levanta un
+**ciclo de sirena local** (estado RAM, uno por buzzer):
+
+    [REED] --DOOR 0--> [Node-RED] --comando 1 vez--> [HUB: ciclo]
+                                                         |  ráfaga X s
+                                                         |  pausa 5 s
+                              ¿sensor que disparó sigue en alarma? --+
+                                   | sí                              | no
+                                   +-- nueva ráfaga                 +-- fin
+
+- **Quién vigila:** el hub guarda `src_mac` (HUB-IF-006) y el último
+  `value` reportado por ese sensor (DOOR y HEAR llevan el mismo estado:
+  para el reed, 1 = Cerrado). El seguimiento es **RAM del hub**, no NVS.
+- **Re-verificación:** al vencer cada ráfaga más 5 s de pausa, el hub
+  consulta el estado del sensor que disparó. En alarma → nueva ráfaga
+  (mismo `seconds`, mismo `tid` de ciclo, nuevo seq). En estado normal →
+  fin del ciclo sin comando adicional.
+- **Cancelación (cuatro caminos):**
+  1. **Cierre de puerta:** un `DOOR` o `HEAR` con `value=1` del sensor que
+     disparó termina el ciclo: la ráfaga en curso **termina sola** (no se
+     corta a mitad) y no hay más ráfagas.
+  2. **`disarm`:** el comando de desarme de la alarma cancela el ciclo y
+     manda el paro inmediato (`seconds=0`) al buzzer: silencio ya.
+  3. **Silenciar (portal):** Node-RED publica el comando con
+     `seconds=0` (HUB-IF-006): cancela el ciclo y silencia ya.
+  4. **Sensor perdido:** si el sensor que disparó es declarado
+     `node_lost` (tres latidos sin respuesta, 30 min), el ciclo se
+     detiene a la vencida de la ráfaga en curso: un sensor muerto no
+     puede confirmar el cierre, y el portal ya lo marca como perdido,
+     que es su propia alarma.
+- **Persistencia:** el ciclo **no sobrevive un reinicio del hub** (RAM).
+  Limitación v1: tras un reinicio, la sirena queda en silencio hasta el
+  siguiente evento; el usuario puede re-abrir la puerta o silenciar.
+- **Varios buzzers por hub:** un ciclo por MAC de buzzer; cada comando
+  nuevo para un buzzer con ciclo activo **extiende** la ráfaga en curso
+  (no crea un segundo ciclo). Varios hubs: ciclos independientes, cada
+  hub vigila a sus propios sensores.
+- **Auditoría:** cada ráfaga confirma con su `BUZZ` (`value=1`) y cada
+  paro con `BUZZ` (`value=0`): la tabla `events` deja rastro de cuántas
+  ráfagas sonó y cuándo se silenció, con el `tid` del ciclo.
+- **Pausa fija:** 5 s entre ráfagas (constante del firmware del hub,
+  `SIREN_CYCLE_PAUSE_S`). Configurable en el futuro si hace falta.
 
 ## Fallos del enlace ESP-NOW (2026-10-23)
 

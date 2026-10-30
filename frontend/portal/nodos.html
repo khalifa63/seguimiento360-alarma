@@ -85,8 +85,9 @@ padding:20px;z-index:50;">
         <input type="text" id="f-cuarto" placeholder="Garaje">
       </div>
       <div class="campo">
-        <label for="f-umbral">Umbral de distancia (cm)</label>
+        <label for="f-umbral" id="lbl-umbral">Umbral de distancia (cm)</label>
         <input type="number" id="f-umbral" min="10" max="400" step="5">
+        <div id="nota-umbral" style="display:none;color:var(--txt2);font-size:.8rem;margin-top:4px;">Este nodo solo reporta estado (Abierto/Cerrado): no tiene parametros editables.</div>
       </div>
       <button type="submit" class="btn" id="f-btn">Guardar</button>
       <button type="button" class="btn" id="f-cancelar"
@@ -176,7 +177,7 @@ async function cargar() {
 
     h += '<div class="tabla-env"><table>';
     h += '<thead><tr><th>Nombre</th><th>MAC</th><th>Ubicacion</th>'
-       + '<th>Umbral</th><th>Hub</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
+       + '<th>Medicion</th><th>Hub</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
     for (const n of nodos) {
       /* nodes.status en la base nobody lo baja cuando el nodo calla: se queda
          en 'active' para siempre. La senal real es el ultimo mensaje que subio
@@ -192,8 +193,7 @@ async function cargar() {
       h += '<td data-etiqueta="MAC" class="mono">' + esc(n.node_mac) + '</td>';
       h += '<td data-etiqueta="Ubicacion">' + esc(n.location || '-')
          + (n.room ? ' / ' + esc(n.room) : '') + '</td>';
-      h += '<td data-etiqueta="Umbral">' + (n.distance_threshold != null
-            ? n.distance_threshold + ' cm' : '-') + '</td>';
+      h += '<td data-etiqueta="' + etiquetaMedicion(n) + '">' + valorMedicion(n) + '</td>';
       h += '<td data-etiqueta="Hub">' + esc(n.hub) + '<br><span style="color:var(--txt2);'
          + 'font-size:.78rem;">' + hace(n.hub_visto) + '</span></td>';
       h += '<td data-etiqueta="Estado"><span class="pastilla ' + clase + '">'
@@ -243,8 +243,30 @@ function abrir(id) {
   document.getElementById('f-nombre').value = n.node_name || '';
   document.getElementById('f-ubicacion').value = n.location || '';
   document.getElementById('f-cuarto').value = n.room || '';
-  document.getElementById('f-umbral').value =
-    n.distance_threshold != null ? n.distance_threshold : '';
+  const lblUmbral = document.getElementById('lbl-umbral');
+  const inpUmbral = document.getElementById('f-umbral');
+  const notaUmbral = document.getElementById('nota-umbral');
+  if (!nodoEditable(n)) {
+    lblUmbral.textContent = 'Estado';
+    inpUmbral.style.display = 'none';
+    notaUmbral.style.display = 'block';
+    inpUmbral.value = '';
+  } else if (tipoDe(n) === 'sensor_ultrasonic') {
+    lblUmbral.textContent = 'Distancia de referencia (cm)';
+    inpUmbral.style.display = '';
+    notaUmbral.style.display = 'none';
+    inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : 50;
+  } else if (tipoDe(n) === 'sensor_temperature') {
+    lblUmbral.textContent = 'Temperatura de referencia (\u00B0C)';
+    inpUmbral.style.display = '';
+    notaUmbral.style.display = 'none';
+    inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : '';
+  } else {
+    lblUmbral.textContent = 'Umbral de distancia (cm)';
+    inpUmbral.style.display = '';
+    notaUmbral.style.display = 'none';
+    inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : '';
+  }
   modal.style.display = 'flex';
 }
 
@@ -266,8 +288,9 @@ document.getElementById('form-editar').addEventListener('submit', async (e) => {
     location: document.getElementById('f-ubicacion').value.trim(),
     room: document.getElementById('f-cuarto').value.trim()
   };
-  const umbral = document.getElementById('f-umbral').value;
-  if (umbral !== '') cuerpo.distance_threshold = Number(umbral);
+  const inpUmbral = document.getElementById('f-umbral');
+  if (inpUmbral.style.display !== 'none' && inpUmbral.value !== '')
+    cuerpo.distance_threshold = Number(inpUmbral.value);
 
   if (!cuerpo.name) { aviso('El nombre no puede quedar vacio.'); return; }
 
@@ -323,6 +346,32 @@ document.getElementById('borrar-btn').addEventListener('click', async () => {
   }
 });
 
+/* -------------------------------------------- medicion por tipo de nodo */
+const MEDICION_POR_TIPO = {
+  sensor_magnetic:   { etiqueta: 'Estado',      unidad: ''    },
+  sensor_ultrasonic: { etiqueta: 'Distancia',   unidad: ' cm' },
+  sensor_temperature:{ etiqueta: 'Temperatura', unidad: ' \u00B0C' }
+};
+function tipoDe(n) { return MEDICION_POR_TIPO[n.device_type] ? n.device_type : null; }
+function etiquetaMedicion(n) {
+  const t = tipoDe(n);
+  return t ? MEDICION_POR_TIPO[t].etiqueta : 'Umbral';
+}
+function valorMedicion(n) {
+  const t = tipoDe(n);
+  if (!t) return n.distance_threshold != null ? n.distance_threshold + ' cm' : '-';
+  if (t === 'sensor_magnetic') {
+    if (n.last_event_type === 'DOOR' && n.last_value != null)
+      return Number(n.last_value) === 1 ? 'Cerrado' : 'Abierto';
+    return '-';
+  }
+  if (n.last_value != null) return n.last_value + MEDICION_POR_TIPO[t].unidad;
+  if (t === 'sensor_ultrasonic' && n.distance_threshold != null)
+    return n.distance_threshold + ' cm';
+  return '-';
+}
+function nodoEditable(n) { return tipoDe(n) !== 'sensor_magnetic'; }
+
 /* ------------------------------------------------------ prueba ESP-NOW live */
 const RAZON_ESPANOL = {
   no_vinculado: 'el hub no tiene este nodo en su lista: hay que emparejarlo',
@@ -336,7 +385,7 @@ const ESTADO_PING = {
   ok:            { txt: 'El nodo contesto por ESP-NOW', cls: 'v-ok' },
   falla:         { txt: 'El hub no pudo hablarle al nodo', cls: 'v-mal' },
   sin_respuesta: { txt: 'El hub llamo, el nodo no contesto', cls: 'v-mal' },
-  pendiente:     { txt: 'Esperando respuesta...', cls: 'v-neutro' }
+  pendiente:     { txt: 'Buscando al nodo por ESP-NOW (esperando respuesta)...', cls: 'v-neutro' }
 };
 
 async function probarEsnow(id, btn) {
@@ -364,7 +413,7 @@ async function probarEsnow(id, btn) {
     const inicio = Date.now();
     abrirPanel('Prueba ESP-NOW · ' + (n.node_name || n.node_mac),
       '<div class="espera" id="espera">El hub ' + esc(r.hub_serial)
-      + ' esta llamando al nodo ' + esc(n.node_mac) + '…</div>');
+      + ' esta buscando al nodo ' + esc(n.node_mac) + ' por ESP-NOW…</div>');
 
     /* El hub reintenta el ping unas cuantas veces antes de rendirse: damos
        30 s y mostramos el cronometro para que no parezca que se colgo. */
@@ -454,8 +503,13 @@ async function verSalud(id, btn) {
 
     abrirPanel('Salud · ' + (s.node_name || s.node_mac), h);
   } catch (err) {
-    abrirPanel('Salud', '<div class="veredicto v-mal">'
-      + esc(err.message || 'No se pudo leer la salud del nodo.') + '</div>');
+    const txtErr = String(err.message || '');
+    let msgSalud = 'No se pudo leer la salud del nodo.';
+    if (/\b504\b/.test(txtErr) || (err && err.status === 504))
+      msgSalud = 'Error 504: el servicio de salud no respondio a tiempo. Reintenta en unos segundos; si persiste, revisa que el portal y el backend esten activos.';
+    else if (/\b503\b/.test(txtErr) || (err && err.status === 503))
+      msgSalud = 'Error 503: el servicio de salud no esta disponible en este momento.';
+    abrirPanel('Salud', '<div class="veredicto v-mal">' + esc(msgSalud) + '</div>');
   } finally {
     btn.disabled = false;
     btn.textContent = original;

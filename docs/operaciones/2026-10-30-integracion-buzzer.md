@@ -77,3 +77,14 @@ hallazgos y lo que quedó pendiente.
   `actuador_buzzer` que reporta `Sirena: Sonando/En silencio` (segun el
   ultimo reporte), eventos de 24 h (activaciones vs corazones) y la duracion
   configurada (`0 = desactivada`). Sin cambios de contrato ni de firmware.
+
+## Hallazgo posterior 2 (2026-10-30, la duracion no se veia en el portal)
+
+- **El guardado funcionaba, pero el portal no mostraba el valor.** El PUT
+  `/api/nodes/:id` aceptaba y persistia `buzzer_seconds` (verificado con la
+  API en vivo: HTTP 200 y fila actualizada), pero `GET /api/overview` no
+  devolvia el campo: la funcion `Agrupar sitios/hubs/nodos` copia una lista
+  fija de columnas por nodo y `buzzer_seconds` no estaba en ella. Corregido
+  agregando `buzzer_seconds: r.buzzer_seconds` al moldeo. Leccion: cuando se
+  agrega una columna a una SQL consumida por un moldeador de respuesta, hay
+  que actualizar el moldeador tambien, no solo el SELECT.

@@ -90,6 +90,10 @@ Resultado: PASS (2026-10-23, hub 37bff1e, nodo v2.0).
   Evidencia: eventos 55 y anteriores en la tabla events, con
   node_name y distance_cm reales del sensor.
 
+  > Nota v0.3: en estas evidencias el byte 6 se llama `distance_cm`; desde
+  > 2026-10-29 es `value` (SPEC-02 v0.3). Los resultados historicos no se
+  > retocan.
+
 ## AT-004 (HUB-F-008)
 Pasos: nodo publica heartbeat; esperar 3 periodos sin HB.
 PASS: evento node_lost tras 3 HB perdidos.

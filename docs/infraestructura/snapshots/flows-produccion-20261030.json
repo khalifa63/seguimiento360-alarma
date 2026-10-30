@@ -395,7 +395,7 @@
   "type": "function",
   "z": "cd8b6a8a0ae57120",
   "name": "1. Parsear y Separar Flujos",
-  "func": "let data = msg.payload;\n\nif (typeof data === 'string') {\n    try { data = JSON.parse(data); }\n    catch (e) { node.error('JSON inválido'); return null; }\n}\n\nconst mac = data.mac || 'unknown';\nconst name = data.node_name || data.name || mac;\nconst event = (data.event || 'UNKNOWN').toUpperCase();\nconst seq = data.seq || 0;\nconst battery = data.battery || 0;\nconst tenant = data.tenant || '0';\nconst site = data.site || 'site0';\nconst location = data.location || '';\nconst room = data.room || '';\n\nconst measurement = 'node_events';\nconst tags = `device_id=\"${mac}\",name=\"${name}\",tenant=\"${tenant}\",site=\"${site}\",event_type=\"${event}\"`;\nconst fields = `seq=${seq}i,battery=${battery}i`;\nconst timestamp = Date.now() * 1000000;\n\nlet msgInflux = {\n    payload: `${measurement},${tags} ${fields} ${timestamp}`,\n    topic: 'influx_write',\n    normalized: { mac, name, event, seq, battery, tenant, site, location, room }\n};\n\nlet msgGotify = {\n    normalized: { mac, name, event, seq, battery, tenant, site, location, room },\n    is_alarm: ['ALRM', 'GAS', 'SMOKE', 'FIRE', 'PANIC', 'MOV', 'DOOR', 'SEIS', 'SOS', 'HUM'].some(prefix => event.startsWith(prefix))\n};\n\nreturn [msgInflux, msgGotify];",
+  "func": "let data = msg.payload;\n\nif (typeof data === 'string') {\n    try { data = JSON.parse(data); }\n    catch (e) { node.error('JSON inválido'); return null; }\n}\n\nconst mac = data.mac || 'unknown';\nconst name = data.node_name || data.name || mac;\nconst event = (data.event || 'UNKNOWN').toUpperCase();\nconst seq = data.seq || 0;\nconst battery = data.battery || 0;\nconst tenant = data.tenant || '0';\nconst site = data.site || 'site0';\nconst location = data.location || '';\nconst room = data.room || '';\n\nconst measurement = 'node_events';\nconst tags = `device_id=\"${mac}\",name=\"${name}\",tenant=\"${tenant}\",site=\"${site}\",event_type=\"${event}\"`;\nconst fields = `seq=${seq}i,battery=${battery}i`;\nconst timestamp = Date.now() * 1000000;\n\nlet msgInflux = {\n    payload: `${measurement},${tags} ${fields} ${timestamp}`,\n    topic: 'influx_write',\n    normalized: { mac, name, event, seq, battery, tenant, site, location, room }\n};\n\nlet msgGotify = {\n    normalized: { mac, name, event, seq, battery, value: (data.value != null ? data.value : (data.distance_cm != null ? data.distance_cm : null)), tenant, site, location, room },\n    is_alarm: ['ALRM', 'GAS', 'SMOKE', 'FIRE', 'PANIC', 'MOV', 'DOOR', 'SEIS', 'SOS', 'HUM'].some(prefix => event.startsWith(prefix))\n};\n\nreturn [msgInflux, msgGotify];",
   "outputs": 2,
   "timeout": 0,
   "noerr": 0,
@@ -408,7 +408,9 @@
    [
     "f91fcf186c79113f"
    ],
-   []
+   [
+    "f7dba86636e4cf52"
+   ]
   ]
  },
  {
@@ -438,7 +440,7 @@
   "type": "function",
   "z": "cd8b6a8a0ae57120",
   "name": "2. Formatear Alerta Gotify",
-  "func": "if (!msg.is_alarm) {\n    return null;\n}\n\nconst d = msg.normalized;\nconst devName = d.name || d.mac || 'Desconocido';\nconst ubicacion = d.location ? `${d.location} - ${d.room}` : d.site;\n\nlet title = '🚨 Alarma Seguimiento 360';\nlet message = `Evento: ${d.event}\\nDispositivo: ${devName}\\nUbicación: ${ubicacion}\\nBatería: ${d.battery}%`;\nlet priority = 5;\n\nif (d.event === 'GAS') {\n    title = '⚠️ FUGA DE GAS DETECTADA';\n    message = `Sensor: ${devName}\\nUbicación: ${ubicacion}\\n¡EVACUAR INMEDIATAMENTE!`;\n    priority = 10;\n} else if (d.event === 'SMOKE' || d.event === 'FIRE') {\n    title = '🔥 HUMO/FOGO DETECTADO';\n    message = `Sensor: ${devName}\\nUbicación: ${ubicacion}`;\n    priority = 10;\n} else if (d.event === 'PANIC' || d.event === 'SOS') {\n    title = '🆘 BOTÓN DE PÁNICO';\n    message = `Dispositivo: ${devName}\\nUbicación: ${ubicacion}`;\n    priority = 10;\n}\n\nmsg.payload = {\n    title: title,\n    message: message,\n    priority: priority\n};\n\nnode.log(`✅ Enviando alerta a Gotify: ${title} (${devName})`);\nreturn msg;",
+  "func": "if (!msg.is_alarm) {\n    return null;\n}\n\nconst d = msg.normalized;\nconst devName = d.name || d.mac || 'Desconocido';\nconst ubicacion = d.location ? `${d.location} - ${d.room}` : d.site;\n\nlet title = '🚨 Alarma Seguimiento 360';\nlet estado = (d.event === 'DOOR' && d.value != null) ? (Number(d.value) === 1 ? 'Cerrado' : 'Abierto') : null;\nlet message = `Evento: ${d.event}\\nDispositivo: ${devName}\\nUbicación: ${ubicacion}` + (estado ? `\\nEstado: ${estado}` : \"\") + `\\nBatería: ${d.battery}%`;\nlet priority = 5;\n\nif (d.event === 'GAS') {\n    title = '⚠️ FUGA DE GAS DETECTADA';\n    message = `Sensor: ${devName}\\nUbicación: ${ubicacion}\\n¡EVACUAR INMEDIATAMENTE!`;\n    priority = 10;\n} else if (d.event === 'SMOKE' || d.event === 'FIRE') {\n    title = '🔥 HUMO/FOGO DETECTADO';\n    message = `Sensor: ${devName}\\nUbicación: ${ubicacion}`;\n    priority = 10;\n} else if (d.event === 'PANIC' || d.event === 'SOS') {\n    title = '🆘 BOTÓN DE PÁNICO';\n    message = `Dispositivo: ${devName}\\nUbicación: ${ubicacion}`;\n    priority = 10;\n}\n\nmsg.payload = {\n    title: title,\n    message: message,\n    priority: priority\n};\n\nnode.log(`✅ Enviando alerta a Gotify: ${title} (${devName})`);\nreturn msg;",
   "outputs": 1,
   "timeout": 0,
   "noerr": 0,

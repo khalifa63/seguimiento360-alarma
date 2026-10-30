@@ -49,14 +49,17 @@ Cabecera: **19 bytes**. Payload maximo: **229 bytes** (el limite de ESP-NOW son
 
 | offset | Campo | Valores |
 |---|---|---|
-| 0-3 | `event_code` | `"PAIR"`, `"ALRM"`, `"HEAR"` |
+| 0-3 | `event_code` | `"PAIR"`, `"DOOR"`, `"ALRM"`, `"HEAR"`, `"PONG"` |
 | 4 | `seq` | contador |
 | 5 | `battery_level` | 0-100 |
-| 6 | `distance_cm` | distancia medida |
+| 6 | `value` | semantica segun `event_code` (SPEC-02 v0.3) |
 
-**El byte 6 tuvo dos nombres** (`reserved` en el nodo, `distance_cm` en el hub).
-Se unifico a `distance_cm`: llamarlo `reserved` invitaba a reutilizarlo y
-romper la telemetria sin aviso.
+**El byte 6 cambio de nombre dos veces.** Nacio como `reserved` en el nodo y
+el hub lo llamaba `distance_cm` (v0.2, telemetria del ultrasónico): nombrarlo
+`reserved` invitaba a reutilizarlo y romper la telemetria sin aviso. Con el
+nodo REED (v0.3, 2026-10-29) paso a llamarse **`value`**, generico, porque el
+sensor de apertura no mide distancias: `DOOR` usa 1=Cerrado / 0=Abierto,
+`ALRM` conserva la distancia en cm y `PONG` repite la seq del ping recibido.
 
 ### Payload de configuracion
 

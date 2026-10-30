@@ -113,6 +113,7 @@ parsean `msg.topic.split('/')` y usan las posiciones 2 y 4.
 | `DOOR` | apertura/cierre del nodo REED: `value` 1 = Cerrado, 0 = Abierto |
 | `ALRM` | alarma por umbral de distancia (nodo ultrasónico) |
 | `HEAR` | latido periódico |
+| `PONG` | respuesta del nodo al ping del hub (prueba de enlace, ver HUB-IF-006); se resuelve en el hub y no sube a la BD |
 | `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
 
 Node-RED clasifica la gravedad para la notificación por Gotify: **crítica** para
@@ -351,9 +352,10 @@ transmite y el receptor recibe basura. Ver el fallo 5 más abajo.
 
 ### Cambios en cada lado
 
-**Nodo** (`sensor-ultrasonic/main/main.c`): construye frames v1, valida el ACK
-con `espnow_validate_frame()` y usa su MAC real (`esp_read_mac`) como
-`src_mac`.
+**Nodo** (hoy `firmware/reed-sensor/main/main.c`; el ultrasónico
+`firmware/sensor-ultrasonic/` fue la primera implementación): construye frames
+v1, valida el ACK con `espnow_validate_frame()` y usa su MAC real
+(`esp_read_mac`) como `src_mac`.
 
 **Hub** (`hub/main/main.c`): valida el frame antes de procesarlo y envía el ACK
 como frame v1 de tipo `ESPNOW_FT_ACK`. La lógica de negocio (pairing, eventos,

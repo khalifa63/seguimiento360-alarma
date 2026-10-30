@@ -11,8 +11,9 @@ Copia del portal desplegado en el contenedor `nginx`
 - El emparejamiento se guia desde la UI: boton BOOT del hub o la ventana de
   emparejamiento del panel (en el hub: PAIR_BUTTON_PIN GPIO_NUM_0 y
   pair_button_task).
-- OJO: dashboard.html y eventos.html renderizan `distance_cm`; cuando aplique
-  el cambio de contrato del payload v1 (byte 6 -> `value`), actualizar ambas
-  vistas para que un evento DOOR muestre Abierto/Cerrado.
+- DOOR ya muestra Abierto/Cerrado en ambas vistas (2026-10-30): la API expone
+  la columna `value` con el alias transitorio `distance_cm` (commit d84b6b0).
+  Cuando el hub se reflashee y publique la clave `value` del JSON, se puede
+  retirar el alias `AS distance_cm` del SELECT de eventos.
 
 frontend/pwa/ es una iteracion modular distinta, no desplegada en /portal/.

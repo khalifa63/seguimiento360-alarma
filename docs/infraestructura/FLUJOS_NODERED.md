@@ -1251,3 +1251,40 @@ la vez. El navegador los trata como **modulos distintos**, asi que el estado
 compartido (`Sesion`) se duplicaba y **el login dejaba de funcionar**.
 
 Todas las paginas deben apuntar al **mismo archivo exacto**.
+
+## Regla operativa: parchear el flow en vivo (2026-10-30)
+
+Integrar el buzzer dejo una regla que ya habia costado dos incidentes el
+mismo dia (el handler del `PUT /api/nodes/:id` y el agrupador del overview):
+
+**Parchear siempre sobre el flow VIVO, nunca sobre una copia vieja.**
+Los patches se aplican sobre `/tmp/flows_live.json`, y ese archivo se
+refresca desde el contenedor (`docker cp nodered:/data/flows.json
+/tmp/flows_live.json`) antes de cada patch y al final de cada despliegue.
+Patchear sobre una copia de un estado anterior **revierte cambios anteriores
+sin aviso**: el JSON es valido, la sintaxis es valida, y el cambio simply
+desaparece al desplegar.
+
+Segunda regla, misma sesion: **un SyntaxError en un function node no rompe
+el deploy.** Node-RED no compila la funcion hasta que llega el primer
+mensaje; el despliegue "valido" deja el endpoint mudo y el navegador colgado
+(sin respuesta, ni siquiera error). La guardia de sintaxis es obligatoria
+antes de publicar:
+
+    python3 scripts/check-flows-funcs.py /tmp/flows_new.json
+
+Las tres reglas viven juntas en `scripts/deploy-flows.sh` (backup + guardia
+de sintaxis + snapshot saneado + auto-sincronizacion de la copia de
+trabajo). El detalle de los incidentes esta en
+`docs/operaciones/2026-10-30-integracion-buzzer.md` (hallazgos 3 y 5).
+
+## Despliegue del portal (repo -> website)
+
+nginx sirve el portal desde `~/iot-alarma/website/portal`, **no** desde el
+repo (ver RUTAS-ARCHIVOS.md). Todo cambio de portal exige el segundo paso o
+el usuario seguira viendo la version vieja:
+
+    scripts/deploy-portal.sh nodos.html
+
+El script copia solo los archivos pedidos, con backup por archivo: la copia
+servida puede tener drift operativo y un rsync completo podria pisarlo.

@@ -107,3 +107,14 @@ hallazgos y lo que quedó pendiente.
   (hub -> ESP-NOW -> BUZZ auditable en `events` + `BUZZER_RESULT` en diag)
   y la respuesta HTTP no espera a que termine. La SQL de salud trae ahora
   `h.tenant_id, h.site_id` para armar el topic del comando.
+
+## Decision posterior 4 (2026-10-30, BUZZ sin notificacion)
+
+- El push del BUZZ llegaba al celular como "Nodo Buzzer 1 cm": el aviso ya
+  lo habia emitido el REED al abrirse la puerta, y el `value=1` del BUZZ
+  se mostraba como distancia. **Decision del usuario: el buzzer no envia
+  notificaciones.** El BUZZ sale de la lista de eventos notificables
+  (`MEDIAS`) y queda solo como dato auditable en `events`; la sirena es el
+  canal audible, no el telefonico. Verificado con prueba unitaria del
+  parseador: BUZZ -> [INSERT, null, null]; DOOR=0 y FIRE siguen con
+  [INSERT, PUSH, BUZZ_CMD]. Spec actualizada (HUB-IF-005 y HUB-IF-015).

@@ -123,10 +123,13 @@ parsean `msg.topic.split('/')` y usan las posiciones 2 y 4.
 | `BUZZ` | activación confirmada de la sirena (nodo buzzer, ver HUB-IF-015): `value` 1 = sonando; **sí** sube a la BD (dato operativo auditable) |
 | `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
 
-Node-RED clasifica la gravedad para la notificación por Gotify: **crítica** para
-`ALRM`, `GAS`, `SMOKE`, `FIRE`, `PANIC`, `SOS` y `SEIS`; **media** para `DOOR`,
-`MOV`, `HUM` y `BUZZ` (v0.3 documenta lo que el flujo en vivo implementa; la
-v0.4 agrega `BUZZ` como media, junto con el despacho de sirena del HUB-IF-015).
+Node-RED clasifica la gravedad para la notificación: **crítica** para `ALRM`,
+`GAS`, `SMOKE`, `FIRE`, `PANIC`, `SOS` y `SEIS`; **media** para `DOOR`, `MOV`
+y `HUM`. **`BUZZ` no genera notificación** (decisión del 2026-10-30 tras la
+prueba con el portal): el aviso al celular ya lo emitió el sensor que disparó
+la alarma —el buzzer es el actuador que el usuario escucha—, y el `BUZZ`
+queda como dato auditable en `events` sin pasar por el push. (La v0.4 lo
+había clasificado como media; se revierte con este cambio del flow.)
 
 ## HUB-IF-006: Comandos al hub
 
@@ -615,7 +618,9 @@ LEDC (2700 Hz, duty 90 %).
   luego confirma) y envía `BUZZ` (`DATA_EVENT`, `value=1`) con su propio seq;
   el hub lo publica como evento normal por `publish_event_to_mqtt()` — exige
   que el buzzer esté registrado en `node_registry` (se logra al vincularlo) —
-  y Node-RED lo inserta en `events` (clasificado `media`, HUB-IF-005).
+  y Node-RED lo inserta en `events` — **sin push**: el aviso al celular lo
+  emite el sensor que disparó la alarma; el buzzer es el actuador audible
+  (HUB-IF-005, decisión 2026-10-30).
   A diferencia del PONG, la activación **sí sube a la BD**.
 - **Fallo de entrega:** el hub reintenta 3 veces (~2 s entre intentos) y si
   no hay BUZZ publica `BUZZER_RESULT` con `ok:false` por `diag`

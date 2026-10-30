@@ -190,9 +190,11 @@ POST /api/claim {code, site_id}
 Flujo: JWT -> validar formato/checksum -> SELECT por code (SIN filtro status)
 -> check JS (404/400/403) -> UPSERT devices -> UPDATE claim_codes -> 201
 
+    /* El serial SIEMPRE en minusculas: existe un indice unico insensible a
+     * mayusculas (devices_serial_lower_idx) que rechaza duplicados de caso. */
     INSERT INTO devices (tenant_id, site_id, device_type, serial_number,
                          status, bound_at)
-    VALUES ($1,$2,$3,$4,'active',NOW())
+    VALUES ($1,$2,$3,lower($4),'active',NOW())
     ON CONFLICT (serial_number) DO UPDATE
     SET tenant_id = EXCLUDED.tenant_id, site_id = EXCLUDED.site_id,
         status = 'active', bound_at = NOW()

@@ -88,3 +88,22 @@ hallazgos y lo que quedó pendiente.
   agregando `buzzer_seconds: r.buzzer_seconds` al moldeo. Leccion: cuando se
   agrega una columna a una SQL consumida por un moldeador de respuesta, hay
   que actualizar el moldeador tambien, no solo el SELECT.
+
+## Hallazgo posterior 3 (2026-10-30, botones Salud colgados) y prueba audible
+
+- **Regresion propia: el endpoint de salud quedo sin responder.** El patch de
+  la rama `actuador_buzzer` en `Calcular salud` tenia un error de splice que
+  dejo la cadena `else if` sin cerrar (`SyntaxError: Unexpected token
+  'else'`). Node-RED no compila la funcion hasta que llega un mensaje, asi
+  que el deploy "valido" dejo el endpoint mudo: los botones Salud del
+  buzzer y del reed quedaban en "Comprobando..." sin respuesta. Reparado;
+  ademas se agrego una **guardia de sintaxis** al despliegue: `node --check`
+  sobre todos los function nodes del flow antes de publicar (61 nodos).
+- **Prueba audible desde Salud (peticion del usuario).** Al pedir la salud
+  de un nodo `actuador_buzzer`, el flow publica el comando `buzzer`
+  (`src_event='SALUD'`) con la duracion configurada
+  (`COALESCE(buzzer_seconds,30)`; con 0 se omite y la fila dice
+  "omitida"). La sirena suena por el mismo trayecto que una alarma real
+  (hub -> ESP-NOW -> BUZZ auditable en `events` + `BUZZER_RESULT` en diag)
+  y la respuesta HTTP no espera a que termine. La SQL de salud trae ahora
+  `h.tenant_id, h.site_id` para armar el topic del comando.

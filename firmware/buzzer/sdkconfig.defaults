@@ -1,0 +1,6 @@
+# Mitigacion de brownout: potencia maxima del radio reducida. El arranque del
+# RF (phy_init) derruba la alimentacion de un puerto USB debil; el nodo va
+# alimentado por cargador de telefono (misma leccion del REED). Para ESP-NOW a
+# corto alcance 10 dBm sobran. Revisar al corregir la alimentacion.
+CONFIG_ESP_PHY_MAX_WIFI_TX_POWER=10
+CONFIG_ESP_PHY_MAX_TX_POWER=10

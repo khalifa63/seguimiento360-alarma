@@ -210,10 +210,34 @@ static esp_timer_handle_t s_ping_timer = NULL;
 #define PING_INTENTOS_MAX 3
 #define PING_ESPERA_US    (3 * 1000 * 1000)
 
+/* Activacion de la sirena en vuelo (HUB-IF-015, SPEC-02 v0.4). Mismo modelo
+ * que la prueba de ping: una sola activacion a la vez, 3 intentos separados
+ * 3 s, confirmacion por BUZZ. Si no hay confirmacion se publica
+ * BUZZER_RESULT por diag; la alarma en si no se detiene, solo queda sin
+ * sirena. */
+typedef struct {
+    uint8_t  mac[6];
+    char     tid[13];        /* identificador de la alarma, opaco */
+    uint16_t seconds;        /* duracion 1..300 s */
+    uint8_t  src_event[4];   /* codigo del evento que disparo la alarma */
+    int      intentos;
+    int64_t  enviado_us;
+    bool     pendiente;
+    bool     fallo_radio;
+} buzzer_test_t;
+static buzzer_test_t s_buzzer;
+static esp_timer_handle_t s_buzzer_timer = NULL;
+
+#define BUZZER_INTENTOS_MAX 3
+#define BUZZER_ESPERA_US    (3 * 1000 * 1000)
+
 /* Van a continuacion, pero el handler de MQTT las necesita antes. */
 static void publish_ping_result(const uint8_t *mac, bool ok, const char *razon,
                                 int rtt_ms, int intentos, int seq);
 static void hub_enviar_ping(void);
+static void publish_buzzer_result(const uint8_t *mac, bool ok, const char *razon,
+                                  int intentos);
+static void hub_enviar_buzzer(void);
 static void on_espnow_sent(const uint8_t *mac_addr, esp_now_send_status_t status);
 /* Eventos que no llegaron a publicarse. Se reporta en cada publicacion
  * fallida para que una perdida no pase inadvertida. */
@@ -764,6 +788,63 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                         return;
                     }
 
+                    /* Activacion de la sirena (HUB-IF-015). Node-RED decide
+                     * cuando una alarma debe sonar y publica aqui; el hub se
+                     * limita a llevar el comando por ESP-NOW al buzzer. La
+                     * confirmacion (BUZZ) sube como evento auditable. */
+                    if (strstr(cmd_data, "\"buzzer\"") != NULL) {
+                        cJSON *raiz = cJSON_Parse(cmd_data);
+                        cJSON *mac_json = raiz ? cJSON_GetObjectItem(raiz, "mac") : NULL;
+                        cJSON *sec_json = raiz ? cJSON_GetObjectItem(raiz, "seconds") : NULL;
+                        cJSON *tid_json = raiz ? cJSON_GetObjectItem(raiz, "tid") : NULL;
+                        cJSON *src_json = raiz ? cJSON_GetObjectItem(raiz, "src_event") : NULL;
+                        uint8_t objetivo[6];
+
+                        if (cJSON_IsString(mac_json) &&
+                            sscanf(mac_json->valuestring, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                                   &objetivo[0], &objetivo[1], &objetivo[2],
+                                   &objetivo[3], &objetivo[4], &objetivo[5]) == 6 &&
+                            cJSON_IsNumber(sec_json)) {
+                            int segundos = sec_json->valueint;
+
+                            if (segundos < 1 || segundos > 300) {
+                                ESP_LOGW(TAG, "buzzer: seconds=%d fuera de rango (1..300). Descartado.",
+                                         segundos);
+                            } else if (s_buzzer.pendiente) {
+                                /* Una sola sirena en vuelo: igual que el ping,
+                                 * dos activaciones simultaneas obligarian a
+                                 * casar BUZZ por identificador. */
+                                ESP_LOGW(TAG, "buzzer: activacion ya en vuelo, se ignora.");
+                            } else if (find_node_index(objetivo) < 0) {
+                                ESP_LOGW(TAG, "buzzer: nodo no vinculado, fallo por diag.");
+                                publish_buzzer_result(objetivo, false, "no_vinculado", 0);
+                            } else {
+                                memset(&s_buzzer, 0, sizeof(s_buzzer));
+                                memcpy(s_buzzer.mac, objetivo, 6);
+                                s_buzzer.seconds = (uint16_t)segundos;
+                                if (cJSON_IsString(tid_json) && tid_json->valuestring) {
+                                    strncpy(s_buzzer.tid, tid_json->valuestring,
+                                            sizeof(s_buzzer.tid) - 1);
+                                }
+                                if (cJSON_IsString(src_json) && src_json->valuestring &&
+                                    strlen(src_json->valuestring) >= 4) {
+                                    memcpy(s_buzzer.src_event, src_json->valuestring, 4);
+                                } else {
+                                    memcpy(s_buzzer.src_event, "ALRM", 4);
+                                }
+                                s_buzzer.pendiente = true;
+                                s_buzzer.intentos = 1;
+                                hub_enviar_buzzer();
+                                esp_timer_start_once(s_buzzer_timer, BUZZER_ESPERA_US);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "buzzer: falta 'mac' o 'seconds' en el comando.");
+                        }
+                        if (raiz) cJSON_Delete(raiz);
+                        free(cmd_data);
+                        return;
+                    }
+
                     sm_alarm_cmd_t cmd = SM_ALARM_CMD_NONE;
                     if (strstr(cmd_data, "arm") != NULL && strstr(cmd_data, "disarm") == NULL) {
                         cmd = SM_ALARM_CMD_ARM;
@@ -1128,6 +1209,34 @@ static void publish_ping_result(const uint8_t *mac, bool ok, const char *razon,
              mac_str, ok ? "OK" : razon, rtt_ms, intentos);
 }
 
+/* Resultado de la activacion de la sirena (HUB-IF-015). Va por diag como el
+ * PING_RESULT: el reporte de entrega es diagnostico, la fila auditable de la
+ * activacion es el BUZZ que sube por event a la tabla events. */
+static void publish_buzzer_result(const uint8_t *mac, bool ok, const char *razon,
+                                  int intentos) {
+    if (mqtt_client == NULL || !mqtt_is_connected) {
+        ESP_LOGW(TAG, "BUZZER_RESULT no publicado: MQTT caido.");
+        return;
+    }
+
+    char topic[128];
+    get_mqtt_topic(topic, sizeof(topic), "diag");
+
+    char mac_str[18];
+    format_mac(mac, mac_str, sizeof(mac_str));
+
+    char payload[320];
+    snprintf(payload, sizeof(payload),
+             "{\"event\":\"BUZZER_RESULT\",\"mac\":\"%s\",\"ok\":%s,"
+             "\"attempts\":%d,\"reason\":\"%s\",\"tid\":\"%s\"}",
+             mac_str, ok ? "true" : "false", intentos,
+             razon ? razon : "", s_buzzer.tid);
+
+    esp_mqtt_client_publish(mqtt_client, topic, payload, 0, 1, 0);
+    ESP_LOGI(TAG, "Diag: BUZZER %s -> %s (intentos=%d)",
+             mac_str, ok ? "OK" : razon, intentos);
+}
+
 
 /* Latido de estado por MQTT.
 
@@ -1222,6 +1331,61 @@ static void ping_timer_cb(void *arg) {
                         0, s_ping.intentos, -1);
 }
 
+/* Envio del comando de sirena (HUB-IF-015). Patron exacto de
+ * hub_enviar_ping(): frame ESPNOW_FT_CMD con payload espnow_payload_buzzer_t
+ * (magia 0xE8). El buzzer responde con un BUZZ (DATA_EVENT) al arrancar. */
+static void hub_enviar_buzzer(void) {
+    espnow_payload_buzzer_t cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.magic = ESPNOW_BUZZER_MAGIC;
+    cmd.seconds = s_buzzer.seconds;
+    memcpy(cmd.src_event, s_buzzer.src_event, sizeof(cmd.src_event));
+    strncpy(cmd.tid, s_buzzer.tid, sizeof(cmd.tid) - 1);
+
+    espnow_frame_t frame;
+    if (espnow_build_frame(&frame, ESPNOW_FT_CMD, (uint16_t)s_buzzer.intentos,
+                           hub_mac, s_buzzer.mac,
+                           (const uint8_t *)&cmd, sizeof(cmd)) != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo construir el comando de buzzer.");
+        s_buzzer.pendiente = false;
+        publish_buzzer_result(s_buzzer.mac, false, "frame", s_buzzer.intentos);
+        return;
+    }
+
+    s_buzzer.enviado_us = esp_timer_get_time();
+    s_buzzer.fallo_radio = false;
+
+    esp_err_t err = esp_now_send(s_buzzer.mac, (const uint8_t *)&frame,
+                                 espnow_frame_size(sizeof(cmd)));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Comando de buzzer no enviado: %s", esp_err_to_name(err));
+        s_buzzer.pendiente = false;
+        publish_buzzer_result(s_buzzer.mac, false, "radio", s_buzzer.intentos);
+        return;
+    }
+    ESP_LOGI(TAG, "BUZZER %d/%d al nodo: suenar %u s (esperando BUZZ).",
+             s_buzzer.intentos, BUZZER_INTENTOS_MAX, s_buzzer.seconds);
+}
+
+static void buzzer_timer_cb(void *arg) {
+    if (!s_buzzer.pendiente) {
+        return;
+    }
+    if (s_buzzer.intentos < BUZZER_INTENTOS_MAX) {
+        s_buzzer.intentos++;
+        hub_enviar_buzzer();
+        esp_timer_start_once(s_buzzer_timer, BUZZER_ESPERA_US);
+        return;
+    }
+    /* Sin confirmacion. Igual que el ping: la radio vs el firmware. La
+     * alarma en si no se detiene; solo queda sin sirena y con evidencia en
+     * diag para el portal. */
+    s_buzzer.pendiente = false;
+    publish_buzzer_result(s_buzzer.mac, false,
+                          s_buzzer.fallo_radio ? "radio" : "sin_respuesta",
+                          s_buzzer.intentos);
+}
+
 /* Enterado del resultado del envio a nivel 802.11. Un ESP_NOW_SEND_FAIL no
  * significa "el nodo no funciona": significa que su radio no devolvio ACK,
  * que es justo lo que falla cuando hub y nodo no estan en el mismo canal. */
@@ -1229,6 +1393,10 @@ static void on_espnow_sent(const uint8_t *mac_addr, esp_now_send_status_t status
     if (s_ping.pendiente && memcmp(mac_addr, s_ping.mac, 6) == 0 &&
         status == ESP_NOW_SEND_FAIL) {
         s_ping.fallo_radio = true;
+    }
+    if (s_buzzer.pendiente && memcmp(mac_addr, s_buzzer.mac, 6) == 0 &&
+        status == ESP_NOW_SEND_FAIL) {
+        s_buzzer.fallo_radio = true;
     }
 }
 
@@ -1352,6 +1520,23 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             ESP_LOGW(TAG, "PONG de %s sin prueba pendiente: descartado.", mac_str);
         }
         return;
+    }
+
+    /* Confirmacion de sirena (HUB-IF-015). A diferencia del PONG, la
+     * activacion SI es dato operativo auditable: se resuelve la prueba en
+     * vuelo y despues el BUZZ sigue el camino de los eventos normales, para
+     * que el hub lo publique por MQTT y Node-RED lo inserte en events. */
+    if (memcmp(payload->event_code, "BUZZ", 4) == 0) {
+        if (s_buzzer.pendiente && memcmp(sender_mac, s_buzzer.mac, 6) == 0) {
+            s_buzzer.pendiente = false;
+            esp_timer_stop(s_buzzer_timer);
+            publish_buzzer_result(sender_mac, true, "ok", s_buzzer.intentos);
+        } else {
+            /* Sin prueba en vuelo igual llega a la BD: el BUZZ es un hecho
+             * operativo (la sirena sonó) aunque nadie lo pidiera. */
+            ESP_LOGW(TAG, "BUZZ de %s sin activacion pendiente: se registra igual.", mac_str);
+        }
+        /* Sin return: el BUZZ continua como evento normal. */
     }
 
     // --- LÓGICA DE EVENTOS NORMALES (ALRM, HEAR, etc.) ---
@@ -2260,6 +2445,13 @@ void app_main(void) {
         .name     = "ping_to"
     };
     ESP_ERROR_CHECK(esp_timer_create(&ping_timer_args, &s_ping_timer));
+
+    /* Timeout de la activacion de sirena (HUB-IF-015). */
+    const esp_timer_create_args_t buzzer_timer_args = {
+        .callback = &buzzer_timer_cb,
+        .name     = "buzz_to"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&buzzer_timer_args, &s_buzzer_timer));
 
     /* Latido de estado: mismo sitio donde se arma el timer del ping. */
     const esp_timer_create_args_t latido_args = {

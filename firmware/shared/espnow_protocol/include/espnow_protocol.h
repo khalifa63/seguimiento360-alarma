@@ -116,6 +116,33 @@ _Static_assert(sizeof(espnow_payload_config_t) <= ESPNOW_MAX_PAYLOAD,
                "El payload de configuracion no cabe en un frame ESP-NOW");
 
 /* ---------------------------------------------------------------------------
+ * Activacion de la sirena (HUB-IF-015, v0.4)
+ *
+ * El hub manda este CMD al nodo buzzer cuando Node-RED decide que una alarma
+ * debe sonar. El buzzer suena `seconds` continuos (1..300) y responde con un
+ * DATA_EVENT "BUZZ" (value=1) al iniciar, que el hub publica como evento
+ * normal: la activacion de la sirena SI es dato operativo auditable.
+ *
+ * `src_event` es el codigo del evento que disparo la alarma (DOOR, ALRM,
+ * ...) para que el nodo pueda diferenciar el sonido si hace falta.
+ * `tid` es el identificador de la alarma, opaco, y viaja tal cual al diag.
+ * ------------------------------------------------------------------------ */
+#define ESPNOW_BUZZER_MAGIC   0xE8
+
+typedef struct __attribute__((packed)) {
+    uint8_t  magic;        /* ESPNOW_BUZZER_MAGIC */
+    uint16_t seconds;      /* duracion de la sirena, 1..300 s */
+    uint8_t  src_event[4]; /* codigo del evento que disparo la alarma */
+    char     tid[13];      /* identificador de la alarma, opaco */
+} espnow_payload_buzzer_t;
+
+_Static_assert(sizeof(espnow_payload_buzzer_t) == 20,
+               "El payload de buzzer debe ser de 20 bytes");
+
+_Static_assert(sizeof(espnow_payload_buzzer_t) <= ESPNOW_MAX_PAYLOAD,
+               "El payload de buzzer no cabe en un frame ESP-NOW");
+
+/* ---------------------------------------------------------------------------
  * Frame en memoria (packed)
  * ------------------------------------------------------------------------ */
 typedef struct __attribute__((packed)) {

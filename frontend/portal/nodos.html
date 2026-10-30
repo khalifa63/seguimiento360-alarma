@@ -256,15 +256,24 @@ function abrir(id) {
     inpUmbral.style.display = '';
     notaUmbral.style.display = 'none';
     inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : 50;
+  } else if (tipoDe(n) === 'actuador_buzzer') {
+    lblUmbral.textContent = 'Duracion de sirena (s)';
+    inpUmbral.style.display = '';
+    notaUmbral.style.display = 'block';
+    notaUmbral.textContent = '0 = desactivada. Vacia = 30 s por defecto (HUB-IF-015).';
+    inpUmbral.min = 0; inpUmbral.max = 300; inpUmbral.step = 1;
+    inpUmbral.value = n.buzzer_seconds != null ? n.buzzer_seconds : '';
   } else if (tipoDe(n) === 'sensor_temperature') {
     lblUmbral.textContent = 'Temperatura de referencia (\u00B0C)';
     inpUmbral.style.display = '';
     notaUmbral.style.display = 'none';
+    inpUmbral.min = 10; inpUmbral.max = 400; inpUmbral.step = 5;
     inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : '';
   } else {
     lblUmbral.textContent = 'Umbral de distancia (cm)';
     inpUmbral.style.display = '';
     notaUmbral.style.display = 'none';
+    inpUmbral.min = 10; inpUmbral.max = 400; inpUmbral.step = 5;
     inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : '';
   }
   modal.style.display = 'flex';
@@ -289,7 +298,11 @@ document.getElementById('form-editar').addEventListener('submit', async (e) => {
     room: document.getElementById('f-cuarto').value.trim()
   };
   const inpUmbral = document.getElementById('f-umbral');
-  if (inpUmbral.style.display !== 'none' && inpUmbral.value !== '')
+  if (tipoDe(editando) === 'actuador_buzzer') {
+    /* Duracion de sirena (HUB-IF-015): 0 desactiva; vacio = default 30. */
+    if (inpUmbral.value !== '')
+      cuerpo.buzzer_seconds = Number(inpUmbral.value);
+  } else if (inpUmbral.style.display !== 'none' && inpUmbral.value !== '')
     cuerpo.distance_threshold = Number(inpUmbral.value);
 
   if (!cuerpo.name) { aviso('El nombre no puede quedar vacio.'); return; }
@@ -350,7 +363,8 @@ document.getElementById('borrar-btn').addEventListener('click', async () => {
 const MEDICION_POR_TIPO = {
   sensor_magnetic:   { etiqueta: 'Estado',      unidad: ''    },
   sensor_ultrasonic: { etiqueta: 'Distancia',   unidad: ' cm' },
-  sensor_temperature:{ etiqueta: 'Temperatura', unidad: ' \u00B0C' }
+  sensor_temperature:{ etiqueta: 'Temperatura', unidad: ' \u00B0C' },
+  actuador_buzzer:   { etiqueta: 'Sirena',      unidad: ' s'  }
 };
 function tipoDe(n) { return MEDICION_POR_TIPO[n.device_type] ? n.device_type : null; }
 function etiquetaMedicion(n) {
@@ -360,6 +374,12 @@ function etiquetaMedicion(n) {
 function valorMedicion(n) {
   const t = tipoDe(n);
   if (!t) return n.distance_threshold != null ? n.distance_threshold + ' cm' : '-';
+  if (t === 'actuador_buzzer') {
+    /* Duracion de sirena (HUB-IF-015): 0 = desactivado; NULL = default 30. */
+    if (n.buzzer_seconds === 0) return 'Desactivado';
+    if (n.buzzer_seconds != null) return n.buzzer_seconds + ' s';
+    return '30 s (defecto)';
+  }
   if (t === 'sensor_magnetic') {
     if (n.last_event_type === 'DOOR' && n.last_value != null)
       return Number(n.last_value) === 1 ? 'Cerrado' : 'Abierto';

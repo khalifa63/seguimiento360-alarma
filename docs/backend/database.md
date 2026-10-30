@@ -16,7 +16,7 @@ Host postgres (DNS interno de Docker), puerto 5432. Config en functionGlobalCont
 docker exec postgres pg_dump -U admin seguimiento360_alarmas > dump.sql
 docker exec -i postgres psql -U admin -d seguimiento360_alarmas < dump.sql
 
-## Esquema real en produccion (2026-10-29)
+## Esquema real en produccion (2026-10-30)
 
 `backend/database/schema.sql` contiene el volcado REAL de la base
 `seguimiento360_alarmas` (pg_dump --schema-only): 12 tablas — users, tenants,
@@ -37,3 +37,7 @@ Tablas centrales del flujo de eventos:
   `distance_cm`, renombrada el 2026-10-29 conservando el historico).
 - `nodes`: registro runtime del nodo (mac_address, name, location, room,
   status, last_seen); la ingesta de eventos la actualiza en cada contacto.
+  Desde el 2026-10-30 tiene `buzzer_seconds smallint` (HUB-IF-015): duracion
+  de sirena por evento en segundos; 0 = desactivado, NULL = usa el default
+  30. Solo se usa para `device_type='actuador_buzzer'`; el portal la edita
+  con el mismo formulario que `distance_threshold`.

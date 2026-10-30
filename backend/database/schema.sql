@@ -1,14 +1,8 @@
--- ==========================================================
--- SEGUIMIENTO 360 - Esquema REAL de produccion
--- Volcado: pg_dump --schema-only, 2026-10-29
--- Origen: contenedor postgres, base seguimiento360_alarmas
--- El esquema manuscrito anterior queda en el historial git.
--- ==========================================================
 --
 -- PostgreSQL database dump
 --
 
-\restrict hGDRFs0LgQKtxveec6zF3Jh7cfUStH1dlTe9sdfMpg6Ggbt5rktQ3PFAxpgLnia
+\restrict Beupvd1tPFVWgQMMqQyO1WUNQsZVsbUNWTpTccvJsX5zjEd8nWCAdqvX8onBRoP
 
 -- Dumped from database version 16.14
 -- Dumped by pg_dump version 16.14
@@ -215,7 +209,7 @@ CREATE TABLE public.events (
     node_name character varying(255),
     event_type character varying(50) NOT NULL,
     battery_level integer,
-    distance_cm integer,
+    value integer,
     sequence_number integer,
     payload jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL
@@ -301,9 +295,17 @@ CREATE TABLE public.nodes (
     last_seen timestamp with time zone,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
+    buzzer_seconds smallint,
     CONSTRAINT nodes_distance_threshold_check CHECK (((distance_threshold >= 2) AND (distance_threshold <= 200))),
     CONSTRAINT nodes_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'active'::character varying, 'inactive'::character varying])::text[])))
 );
+
+
+--
+-- Name: COLUMN nodes.buzzer_seconds; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.nodes.buzzer_seconds IS 'Duracion de sirena por evento (s); 0 = desactivado, NULL = default 30 (HUB-IF-015)';
 
 
 --
@@ -690,6 +692,13 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: devices_serial_lower_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX devices_serial_lower_idx ON public.devices USING btree (lower((serial_number)::text));
+
+
+--
 -- Name: devices_serial_number_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -963,5 +972,5 @@ ALTER TABLE ONLY public.tenants
 -- PostgreSQL database dump complete
 --
 
-\unrestrict hGDRFs0LgQKtxveec6zF3Jh7cfUStH1dlTe9sdfMpg6Ggbt5rktQ3PFAxpgLnia
+\unrestrict Beupvd1tPFVWgQMMqQyO1WUNQsZVsbUNWTpTccvJsX5zjEd8nWCAdqvX8onBRoP
 

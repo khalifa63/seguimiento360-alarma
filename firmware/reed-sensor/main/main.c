@@ -239,6 +239,22 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         ESP_LOGW(TAG, "Frame descartado (CRC o formato invalido), %d bytes", len);
         return;
     }
+    /* Respuesta al ping del hub (prueba de enlace del portal): el hub manda
+     * un frame ESPNOW_FT_CMD con espnow_payload_ping_t (magia 0xE7); el nodo
+     * contesta con un PONG (DATA_EVENT) que el hub usa para medir el RTT.
+     * Sin esto el hub declara "sin_respuesta" tras 3 intentos y el portal
+     * muestra error, aunque el enlace real funcione (le paso al prototipo
+     * REED el 2026-10-30). */
+    if (frame.frame_type == ESPNOW_FT_CMD) {
+        if (frame.payload_len >= sizeof(espnow_payload_ping_t) &&
+            frame.payload[0] == ESPNOW_PING_MAGIC) {
+            ESP_LOGI(TAG, "PING del hub recibido (seq=%u): respondiendo PONG",
+                     frame.seq);
+            send_frame("PONG", frame.seq);
+        }
+        return;
+    }
+
     if (frame.frame_type != ESPNOW_FT_ACK) {
         return;
     }

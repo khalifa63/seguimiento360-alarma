@@ -76,7 +76,7 @@
   "connectionTimeoutFieldType": "num",
   "user": "admin",
   "userFieldType": "str",
-  "password": "***",
+  "password": "PG_PASSWORD",
   "passwordFieldType": "env"
  },
  {
@@ -146,7 +146,7 @@
   "connectionTimeoutFieldType": "num",
   "user": "admin",
   "userFieldType": "str",
-  "password": "***",
+  "password": "PG_PASSWORD",
   "passwordFieldType": "env"
  },
  {
@@ -1368,8 +1368,8 @@
   "type": "function",
   "z": "7bfa17039520b422",
   "name": "Parsear evento a params",
-  "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Valor del evento: clave nueva `value` (SPEC-02 v0.3) con fallback a la\n// historica `distance_cm` mientras siga habiendo hubs sin reflashear.\nconst valor = (d.value != null ? d.value : (d.distance_cm != null ? d.distance_cm : null));\n\n// --- Mensaje 1: INSERT event ---\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  valor,\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// --- Mensaje 2: push, solo para alarmas ---\nconst ev = String(d.event).toUpperCase();\n\n// Gravedad: define el titulo y el tono del aviso\nconst GRAVES = [\"FIRE\",\"GAS\",\"SMOKE\",\"PANIC\",\"SOS\",\"SEIS\",\"ALRM\"];\nconst MEDIAS = [\"DOOR\",\"MOV\",\"HUM\"];\nlet gravedad = \"aviso\";\nif (GRAVES.some(p => ev.startsWith(p))) gravedad = \"critica\";\nelse if (MEDIAS.some(p => ev.startsWith(p))) gravedad = \"media\";\n\nif (gravedad === \"aviso\") { return [msg, null]; }\n\n// Estado legible para puertas: 1=Cerrado, 0=Abierto (SPEC-02 v0.3)\nconst esDoor = ev.startsWith(\"DOOR\");\nconst estado = esDoor && valor != null ? (Number(valor) === 1 ? \"Cerrado\" : \"Abierto\") : null;\n\n// El SELECT de tokens necesita el hub ($1) y el mac del nodo ($2) para\n// resolver el nombre desde la base de datos (el hub no lo sabe).\nconst msgPush = {\n  params: [hubMac, d.mac || null],\n  push: {\n    event: ev,\n    gravedad: gravedad,\n    nodo: d.node_name || d.name || d.mac || \"sensor\",\n    habitacion: d.room || null,\n    ubicacion: d.location || null,\n    estado: estado,\n    distancia: (esDoor ? null : (valor != null ? Number(valor) : null)),\n    bateria: (d.battery != null ? Number(d.battery) : null),\n    secuencia: (d.seq != null ? Number(d.seq) : null)\n  },\n  // Texto corto, para el registro del nodo\n  alarma: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\")\n};\nreturn [msg, msgPush];",
-  "outputs": 2,
+  "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Valor del evento: clave nueva `value` (SPEC-02 v0.3) con fallback a la\n// historica `distance_cm` mientras siga habiendo hubs sin reflashear.\nconst valor = (d.value != null ? d.value : (d.distance_cm != null ? d.distance_cm : null));\n\n// --- Mensaje 1: INSERT event ---\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  valor,\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// --- Mensaje 2: push, solo para alarmas ---\nconst ev = String(d.event).toUpperCase();\n\n// Gravedad: define el titulo y el tono del aviso\nconst GRAVES = [\"FIRE\",\"GAS\",\"SMOKE\",\"PANIC\",\"SOS\",\"SEIS\",\"ALRM\"];\n// BUZZ (activacion de sirena, HUB-IF-015) es dato operativo auditable y se\n// clasifica como media: llega al push pero no re-dispara la sirena.\nconst MEDIAS = [\"DOOR\",\"MOV\",\"HUM\",\"BUZZ\"];\nlet gravedad = \"aviso\";\nif (GRAVES.some(p => ev.startsWith(p))) gravedad = \"critica\";\nelse if (MEDIAS.some(p => ev.startsWith(p))) gravedad = \"media\";\n\nif (gravedad === \"aviso\") { return [msg, null, null]; }\n\n// Estado legible para puertas: 1=Cerrado, 0=Abierto (SPEC-02 v0.3)\nconst esDoor = ev.startsWith(\"DOOR\");\nconst estado = esDoor && valor != null ? (Number(valor) === 1 ? \"Cerrado\" : \"Abierto\") : null;\n\n// El SELECT de tokens necesita el hub ($1) y el mac del nodo ($2) para\n// resolver el nombre desde la base de datos (el hub no lo sabe).\nconst msgPush = {\n  params: [hubMac, d.mac || null],\n  push: {\n    event: ev,\n    gravedad: gravedad,\n    nodo: d.node_name || d.name || d.mac || \"sensor\",\n    habitacion: d.room || null,\n    ubicacion: d.location || null,\n    estado: estado,\n    distancia: (esDoor ? null : (valor != null ? Number(valor) : null)),\n    bateria: (d.battery != null ? Number(d.battery) : null),\n    secuencia: (d.seq != null ? Number(d.seq) : null)\n  },\n  // Texto corto, para el registro del nodo\n  alarma: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\")\n};\n\n// --- Mensaje 3: despacho de sirena (HUB-IF-015, SPEC-02 v0.4) ---\n// La decision de disparar vive aqui (Node-RED): alarmas criticas o apertura\n// de puerta (DOOR value=0). El cierre (value=1) y la confirmacion BUZZ no\n// re-disparan. La duracion la resuelve el nodo despachador desde la BD.\nconst disparaSirena = gravedad === \"critica\" ||\n                      (ev === \"DOOR\" && valor != null && Number(valor) === 0);\nconst msgBuzz = disparaSirena ? {\n  tenant: tid,\n  site: sid,\n  hubMac: hubMac,\n  srcEvent: ev\n} : null;\n\nreturn [msg, msgPush, msgBuzz];",
+  "outputs": 3,
   "timeout": 0,
   "noerr": 0,
   "x": 420,
@@ -1380,8 +1380,47 @@
    ],
    [
     "push_select_tokens1"
+   ],
+   [
+    "buzzer_disp_fn0001"
    ]
   ]
+ },
+ {
+  "id": "buzzer_disp_fn0001",
+  "type": "function",
+  "z": "7bfa17039520b422",
+  "name": "Despachar sirena por alarma",
+  "x": 540,
+  "y": 280,
+  "func": "/* Despacho de sirena por alarma (HUB-IF-015, SPEC-02 v0.4).\n * Entrada: mensaje 3 de \"Parsear evento a params\" (tenant, site, hubMac,\n * srcEvent). Pasos:\n *  1. Anti-retrigger: cooldown de 60 s por MAC del buzzer (contexto del\n *     nodo) para no re-disparar con los DOOR repetidos del reed.\n *  2. SELECT de buzzers del sitio con buzzer_seconds > 0 y status active.\n *  3. Publica {\"command\":\"buzzer\",\"mac\":...,\"seconds\":...,\"tid\":...,\n *     \"src_event\":...} en el topic command del hub por cada resultado. */\nconst pg = global.get('pg');\nconst dbConfig = global.get('dbConfig');\nif (!pg || !dbConfig) {\n    node.error('Despacho buzzer: faltan pg/dbConfig en el contexto global');\n    return null;\n}\nif (!msg || !msg.tenant || !msg.hubMac) { return null; }\n\nconst COOLDOWN_MS = 60 * 1000;\nconst ahora = Date.now();\nconst ult = context.get('buzzer_ult') || {};\n\nconst SQL = `\nSELECT n.mac_address, COALESCE(n.buzzer_seconds, 30) AS segundos\nFROM nodes n\nJOIN devices d ON lower(d.serial_number) = lower(n.mac_address)\nWHERE n.hub_id = (SELECT id FROM hubs WHERE serial_number = $1::varchar)\n  AND d.device_type = 'actuador_buzzer'\n  AND COALESCE(n.buzzer_seconds, 30) > 0\n  AND n.status = 'active'\n`;\n\nconst client = new pg.Client({ ...dbConfig, connectionTimeoutMillis: 5000 });\nconst salida = [];\ntry {\n    await client.connect();\n    const r = await client.query(SQL, [msg.hubMac]);\n    for (const row of r.rows) {\n        const mac = String(row.mac_address).toLowerCase();\n        const desde = ult[mac] || 0;\n        if (ahora - desde < COOLDOWN_MS) {\n            node.warn('Sirena ' + mac + ' en cooldown (' +\n                      Math.round((ahora - desde) / 1000) + ' s): omitido.');\n            continue;\n        }\n        ult[mac] = ahora;\n        const tidCmd = ahora.toString(36) + '-' + Math.random().toString(36).slice(2, 7);\n        salida.push({\n            topic: 'seguimiento360/tenant/' + msg.tenant + '/site/' + msg.site +\n                   '/hub/' + String(msg.hubMac).replace(/:/g, '').toLowerCase() + '/command',\n            payload: JSON.stringify({\n                command: 'buzzer',\n                mac: mac,\n                seconds: Number(row.segundos),\n                tid: tidCmd,\n                src_event: msg.srcEvent || 'ALRM'\n            })\n        });\n        node.warn('Sirena: comando a ' + mac + ' por ' + row.segundos +\n                  ' s (' + (msg.srcEvent || 'ALRM') + ')');\n    }\n    context.set('buzzer_ult', ult);\n} catch (e) {\n    node.error('Despacho buzzer fallo: ' + e.message);\n} finally {\n    try { await client.end(); } catch (e) {}\n}\nif (salida.length === 0) { return null; }\nreturn [salida];",
+  "outputs": 1,
+  "timeout": "",
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "wires": [
+   [
+    "buzzer_mqtt_out0001"
+   ]
+  ]
+ },
+ {
+  "id": "buzzer_mqtt_out0001",
+  "type": "mqtt out",
+  "z": "7bfa17039520b422",
+  "name": "📤 Comando buzzer al Hub",
+  "topic": "",
+  "qos": "1",
+  "retain": "false",
+  "respTopic": "",
+  "contentType": "",
+  "userProps": "",
+  "broker": "6fbb1b5b4df3541f",
+  "x": 720,
+  "y": 280,
+  "wires": []
  },
  {
   "id": "d68596e759d04a45",

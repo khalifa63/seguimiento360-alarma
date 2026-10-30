@@ -163,8 +163,13 @@ resultado en el topic `.../hub/<mac>/diag`:
 **Comando buzzer (HUB-IF-015, v0.4):** Node-RED publica en el topic `command`
 al detectar una alarma que deba sonar la sirena:
 
-    {"command":"buzzer","mac":"aa:bb:cc:dd:ee:ff","seconds":30,"tid":"<id-alarma>"}
+    {"command":"buzzer","mac":"aa:bb:cc:dd:ee:ff","seconds":30,
+     "tid":"<id-alarma>","src_event":"DOOR"}
 
+- `src_event` es **opcional**: el código del evento que disparó la alarma
+  (`DOOR`, `ALRM`, ...). Si no viene, el hub rellena el payload con `ALRM`.
+  Alimenta `espnow_payload_buzzer_t.src_event` (HUB-IF-015), para que el nodo
+  pueda diferenciar el sonido según el origen.
 - El hub parsea `mac`/`seconds`/`tid` con cJSON (mismo patrón que `ping`),
   busca el nodo en su `node_registry` y envía un frame `ESPNOW_FT_CMD` con
   `espnow_payload_buzzer_t` (magia `0xE8`, ver HUB-IF-015).

@@ -1,11 +1,17 @@
-# SPEC-02 — Contratos de Interface del Hub (v0.3)
+# SPEC-02 — Contratos de Interface del Hub (v0.4)
 
 Contratos entre nodo, hub, broker y backend. Es la fuente de verdad: el código
 deriva de aquí, no al revés. Un cambio incompatible exige *change request*.
 
-> **Estado:** v0.3 documenta lo que el firmware implementa hoy. La v0.1 describía
-> un contrato aspiracional que nunca se implementó; el detalle de la brecha está
-> en [Hallazgos](#hallazgos-v01--v02).
+> **Estado:** v0.4 documenta lo que el firmware implementa hoy, más el nuevo
+> nodo buzzer. La v0.1 describía un contrato aspiracional que nunca se
+> implementó; el detalle de la brecha está en [Hallazgos](#hallazgos-v01--v02).
+>
+> **Cambios v0.4 (2026-10-30):** nuevo código de evento `BUZZ` (HUB-IF-005),
+> nuevo comando `buzzer` de activación de la sirena (HUB-IF-006) y nuevo
+> payload `espnow_payload_buzzer_t` (HUB-IF-015). **El frame v1 en el aire no
+> cambia**: los payloads nuevos se agregan como tipos nuevos, nunca como
+> variantes del payload de 7 bytes.
 >
 > **Cambios v0.3 (2026-10-29):** el byte 6 del payload v1 pasa de `distance_cm`
 > a `value`, genérico, con semántica definida por `event_code` (HUB-IF-002); el
@@ -114,11 +120,13 @@ parsean `msg.topic.split('/')` y usan las posiciones 2 y 4.
 | `ALRM` | alarma por umbral de distancia (nodo ultrasónico) |
 | `HEAR` | latido periódico |
 | `PONG` | respuesta del nodo al ping del hub (prueba de enlace, ver HUB-IF-006); se resuelve en el hub y no sube a la BD |
+| `BUZZ` | activación confirmada de la sirena (nodo buzzer, ver HUB-IF-015): `value` 1 = sonando; **sí** sube a la BD (dato operativo auditable) |
 | `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
 
 Node-RED clasifica la gravedad para la notificación por Gotify: **crítica** para
 `ALRM`, `GAS`, `SMOKE`, `FIRE`, `PANIC`, `SOS` y `SEIS`; **media** para `DOOR`,
-`MOV` y `HUM` (v0.3 documenta lo que el flujo en vivo implementa).
+`MOV`, `HUM` y `BUZZ` (v0.3 documenta lo que el flujo en vivo implementa; la
+v0.4 agrega `BUZZ` como media, junto con el despacho de sirena del HUB-IF-015).
 
 ## HUB-IF-006: Comandos al hub
 
@@ -127,6 +135,8 @@ Node-RED clasifica la gravedad para la notificación por Gotify: **crítica** pa
     command:  {"action":"arm"} | {"action":"disarm"}
               {"action":"pairing"}                      abre la ventana 120 s
               {"action":"unpair","mac":"aa:bb:cc:dd:ee:ff"}  olvida un nodo
+              {"command":"buzzer","mac":"<mac-buzzer>","seconds":N,"tid":"<id>"}
+                                                        activa la sirena N segundos
 
 **Prueba de enlace (PING/PONG):** el botón «Probar ESP-NOW» del portal publica
 en el topic `command`:
@@ -149,6 +159,31 @@ resultado en el topic `.../hub/<mac>/diag`:
 - El nodo debe responder **solo si el frame es `ESPNOW_FT_CMD`** (ver
   `on_data_recv` del reed). El nodo ultrasónico v1 no implementa esta
   respuesta: el portal le reportará `sin_respuesta`.
+
+**Comando buzzer (HUB-IF-015, v0.4):** Node-RED publica en el topic `command`
+al detectar una alarma que deba sonar la sirena:
+
+    {"command":"buzzer","mac":"aa:bb:cc:dd:ee:ff","seconds":30,"tid":"<id-alarma>"}
+
+- El hub parsea `mac`/`seconds`/`tid` con cJSON (mismo patrón que `ping`),
+  busca el nodo en su `node_registry` y envía un frame `ESPNOW_FT_CMD` con
+  `espnow_payload_buzzer_t` (magia `0xE8`, ver HUB-IF-015).
+- `seconds` debe estar entre 1 y 300; el hub descarta fuera de rango.
+- **Confirmación (BUZZ):** a diferencia del PONG, la activación de la sirena
+  **sí es dato operativo auditable**: el nodo responde con un `BUZZ`
+  (`DATA_EVENT`, `value=1`) al iniciar, el hub lo publica por MQTT como
+  evento normal y la ingesta lo inserta en la tabla `events`. Node-RED lo
+  clasifica como `media`.
+- **Fallo de entrega:** si el nodo no responde o la radio falla (mismo
+  mecanismo que el ping), el hub reporta por el topic `diag`:
+
+    {"event":"BUZZER_RESULT","mac":"...","ok":false,"reason":"sin_respuesta",
+     "tid":"<id-alarma>"}
+
+  Razones posibles: `ok` (nodo confirmó BUZZ), `radio` (ESP_NOW_SEND_FAIL,
+  nodo fuera de alcance o en otro canal), `sin_respuesta` (frame enviado pero
+  sin BUZZ tras los reintentos). Esta confirmación es un reporte de
+  diagnóstico; la fila auditable de activación es el `BUZZ` en `events`.
 
 El topic `pairing` lo publica el hub para que el estado de la ventana se pueda
 consultar sin estar al lado del equipo (ver HUB-IF-014):
@@ -537,6 +572,60 @@ nodo vuelve al modo sin vincular sin intervención.
 | Hub cambiado | Apagado | "El hub ha cambiado..." | Sí, al nuevo |
 | Hub ausente 60 s | Parpadea | "El hub no responde (6 comprobaciones sin ACK). Desvinculando..." | No se envían |
 | Hub repuesto | Apagado | "Nodo VINCULADO con el hub ..." | Sí, se reanudan |
+
+## HUB-IF-015: Nodo buzzer — sirena de alarma (v0.4)
+
+El buzzer es un **peer ESP-NOW del hub**, no un cliente MQTT: mismo modelo que
+el REED. Su firmware vive en `firmware/buzzer/` (ESP32-C3), hereda el pairing
+por barrido de canales, el PONG y la vigilancia de enlace del reed
+(HUB-IF-011), y añade la salida de audio: buzzer **pasivo** en GPIO3 con PWM
+LEDC (2700 Hz, duty 90 %).
+
+### Flujo alarma → buzzer
+
+    [REED] --ESP-NOW DOOR--> [HUB] --MQTT event--> [Node-RED]
+                                     |                  |  1. clasifica gravedad
+                                     |                  |  2. busca buzzers del sitio
+                                     |                  |     con buzzer_seconds > 0
+                                     |                  |  3. publica comando
+    [BUZZER] <--ESP-NOW CMD----------+ <--MQTT command--+     {"command":"buzzer", ...}
+        |
+        +-- suena N segundos y responde BUZZ (DATA_EVENT) --> HUB --> MQTT --> BD
+
+- **La decisión de disparar vive en Node-RED** (config en la BD: columna
+  `nodes.buzzer_seconds`). **CR-002** (pendiente): disparo local en el hub
+  para operar sin internet, sin re-derivar la decisión en el firmware.
+- **Comando (topic `command` del hub):** `{"command":"buzzer","mac":"<mac-buzzer>","seconds":N,"tid":"<id>"}` (HUB-IF-006).
+- **Frame ESP-NOW:** `ESPNOW_FT_CMD` con payload nuevo `espnow_payload_buzzer_t`
+  — `uint8_t magic; /*0xE8*/ uint16_t seconds; uint8_t src_event[4];
+  char tid[13];` (34 bytes) — definido en
+  `firmware/shared/espnow_protocol/include/espnow_protocol.h` con
+  `_Static_assert` de tamaño, como los existentes. El frame v1
+  (HUB-IF-001) no cambia: el payload nuevo es un **tipo nuevo** dentro de un
+  `ESPNOW_FT_CMD`, igual que el ping (`0xE7`, HUB-IF-014).
+- **`seconds`:** 1..300 s, continuos; el nodo descarta fuera de rango.
+  `src_event` es el código del evento que disparó la alarma (p. ej. `DOOR`,
+  `ALRM`) para que el buzzer sepa qué sonido emitir si se diferencian.
+- **Confirmación:** el nodo arranca la sirena inmediatamente (primero suena,
+  luego confirma) y envía `BUZZ` (`DATA_EVENT`, `value=1`) con su propio seq;
+  el hub lo publica como evento normal por `publish_event_to_mqtt()` — exige
+  que el buzzer esté registrado en `node_registry` (se logra al vincularlo) —
+  y Node-RED lo inserta en `events` (clasificado `media`, HUB-IF-005).
+  A diferencia del PONG, la activación **sí sube a la BD**.
+- **Fallo de entrega:** el hub reintenta 3 veces (~2 s entre intentos) y si
+  no hay BUZZ publica `BUZZER_RESULT` con `ok:false` por `diag`
+  (HUB-IF-006). El fallo no detiene la alarma: solo la deja sin sirena.
+- **Filtro de sonido:** el nodo solo acepta el comando si `magic == 0xE8` y
+  `seconds` está en rango; comandos con magia desconocida se ignoran
+  (pueden ser de una versión futura del contrato).
+- **Duración configurable:** `nodes.buzzer_seconds smallint` en la BD
+  (0 = desactivado, NULL = usa default 30). Se edita desde el portal con el
+  mismo formulario que `distance_threshold`, solo visible para
+  `device_type='actuador_buzzer'`. El hub no conoce el valor: lo resuelve
+  Node-RED al construir el comando, que es la única fuente de la duración.
+- **Anti-retrigger:** Node-RED guarda en contexto la última activación por
+  MAC del buzzer (cooldown 60 s) para no re-disparar con los `DOOR`
+  repetidos que produce la transición de la puerta.
 
 ## Fallos del enlace ESP-NOW (2026-10-23)
 

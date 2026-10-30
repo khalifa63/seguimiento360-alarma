@@ -49,10 +49,10 @@ Cabecera: **19 bytes**. Payload maximo: **229 bytes** (el limite de ESP-NOW son
 
 | offset | Campo | Valores |
 |---|---|---|
-| 0-3 | `event_code` | `"PAIR"`, `"DOOR"`, `"ALRM"`, `"HEAR"`, `"PONG"` |
+| 0-3 | `event_code` | `"PAIR"`, `"DOOR"`, `"ALRM"`, `"HEAR"`, `"PONG"`, `"BUZZ"` |
 | 4 | `seq` | contador |
 | 5 | `battery_level` | 0-100 |
-| 6 | `value` | semantica segun `event_code` (SPEC-02 v0.3) |
+| 6 | `value` | semantica segun `event_code` (SPEC-02 v0.4) |
 
 **El byte 6 cambio de nombre dos veces.** Nacio como `reserved` en el nodo y
 el hub lo llamaba `distance_cm` (v0.2, telemetria del ultrasónico): nombrarlo
@@ -60,6 +60,9 @@ el hub lo llamaba `distance_cm` (v0.2, telemetria del ultrasónico): nombrarlo
 nodo REED (v0.3, 2026-10-29) paso a llamarse **`value`**, generico, porque el
 sensor de apertura no mide distancias: `DOOR` usa 1=Cerrado / 0=Abierto,
 `ALRM` conserva la distancia en cm y `PONG` repite la seq del ping recibido.
+Con el nodo buzzer (v0.4, 2026-10-30) se agrega `BUZZ` (activacion confirmada
+de la sirena): `value=1` cuando el buzzer arranca a sonar. El detalle del
+comando y del payload nuevo esta en SPEC-02 HUB-IF-015.
 
 ### Payload de configuracion
 

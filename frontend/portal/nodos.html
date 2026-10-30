@@ -257,10 +257,12 @@ function abrir(id) {
     notaUmbral.style.display = 'none';
     inpUmbral.value = n.distance_threshold != null ? n.distance_threshold : 50;
   } else if (tipoDe(n) === 'actuador_buzzer') {
-    lblUmbral.textContent = 'Duracion de sirena (s)';
+    /* El buzzer no tiene umbral: su unico parametro es la duracion de la
+     * sirena (HUB-IF-015), que es lo que suena tras el disparo de alarma. */
+    lblUmbral.textContent = 'Duracion en segundos';
     inpUmbral.style.display = '';
     notaUmbral.style.display = 'block';
-    notaUmbral.textContent = '0 = desactivada. Vacia = 30 s por defecto (HUB-IF-015).';
+    notaUmbral.textContent = 'Tiempo que sonara la sirena tras el disparo de alarma. 0 = desactivada. Vacia = 30 s por defecto.';
     inpUmbral.min = 0; inpUmbral.max = 300; inpUmbral.step = 1;
     inpUmbral.value = n.buzzer_seconds != null ? n.buzzer_seconds : '';
   } else if (tipoDe(n) === 'sensor_temperature') {

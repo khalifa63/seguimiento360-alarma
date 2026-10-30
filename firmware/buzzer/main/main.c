@@ -99,9 +99,12 @@ static int      ack_lost = 0;            // chequeos de enlace sin ACK
 /* Sirena: s_sounding marca que el PWM esta activo; s_buzz_deadline es el
  * instante (s) en que debe cortar. Un comando nuevo EXTENSIONA la sirena
  * (deadline = max(deadline, ahora + seconds)) para que un trigger repetido
- * no corte una alarma mas larga que ya estaba sonando. */
+ * no corte una alarma mas larga que ya estaba sonando. s_buzz_started_s
+ * guarda el instante de arranque para que el log de corte reporte la
+ * duracion real y no el epoch del deadline. */
 static bool     s_sounding = false;
 static uint32_t s_buzz_deadline = 0;
+static uint32_t s_buzz_started_s = 0;
 
 // ====================== 3. INICIALIZACIÓN DEL BUZZER ========================
 
@@ -157,6 +160,7 @@ static void buzzer_start(uint16_t seconds)
     if (!s_sounding) {
         buzzer_on();
         s_sounding = true;
+        s_buzz_started_s = now;
     }
     s_buzz_deadline = fin;
 }
@@ -167,7 +171,8 @@ static void buzzer_tick(uint32_t now)
     if (s_sounding && now >= s_buzz_deadline) {
         buzzer_off();
         s_sounding = false;
-        ESP_LOGI(TAG, "Sirena detenida tras %u s", (unsigned)s_buzz_deadline);
+        ESP_LOGI(TAG, "Sirena detenida tras %u s",
+                 (unsigned)(now - s_buzz_started_s));
     }
 }
 

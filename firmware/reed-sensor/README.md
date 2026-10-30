@@ -12,6 +12,16 @@ ESP-NOW al hub, con el frame v1 compartido.
 | `DOOR` | Cada transición de estado (anti-rebote por muestreo de 100 ms, cambio estable en 2 muestras) | 1 = Cerrado (imán cerca), 0 = Abierto |
 | `HEAR` | Cada 600 s (coincide con `NODE_HEARTBEAT_SEC` del hub) | estado actual |
 | `PAIR` | Al arrancar y cada 30 s (chequeo de enlace / registro) | 0 |
+| `PONG` | Solo al recibir un `PING` del hub (prueba de enlace del portal) | seq del ping |
+
+- **Barrido de canales (2026-10-30):** el PAIR recorre los canales 1..13 con
+  `pair_channel_sweep()` y el nodo queda en el canal que responde. El hub
+  vive en el canal del router, que puede cambiar solo; si cambia, la
+  vigilancia del enlace falla (60 s sin ACK), el nodo se desvincula y el
+  barrido re-vincula sin intervención.
+- **PONG (2026-10-30):** los frames `ESPNOW_FT_CMD` (ping del hub) se
+  responden con `PONG`. Antes se ignoraban y el botón «Probar ESP-NOW» del
+  portal fallaba aunque el enlace real funcionara (los HEAR/DOOR pasaban).
 
 - El hub solo registra el `PAIR` con su **ventana de emparejamiento abierta**
   (botón BOOT del hub o ventana desde el portal; 120 s).

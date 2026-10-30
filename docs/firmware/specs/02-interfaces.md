@@ -127,6 +127,28 @@ Node-RED clasifica la gravedad para la notificación por Gotify: **crítica** pa
               {"action":"pairing"}                      abre la ventana 120 s
               {"action":"unpair","mac":"aa:bb:cc:dd:ee:ff"}  olvida un nodo
 
+**Prueba de enlace (PING/PONG):** el botón «Probar ESP-NOW» del portal publica
+en el topic `command`:
+
+    {"command":"ping","mac":"aa:bb:cc:dd:ee:ff","tid":"<id-prueba>"}
+
+El hub envía el ping por ESP-NOW al nodo: frame `ESPNOW_FT_CMD` cuyo payload
+es un `espnow_payload_ping_t` (magia `0xE7`, 7 bytes: magic, nonce y tid). El
+nodo responde con un `PONG` (frame `ESPNOW_FT_DATA_EVENT` normal,
+`event_code="PONG"`, seq = la del ping). El hub mide el RTT y publica el
+resultado en el topic `.../hub/<mac>/diag`:
+
+    {"event":"PING_RESULT","mac":"...","ok":true,"rtt_ms":69,
+     "attempts":1,"seq":4,"reason":"ok","tid":"<id-prueba>"}
+
+- El hub reintenta el ping hasta 3 veces (~2 s cada una) antes de publicar
+  `ok:false, reason:"sin_respuesta"`.
+- El PONG se resuelve en el hub y **no** sube como evento: no es una lectura
+  del sensor y no contamina el historial.
+- El nodo debe responder **solo si el frame es `ESPNOW_FT_CMD`** (ver
+  `on_data_recv` del reed). El nodo ultrasónico v1 no implementa esta
+  respuesta: el portal le reportará `sin_respuesta`.
+
 El topic `pairing` lo publica el hub para que el estado de la ventana se pueda
 consultar sin estar al lado del equipo (ver HUB-IF-014):
 
@@ -418,7 +440,21 @@ usarse: si el hub cambia, el nodo lo aprende solo.
     2b. Si no hay   -> modo SIN VINCULAR:
                        - el LED parpadea
                        - no se envían eventos (no hay destino)
-                       - se envía PAIR cada 30 s
+                       - PAIR cada 30 s **con barrido de canales**
+
+#### Barrido de canales (HUB-IF-011, ampliación 2026-10-30)
+
+El hub es estación de su router: su radio queda en el canal del router, que el
+usuario no controla y que puede cambiar solo. Fijar el nodo en un canal único
+rompe el enlace sin aviso (le pasó al prototipo REED el 2026-10-30). El
+`firmware/reed-sensor` implementa el barrido:
+
+- El PAIR se envía por los canales 1..13 con una espera corta en cada uno
+  (`pair_channel_sweep()`).
+- El canal correcto es el que responde el ACK: el nodo se queda en él.
+- Si el router cambia de canal más adelante, la vigilancia del enlace falla
+  (60 s sin ACK), el nodo se desvincula y el barrido vuelve a encontrar el
+  canal nuevo. El usuario no tiene que hacer nada.
 
     3. El hub recibe el PAIR. Si el nodo ya estaba registrado responde ACK;
        si no, lo registra en su node_registry y responde ACK.
@@ -454,6 +490,18 @@ parpadea y sigue insistiendo. Cuando el hub reaparece se re-vincula solo.
 
 Esto **no** usa el temporizador del heartbeat: `HEARTBEAT_INTERVAL_SEC` es de
 10 minutos y la desvinculación habría tardado horas.
+
+#### Respuesta al ping del hub (PONG, 2026-10-30)
+
+El hub también pregunta al nodo en la dirección contraria (prueba de enlace
+del portal, ver HUB-IF-006): envía un frame `ESPNOW_FT_CMD` con el payload de
+ping. El nodo reed lo atiende en `on_data_recv()` y contesta con un
+`PONG` (`send_frame("PONG", frame.seq)`). El hub usa el RTT para el
+`PING_RESULT` que consume el portal.
+
+Sin esta respuesta el hub declaraba `sin_respuesta` tras 3 intentos y el
+portal mostraba error, **aunque el enlace real funcionara** (los HEAR/DOOR
+seguían pasando): el ping es en la dirección hub→nodo, que no existía.
 
 ### Filtro de destinatario en el hub
 

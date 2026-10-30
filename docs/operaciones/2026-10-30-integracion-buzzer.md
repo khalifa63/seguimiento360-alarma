@@ -118,3 +118,16 @@ hallazgos y lo que quedó pendiente.
   canal audible, no el telefonico. Verificado con prueba unitaria del
   parseador: BUZZ -> [INSERT, null, null]; DOOR=0 y FIRE siguen con
   [INSERT, PUSH, BUZZ_CMD]. Spec actualizada (HUB-IF-005 y HUB-IF-015).
+
+## Hallazgo posterior 5 (2026-10-30, la duracion volvio a "no verse") y regla operativa
+
+- **El fix del overview se revirtio solo.** El patch de "BUZZ sin push" se
+  aplico sobre `/tmp/flows_live.json`, que era una copia de ANTES del fix del
+  agrupador: al desplegarla, el `buzzer_seconds` del moldeo desaparecio otra
+  vez (tabla siempre "30 s (defecto)", modal sin valor). La guardia de
+  sintaxis no alcanza para esto: el JS era valido, el estado era viejo.
+- **Regla operativa (desde ahora):** antes de cualquier patch del flow,
+  `docker cp nodered:/data/flows.json /tmp/flows_live.json`; y
+  `deploy_flow.sh` v2 refresca esa copia al final de cada despliegue. El
+  stale-copy ya mordio dos veces (PUT handler y agrupador del overview);
+  con la auto-sincronizacion no puede volver a pasar.

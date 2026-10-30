@@ -724,6 +724,50 @@ Sin esta migración, el hub no puede validar los frames del nodo y el sistema no
 | `RETRY` | Reintenta hasta 2 veces | ACK → `SLEEP`; sin ACK → `SLEEP` con evento pendiente |
 | `PAIR` | Modo aprendizaje | LMK recibida → `SLEEP`; timeout → `SLEEP` |
 
+
+### 6.10 Clases de nodos: invariantes del modelo (2026-10-30)
+
+El sistema crece por **clases de nodos** (reed, buzzer, ultrasonico, y las
+que vengan). Tres invariantes que el modelo respeta y debe seguir
+respetando:
+
+1. **Cada clase tiene sus propios parametros y forma de operar.** La clase
+   define: los codigos de evento que emite, los comandos que acepta (si es
+   actuador), los parametros configurables (columna propia en `nodes`, p.
+   ej. `distance_threshold` para el ultrasonico, `buzzer_seconds` para el
+   buzzer) y su representacion en el portal (columna Medicion, campo de
+   edicion, rama de salud).
+2. **Una clase puede repetirse dentro del mismo hub.** No hay unicidad por
+   tipo: dos reeds o dos buzzers en un mismo hub son nodos distintos con
+   MACs distintas. El diseño ya lo soporta: el registro del hub (NVS) y la
+   tabla `nodes` indexan por MAC, y el despacho de sirena de Node-RED
+   consulta **todos** los `actuador_buzzer` activos del sitio emitiendo un
+   comando por fila, con cooldown **por MAC** (cada sirena tiene su
+   propio anti-retrigger).
+3. **Un usuario puede tener multiples hubs** (y multiples sitios). La
+   jerarquia tenant > site > hub > nodo lo modela; los topics MQTT son por
+   hub, el overview del portal agrupa sitio > hub > nodo, y las consultas
+   filtran por el tenant del JWT.
+
+#### Receta para agregar una clase nueva
+
+ Patron aplicado con el buzzer (2026-10-30); en este orden:
+
+1. **SPEC-02:** codigos de evento nuevos y payloads nuevos (tipos nuevos
+   con `_Static_assert`; el frame v1 no se toca).
+2. **BD:** columna(s) de configuracion en `nodes` + `device_type` en
+   `devices` (serial en minusculas).
+3. **Firmware del nodo:** base reed/buzzer (pairing por barrido de
+   canales, PONG, HEAR cada 600 s, vigilancia de enlace, NVS) mas la
+   logica propia de la clase.
+4. **Hub:** handler del comando si la clase es actuador (patron
+   `hub_enviar_ping` / `hub_enviar_buzzer`).
+5. **Node-RED:** clasificacion de gravedad; despacho con cooldown por MAC
+   si es actuador.
+6. **Portal:** columna Medicion, campo de edicion y rama de salud propias
+   de la clase (un actuador no es un sensor: no hereda metricas ajenas).
+7. **ATs** end-to-end con evidencia cruda (MQTT, serial, filas de BD).
+
 ---
 
 ## 7. Comunicaciones

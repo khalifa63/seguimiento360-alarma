@@ -231,6 +231,30 @@ static esp_timer_handle_t s_buzzer_timer = NULL;
 #define BUZZER_INTENTOS_MAX 3
 #define BUZZER_ESPERA_US    (3 * 1000 * 1000)
 
+/* Ciclo de sirena (HUB-IF-015, v0.5): estado RAM del hub, uno por buzzer.
+ * Ráfaga de `seconds` + pausa SIREN_CYCLE_PAUSE_S, re-verificación contra el
+ * último estado del sensor que disparó (src_mac). No persiste: un reinicio
+ * del hub termina el ciclo (limitación v0.5 documentada). */
+#define SIREN_CYCLE_PAUSE_S 5
+
+typedef struct {
+    bool     activo;
+    uint8_t  mac_buzzer[6];
+    uint8_t  mac_sensor[6];      /* src_mac: el sensor que disparó */
+    uint16_t seconds;
+    char     tid[13];
+    uint8_t  src_event[4];
+    uint32_t proxima_revision;   /* s desde el arranque: vence ráfaga+pausa */
+    uint32_t rafagas;            /* ráfagas disparadas en el ciclo */
+} siren_cycle_t;
+static siren_cycle_t s_ciclo;
+static esp_timer_handle_t s_ciclo_timer = NULL;
+
+/* Último `value` reportado por cada nodo (RAM, índice = posición en
+ * node_registry; -1 = desconocido). DOOR y HEAR del reed llevan el mismo
+ * estado (1 = Cerrado), así que el ciclo puede vigilar con cualquiera. */
+static int8_t s_last_value[MAX_NODES];
+
 /* Van a continuacion, pero el handler de MQTT las necesita antes. */
 static void publish_ping_result(const uint8_t *mac, bool ok, const char *razon,
                                 int rtt_ms, int intentos, int seq);
@@ -238,6 +262,8 @@ static void hub_enviar_ping(void);
 static void publish_buzzer_result(const uint8_t *mac, bool ok, const char *razon,
                                   int intentos);
 static void hub_enviar_buzzer(void);
+static void ciclo_parar(bool mandar_parada, const char *motivo);
+static void buzzer_enviar_paro(const uint8_t *mac);
 static void on_espnow_sent(const uint8_t *mac_addr, esp_now_send_status_t status);
 /* Eventos que no llegaron a publicarse. Se reporta en cada publicacion
  * fallida para que una perdida no pase inadvertida. */
@@ -788,17 +814,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                         return;
                     }
 
-                    /* Activacion de la sirena (HUB-IF-015). Node-RED decide
-                     * cuando una alarma debe sonar y publica aqui; el hub se
-                     * limita a llevar el comando por ESP-NOW al buzzer. La
-                     * confirmacion (BUZZ) sube como evento auditable. */
+                    /* Activacion de la sirena (HUB-IF-015, v0.5). Node-RED
+                     * decide cuando una alarma debe sonar y publica aqui; el
+                     * hub lleva el comando por ESP-NOW y levanta el ciclo de
+                     * sirena si trae src_mac. seconds=0 es paro inmediato. */
                     if (strstr(cmd_data, "\"buzzer\"") != NULL) {
                         cJSON *raiz = cJSON_Parse(cmd_data);
                         cJSON *mac_json = raiz ? cJSON_GetObjectItem(raiz, "mac") : NULL;
                         cJSON *sec_json = raiz ? cJSON_GetObjectItem(raiz, "seconds") : NULL;
                         cJSON *tid_json = raiz ? cJSON_GetObjectItem(raiz, "tid") : NULL;
                         cJSON *src_json = raiz ? cJSON_GetObjectItem(raiz, "src_event") : NULL;
+                        cJSON *srcmac_json = raiz ? cJSON_GetObjectItem(raiz, "src_mac") : NULL;
                         uint8_t objetivo[6];
+                        uint8_t sensor[6];
 
                         if (cJSON_IsString(mac_json) &&
                             sscanf(mac_json->valuestring, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -806,15 +834,36 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                    &objetivo[3], &objetivo[4], &objetivo[5]) == 6 &&
                             cJSON_IsNumber(sec_json)) {
                             int segundos = sec_json->valueint;
+                            bool hay_sensor = cJSON_IsString(srcmac_json) &&
+                                sscanf(srcmac_json->valuestring,
+                                       "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                                       &sensor[0], &sensor[1], &sensor[2],
+                                       &sensor[3], &sensor[4], &sensor[5]) == 6;
 
-                            if (segundos < 1 || segundos > 300) {
+                            if (segundos == 0) {
+                                /* Paro inmediato (Silenciar del portal). Se
+                                 * manda el frame de paro y se cancela el
+                                 * ciclo si es el mismo buzzer. */
+                                buzzer_enviar_paro(objetivo);
+                                if (s_ciclo.activo &&
+                                    memcmp(s_ciclo.mac_buzzer, objetivo, 6) == 0) {
+                                    s_ciclo.activo = false;
+                                    ESP_LOGI(TAG, "CICLO: parado por comando de paro remoto.");
+                                }
+                            } else if (segundos < 1 || segundos > 300) {
                                 ESP_LOGW(TAG, "buzzer: seconds=%d fuera de rango (1..300). Descartado.",
                                          segundos);
                             } else if (s_buzzer.pendiente) {
-                                /* Una sola sirena en vuelo: igual que el ping,
-                                 * dos activaciones simultaneas obligarian a
-                                 * casar BUZZ por identificador. */
-                                ESP_LOGW(TAG, "buzzer: activacion ya en vuelo, se ignora.");
+                                /* Ráfaga en vuelo: no se re-envía, pero un
+                                 * comando nuevo EXTENSIONA el ciclo (HUB-IF-015). */
+                                ESP_LOGW(TAG, "buzzer: ráfaga en vuelo; se extiende el ciclo.");
+                                if (s_ciclo.activo &&
+                                    memcmp(s_ciclo.mac_buzzer, objetivo, 6) == 0) {
+                                    s_ciclo.seconds = (uint16_t)segundos;
+                                    s_ciclo.proxima_revision =
+                                        (uint32_t)(esp_timer_get_time() / 1000000ULL) +
+                                        (uint32_t)segundos + SIREN_CYCLE_PAUSE_S;
+                                }
                             } else if (find_node_index(objetivo) < 0) {
                                 ESP_LOGW(TAG, "buzzer: nodo no vinculado, fallo por diag.");
                                 publish_buzzer_result(objetivo, false, "no_vinculado", 0);
@@ -836,6 +885,33 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                 s_buzzer.intentos = 1;
                                 hub_enviar_buzzer();
                                 esp_timer_start_once(s_buzzer_timer, BUZZER_ESPERA_US);
+
+                                /* Ciclo: solo si el comando trae src_mac. Sin
+                                 * sensor que vigilar, el comando queda como
+                                 * ráfaga única (comportamiento v0.4). */
+                                memset(&s_ciclo, 0, sizeof(s_ciclo));
+                                if (hay_sensor) {
+                                    s_ciclo.activo = true;
+                                    memcpy(s_ciclo.mac_buzzer, objetivo, 6);
+                                    memcpy(s_ciclo.mac_sensor, sensor, 6);
+                                    s_ciclo.seconds = (uint16_t)segundos;
+                                    if (cJSON_IsString(tid_json) && tid_json->valuestring) {
+                                        strncpy(s_ciclo.tid, tid_json->valuestring,
+                                                sizeof(s_ciclo.tid) - 1);
+                                    }
+                                    memcpy(s_ciclo.src_event, s_buzzer.src_event, 4);
+                                    s_ciclo.rafagas = 1;
+                                    s_ciclo.proxima_revision =
+                                        (uint32_t)(esp_timer_get_time() / 1000000ULL) +
+                                        (uint32_t)segundos + SIREN_CYCLE_PAUSE_S;
+                                    ESP_LOGI(TAG, "CICLO iniciado: buzzer %02x:%02x:%02x:%02x:%02x:%02x, "
+                                             "sensor %02x:%02x:%02x:%02x:%02x:%02x, ráfagas de %d s + pausa %d s.",
+                                             objetivo[0], objetivo[1], objetivo[2],
+                                             objetivo[3], objetivo[4], objetivo[5],
+                                             sensor[0], sensor[1], sensor[2],
+                                             sensor[3], sensor[4], sensor[5],
+                                             segundos, SIREN_CYCLE_PAUSE_S);
+                                }
                             }
                         } else {
                             ESP_LOGW(TAG, "buzzer: falta 'mac' o 'seconds' en el comando.");
@@ -860,6 +936,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                         ESP_LOGI(TAG, "Estado de alarma: %s (%s)",
                                  sm_alarm_state_str(sm_alarm_get_state()),
                                  aerr == ESP_OK ? "ok" : esp_err_to_name(aerr));
+                        /* Desarmar la alarma cancela el ciclo de sirena y
+                         * silencia ya (HUB-IF-015 v0.5, decision del
+                         * 2026-10-30). */
+                        if (cmd == SM_ALARM_CMD_DISARM) {
+                            ciclo_parar(true, "disarm");
+                        }
                     } else {
                         ESP_LOGW(TAG, "Comando no reconocido: %s", cmd_data);
                     }
@@ -1386,6 +1468,80 @@ static void buzzer_timer_cb(void *arg) {
                           s_buzzer.intentos);
 }
 
+/* Frame de paro (HUB-IF-006 v0.5): magia 0xE8 con seconds=0. El buzzer
+ * silencia la salida al instante y responde BUZZ con value=0. Envío único,
+ * sin la maquinaria de reintentos: no hay sirena esperando confirmación. */
+static void buzzer_enviar_paro(const uint8_t *mac) {
+    espnow_payload_buzzer_t paro;
+    memset(&paro, 0, sizeof(paro));
+    paro.magic = ESPNOW_BUZZER_MAGIC;
+    paro.seconds = 0;   /* 0 = paro inmediato */
+
+    espnow_frame_t frame;
+    if (espnow_build_frame(&frame, ESPNOW_FT_CMD, (uint16_t)(s_ciclo.rafagas + 1),
+                           hub_mac, mac,
+                           (const uint8_t *)&paro, sizeof(paro)) != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo construir el frame de paro.");
+        return;
+    }
+    esp_err_t err = esp_now_send(mac, (const uint8_t *)&frame,
+                                 espnow_frame_size(sizeof(paro)));
+    ESP_LOGI(TAG, "Paro enviado al buzzer (%s).",
+             err == ESP_OK ? "ok" : esp_err_to_name(err));
+}
+
+/* Cancela el ciclo. `mandar_parada` manda el frame de paro (disarm,
+ * Silenciar); el cierre de puerta y el node_lost no lo mandan: la ráfaga en
+ * curso termina sola y no hay más ráfagas (HUB-IF-015 v0.5). */
+static void ciclo_parar(bool mandar_parada, const char *motivo) {
+    if (!s_ciclo.activo) {
+        return;
+    }
+    s_ciclo.activo = false;
+    ESP_LOGI(TAG, "CICLO: parado (%s) tras %u ráfagas.",
+             motivo, (unsigned)s_ciclo.rafagas);
+    if (mandar_parada) {
+        buzzer_enviar_paro(s_ciclo.mac_buzzer);
+    }
+}
+
+/* Re-verificación del ciclo: al vencer ráfaga+pausa, consulta el último
+ * estado del sensor que disparó. En estado normal (value=1) termina; en
+ * alarma (o desconocido, fail-safe) dispara otra ráfaga. */
+static void ciclo_timer_cb(void *arg) {
+    if (!s_ciclo.activo) {
+        return;
+    }
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    if ((int32_t)(now - s_ciclo.proxima_revision) < 0) {
+        return;
+    }
+    int idx = find_node_index(s_ciclo.mac_sensor);
+    int valor = (idx >= 0) ? s_last_value[idx] : -1;
+    if (valor == 1) {
+        /* El sensor que disparó volvió a estado normal: fin del ciclo. La
+         * ráfaga en curso, si la hubiera, ya terminó (la revisión vence
+         * después de ráfaga+pausa). */
+        s_ciclo.activo = false;
+        ESP_LOGI(TAG, "CICLO: sensor en estado normal -> fin del ciclo (%u ráfagas).",
+                 (unsigned)s_ciclo.rafagas);
+        return;
+    }
+    ESP_LOGI(TAG, "CICLO: sensor sigue en alarma (valor=%d) -> ráfaga %u.",
+             valor, (unsigned)(s_ciclo.rafagas + 1));
+    memset(&s_buzzer, 0, sizeof(s_buzzer));
+    memcpy(s_buzzer.mac, s_ciclo.mac_buzzer, 6);
+    s_buzzer.seconds = s_ciclo.seconds;
+    strncpy(s_buzzer.tid, s_ciclo.tid, sizeof(s_buzzer.tid) - 1);
+    memcpy(s_buzzer.src_event, s_ciclo.src_event, 4);
+    s_buzzer.pendiente = true;
+    s_buzzer.intentos = 1;
+    hub_enviar_buzzer();
+    esp_timer_start_once(s_buzzer_timer, BUZZER_ESPERA_US);
+    s_ciclo.rafagas++;
+    s_ciclo.proxima_revision = now + s_ciclo.seconds + SIREN_CYCLE_PAUSE_S;
+}
+
 /* Enterado del resultado del envio a nivel 802.11. Un ESP_NOW_SEND_FAIL no
  * significa "el nodo no funciona": significa que su radio no devolvio ACK,
  * que es justo lo que falla cuando hub y nodo no estan en el mismo canal. */
@@ -1545,6 +1701,25 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         // Actualizar last_ping y guardar en NVS
         node_registry.nodes[node_idx].last_ping = get_unix_now();
         save_node_registry();
+
+        /* Ultimo valor reportado por el nodo (RAM, para el ciclo de sirena
+         * de HUB-IF-015 v0.5). DOOR y HEAR del reed llevan el mismo estado. */
+        s_last_value[node_idx] = (int8_t)payload->value;
+
+        /* Cancelacion por cierre (HUB-IF-015 v0.5): el sensor que disparo el
+         * ciclo reporta estado normal (value=1 en DOOR o HEAR). La rafaga en
+         * curso termina sola; no se manda frame de paro. */
+        if (s_ciclo.activo &&
+            memcmp(sender_mac, s_ciclo.mac_sensor, 6) == 0 &&
+            payload->value == 1 &&
+            (memcmp(payload->event_code, "DOOR", 4) == 0 ||
+             memcmp(payload->event_code, "HEAR", 4) == 0)) {
+            s_ciclo.activo = false;
+            ESP_LOGI(TAG, "CICLO: sensor %s en estado normal -> fin del ciclo "
+                     "(%u rafagas; la rafaga en curso termina sola).",
+                     mac_str, (unsigned)s_ciclo.rafagas);
+        }
+
         publish_event_to_mqtt(sender_mac, payload, rx_us);
     } else {
         ESP_LOGW(TAG, "Paquete ignorado: MAC %s no registrada.", mac_str);
@@ -2204,6 +2379,14 @@ static void node_watchdog_task(void *pvParameters)
                                   node_registry.nodes[i].name);
                 node_registry.nodes[i].last_ping = 0;
                 save_node_registry();
+                /* El sensor que disparo el ciclo se declaro perdido: ya no
+                 * puede confirmar el cierre, asi que el ciclo se detiene a la
+                 * vencida de la rafaga en curso (HUB-IF-015 v0.5). Sin frame
+                 * de paro: si hay rafaga, termina sola. */
+                if (s_ciclo.activo &&
+                    memcmp(s_ciclo.mac_sensor, node_registry.nodes[i].mac, 6) == 0) {
+                    ciclo_parar(false, "sensor perdido (node_lost)");
+                }
             }
         }
     }
@@ -2452,6 +2635,15 @@ void app_main(void) {
         .name     = "buzz_to"
     };
     ESP_ERROR_CHECK(esp_timer_create(&buzzer_timer_args, &s_buzzer_timer));
+
+    /* Re-verificacion del ciclo de sirena (HUB-IF-015 v0.5): tick de 1 s. */
+    memset(s_last_value, -1, sizeof(s_last_value));
+    const esp_timer_create_args_t ciclo_timer_args = {
+        .callback = &ciclo_timer_cb,
+        .name     = "siren_ciclo"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&ciclo_timer_args, &s_ciclo_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_ciclo_timer, 1000000));
 
     /* Latido de estado: mismo sitio donde se arma el timer del ping. */
     const esp_timer_create_args_t latido_args = {

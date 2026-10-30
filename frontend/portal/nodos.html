@@ -383,7 +383,12 @@ function valorMedicion(n) {
     return '30 s (defecto)';
   }
   if (t === 'sensor_magnetic') {
-    if (n.last_event_type === 'DOOR' && n.last_value != null)
+    /* DOOR y HEAR llevan el mismo estado (el HEAR del reed manda
+       reed_value()): 1 = Cerrado, 0 = Abierto. Antes solo se aceptaba DOOR
+       y como el latido cada 600 s suele ser el ultimo evento, la columna
+       quedaba en '-' casi siempre (hallazgo 2026-10-30). */
+    if (n.last_value != null &&
+        (n.last_event_type === 'DOOR' || n.last_event_type === 'HEAR'))
       return Number(n.last_value) === 1 ? 'Cerrado' : 'Abierto';
     return '-';
   }

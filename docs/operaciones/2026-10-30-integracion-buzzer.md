@@ -131,3 +131,11 @@ hallazgos y lo que quedó pendiente.
   `deploy_flow.sh` v2 refresca esa copia al final de cada despliegue. El
   stale-copy ya mordio dos veces (PUT handler y agrupador del overview);
   con la auto-sincronizacion no puede volver a pasar.
+
+## Hallazgo posterior 6 (2026-10-30, el estado del reed no se veia)
+
+- La columna de medicion del reed mostraba '-' casi siempre: el frontend
+  exigia que el ultimo evento fuera `DOOR`, pero el latido `HEAR` (cada
+  600 s) suele ser el ultimo y lleva el MISMO estado (`send_frame("HEAR",
+  reed_value())`). Corregido el frontend: acepta DOOR o HEAR y traduce
+  value 1=Cerrado / 0=Abierto. Desplegado al portal vivo con backup.

@@ -946,3 +946,98 @@ estado del nodo: llevaba rato sin emparejarse y acumulaba fallos de backoff.
 
 Verificado tras la correccion: el nodo se empareja al primer intento (0,5 s) y
 vuelve a medir.
+
+## AT-020 (HUB-IF-015) — Registro del nodo buzzer
+
+El buzzer (ESP32-C3, MAC `1c:db:d4:f0:25:fc`) se flashea con
+`firmware/buzzer` (target `esp32c3`), se empareja por barrido de canales y se
+registra en la BD con el patron del REED: serial en **minusculas** (indice
+`devices_serial_lower_idx`), `device_type='actuador_buzzer'`,
+`firmware_version='buzzer-v0.1'` y `buzzer_seconds=30` (default).
+
+El pairing persiste: tras el primer ACK el nodo guarda la MAC del hub en NVS
+(`s360node/hub_mac`) y los arranques siguientes muestran:
+
+    I (519) NODE_BUZZER: Hub vinculado en NVS: 3c:dc:75:62:c2:b0
+    I (599) NODE_BUZZER: ACK del hub recibido (seq=0)
+    I (599) NODE_BUZZER: Enviando: HEAR | value=0 | Seq=1
+
+Filas de BD (2026-10-30):
+
+    serial_number      | device_type      | firmware_version | status
+    1c:db:d4:f0:25:fc  | actuador_buzzer  | buzzer-v0.1      | bound
+
+    id | mac_address       | name        | buzzer_seconds | status
+     9 | 1c:db:d4:f0:25:fc | Nodo Buzzer |             30 | active
+
+## AT-021 (HUB-IF-015) — Comando buzzer y evento BUZZ (extremo a extremo)
+
+Publicando el comando en el topic `command` del hub con `seconds=10`:
+
+    {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":10,
+     "tid":"t-e2e-1","src_event":"DOOR"}
+
+Trayecto completo capturado por MQTT (topic -> payload):
+
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":10,...}
+    .../diag    {"event":"BUZZER_RESULT","mac":"1c:db:d4:f0:25:fc","ok":true,
+                 "attempts":1,"reason":"ok","tid":"t-e2e-1"}
+    .../event   {"mac":"1c:db:d4:f0:25:fc",...,"event":"BUZZ","seq":11,
+                 "battery":100,"value":1,...}
+
+Consola del nodo (la sirena arranca y confirma, luego corta sola):
+
+    I (95539) NODE_BUZZER: BUZZER recibido (seq=1): sirena 10 s, origen DOOR
+    I (95539) NODE_BUZZER: Enviando: BUZZ | value=1 | Seq=11
+    I (31071) NODE_BUZZER: Sirena detenida tras 10 s
+
+Fila auditable en `events`:
+
+    id  | node_mac          | event_type | value | created_at
+    688 | 1c:db:d4:f0:25:fc | BUZZ       |     1 | 2026-10-30 20:23:51+00
+
+## AT-022 (HUB-IF-015) — Duracion configurable: 10 s y 0
+
+Con `buzzer_seconds=10` en `nodes`, un `DOOR value=0` (apertura) dispara el
+despacho de Node-RED; la duracion llega **desde la BD**, no del comando manual:
+
+    .../event   {"...","event":"DOOR","seq":60,"value":0,...}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":10,
+                 "tid":"mvvf8x6q-urrt7","src_event":"DOOR"}
+    .../event   {"...","event":"BUZZ","value":1,...}
+
+Eventos insertados: DOOR (id 690) y BUZZ (id 691), ambos en `events`.
+
+Con `buzzer_seconds=0` el mismo `DOOR value=0` **se registra pero no
+despacha**: en la captura MQTT solo aparece el DOOR (id 692); no hay comando,
+no hay BUZZ y el serial del buzzer no registra `BUZZER recibido` (0
+ocurrencias en la ventana de la prueba). La sirena queda desactivada.
+
+## AT-023 (HUB-IF-015) — Anti-retrigger (cooldown 60 s) y salud
+
+Dos `DOOR value=0` separados por 4 s: el primero despacha
+(`seconds:30`, tid `mvvfakfh-cscdz`) y el segundo **se omite** — no hay
+segundo comando ni segundo BUZZ; el DOOR repetido si queda registrado en
+`events`. El cooldown por MAC vive en el contexto del nodo despachador de
+Node-RED (`buzzer_ult`, 60 s).
+
+Salud (boton «Probar ESP-NOW» del portal, heredado del REED):
+
+    .../command {"command":"ping","mac":"1c:db:d4:f0:25:fc","tid":"t-salud-1"}
+    .../diag    {"event":"PING_RESULT","mac":"1c:db:d4:f0:25:fc","ok":true,
+                 "rtt_ms":64,"attempts":1,"seq":12,"reason":"ok","tid":"t-salud-1"}
+
+`GET /api/nodes/:id/health` del buzzer responde OK con el mismo mecanismo.
+
+### Notas de la integracion (2026-10-30)
+
+- El `tid` del comando se trunca a 12 caracteres en
+  `espnow_payload_buzzer_t` (`tid[13]` con terminador), mismo limite que el
+  ping: los tids largos de Node-RED (`mvvfakfh-cscdz`) llegan al diag como
+  `mvvfakfh-csc`. Es opaco y no rompe el trazado.
+- El hub publicaba el BUZZ con `node_name` vacio: el registro interno del hub
+  se crea en el pairing con placeholders vacios. Se corrijo publicando un
+  `node_cfg` con nombre/ubicacion/habitacion; los BUZZ posteriores llevan
+  `"node_name":"Nodo Buzzer"`.
+- La fecha del firmware del buzzer reportada en el boot (`v6.0.0-pre-ota-...`)
+  es la de `git describe` de la rama de desarrollo, no un campo del contrato.

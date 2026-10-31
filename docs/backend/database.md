@@ -41,3 +41,18 @@ Tablas centrales del flujo de eventos:
   de sirena por evento en segundos; 0 = desactivado, NULL = usa el default
   30. Solo se usa para `device_type='actuador_buzzer'`; el portal la edita
   con el mismo formulario que `distance_threshold`.
+
+## device_type boton_panico (2026-10-31)
+
+El boton de panico (SPEC-02 v0.6) entra como `device_type='boton_panico'`
+en `devices`, con `firmware_version='panico-v0.1'`. **No exige migracion de
+esquema**: `devices.device_type` es `varchar(50)` sin CHECK, y el boton no
+tiene duracion ni umbral configurables — no hay columnas nuevas. En `nodes`
+se registra con `status='pending'` y placeholders de nombre/ubicacion, y
+queda operativo al vincularse (el primer evento actualiza `last_seen`).
+
+Consulta de verificacion (2026-10-31): `devices` solo tenia
+`sensor_magnetic` (reed) y `actuador_buzzer` (buzzer); el constraint
+`devices_serial_lower_idx` sobre `lower(serial_number)` es la barrera
+anti-duplicados: **el serial se inserta siempre en minusculas**
+(docs/operaciones/2026-10-30-duplicado-nodos-y-ping.md).

@@ -21,6 +21,7 @@ deja rastro de decisiones, hallazgos y pendientes.
 | 6 | Portal: tarjeta `boton_panico` con estado y última oprimida | `30cda3c` |
 | 7 | Registro del nodo (devices id 10 + nodes id 10, serial minúsculas) | (SQL directo, sin commit) |
 | 8 | AT-024..AT-028 con evidencia cruda | `test:` (este ciclo) |
+| + | Buzzer flasheado y re-emparejado: AT-025 completo (bucle latched audible) | `test:` (este ciclo) |
 | — | Fix: toggle lee `msg.srcMac` en raíz + salud de `boton_panico` | `3b9b842` |
 | 9 | Bitácora + push | (este commit) |
 
@@ -85,31 +86,41 @@ deja rastro de decisiones, hallazgos y pendientes.
 7. **La salud del botón mostraba "Sensor de distancia 1 cm"**: misma
    regresión que el buzzer (las ramas del HC-SR04 interpretan `value` como
    centímetros). Rama propia `boton_panico` en `Calcular salud` (`3b9b842`).
+8. **El hub se cayó a las ~14:26 mientras se conectaba el buzzer** (corte de
+   alimentación al mover enchufes): `HUB_OFFLINE` retenido, cero eventos
+   durante ~10 min. Un `read_mac` de esptool lo reseteo y volvio limpio
+   (`HUB_ONLINE`, reset_reason USB). Sintoma clave para diagnosticarlo:
+   los comandos del toggle salian por MQTT pero el hub no publicaba
+   `BUZZER_RESULT` ni reenviaba nada — el silencio del `diag` con el flow
+   despidiendo comandos es firma de hub caido.
+9. **El flasheo del buzzer borro su emparejamiento** (arranco en modo SIN
+   VINCULAR, barrido con `Error al enviar: 1` en todos los canales). Re-
+   emparejado abriendo la ventana de 120 s por MQTT: el barrido recibio el
+   ACK y quedo vinculado en el primer ciclo. Tras actualizar el firmware de
+   cualquier nodo, **verificar `Hub vinculado en NVS` y re-emparejar si hace
+   falta**.
 
 ## Verificación (resumen; el detalle crudo está en SPEC-03)
 
 | AT | Alcance | Resultado |
 |---|---|---|
 | AT-024 | Registro, pairing, HEAR auditable | PASS |
-| AT-025 | 1.ª oprimida → toggle → `seconds=65535` | **PARCIAL** (buzzer sin flashear) |
+| AT-025 | 1.ª oprimida → toggle → `seconds=65535` → `BUZZ value=1` (bucle latched) | PASS (buzzer actualizado) |
 | AT-026 | 2.ª oprimida → `seconds=0` → `BUZZ value=0` + dedup seq | PASS |
 | AT-027 | Silenciar del portal con toggle armado | PASS |
 | AT-028 | «Probar ESP-NOW» (rtt 65 ms) y salud del botón | PASS |
 
 ## Pendientes
 
-- **Flashear el buzzer** con la semántica `0xFFFF` (firmware compilado y
-  commiteado, `9f75fa9`; el build de `firmware/buzzer` está verde). Requiere
-  conectarlo por USB al servidor un momento; el buzzer opera alimentado por
-  cargador. Hasta entonces, el armado termina en
-  `BUZZER_RESULT ok:false sin_respuesta` y el silencio funciona igual
-  (el paro `seconds=0` es del firmware vigente).
-- **Oprimidas físicas de cierre**: la ruta ESP-NOW del botón está probada
-  (HEAR + PONG con rtt 65 ms, AT-024/AT-028) y los AT-025/026 usan el evento
-  PANIC publicado a nivel MQTT (mismo topic y JSON). Con el buzzer
-  actualizado, repetir 1.ª/2.ª oprimida con la mano para el registro audible.
-- **Alimentar el botón por cargador de teléfono**: ahora está por el USB del
-  servidor (desarrollo). Misma lección de brownout del REED y el buzzer.
+- **Oprimidas físicas de cierre** (opcional, registro humano): la ruta
+  ESP-NOW del botón está probada (HEAR + PONG con rtt 65 ms, AT-024/AT-028) y
+  los AT-025/026 usan el evento PANIC publicado a nivel MQTT (mismo topic y
+  JSON que emite el hub). Con el buzzer ya actualizado, repetir
+  1.ª/2.ª oprimida con la mano cuando se monte el botón en su ubicación.
+- **Alimentar el botón y el buzzer por cargador de teléfono**: ambos pasaron
+  por el USB del servidor para flashear. Misma lección de brownout del REED.
+  El buzzer debe volver a su cargador en la Sala (el botón aún no tiene
+  ubicación definitiva).
 - **Alcance**: si el botón se monta en otro piso, validar el enlace con
   «Probar ESP-NOW» antes de fijarlo (ESP-NOW no atraviesa bien varias losas).
 

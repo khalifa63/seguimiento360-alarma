@@ -1082,15 +1082,35 @@ Captura MQTT del armado:
     .../diag    {"event":"BUZZER_RESULT","mac":"1c:db:d4:f0:25:fc","ok":false,
                  "attempts":3,"reason":"sin_respuesta","tid":"mvwsfigc-xvl"}
 
-Resultado: **PARCIAL** (2026-10-31). El toggle de Node-RED alterno a armado y
-el despacho busco los buzzers activos del sitio con el mismo JOIN del despacho
-por alarma (`device_type='actuador_buzzer'`, `status='active'`,
-`COALESCE(buzzer_seconds,30) > 0`) y publico `seconds=65535`. El hub nuevo
-recibio el comando y mando el frame latch 3 veces; el nodo buzzer no confirmo
-porque **su firmware aun no trae la semantica 0xFFFF** (su handler vigente
-descarta fuera de 1..300; la actualizacion esta compilada y commiteada,
-pendiente de flasheo fisico). El `BUZZER_RESULT ok:false` es la evidencia del
-intento y el mismo mecanismo de reintentos del HUB-IF-015.
+Resultado: **PASS** (2026-10-31, con el buzzer ya actualizado). El toggle de
+Node-RED alterno a armado y el despacho busco los buzzers activos del sitio
+con el mismo JOIN del despacho por alarma (`device_type='actuador_buzzer'`,
+`status='active'`, `COALESCE(buzzer_seconds,30) > 0`) y publico
+`seconds=65535`. Captura MQTT del ciclo completo (armado y desarme):
+
+    .../event   {"...","event":"PANIC","seq":270,"value":1,...}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":65535,
+                 "tid":"mvwt6ljc-9n1qo","src_event":"PANIC"}
+    .../diag    {"event":"BUZZER_RESULT","mac":"1c:db:d4:f0:25:fc","ok":true,
+                 "attempts":1,"reason":"ok","tid":"mvwt6ljc-9n1"}
+    .../event   {"...","event":"BUZZ","seq":183,"value":1,...}
+    .../event   {"...","event":"PANIC","seq":271,"value":1,...}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":0,
+                 "tid":"mvwt6x4k-czcsw","src_event":"PANIC"}
+    .../event   {"...","event":"BUZZ","seq":185,"value":0,...}
+
+Filas audibles en `events` (mismo ciclo):
+
+    882 | a0:f2:62:f1:d0:f0 | PANIC | 1 | 270 | 2026-10-31 19:43:16+00
+    883 | 1c:db:d4:f0:25:fc | BUZZ  | 1 | 183 | 2026-10-31 19:43:17+00
+    884 | a0:f2:62:f1:d0:f0 | PANIC | 1 | 271 | 2026-10-31 19:43:31+00
+    885 | 1c:db:d4:f0:25:fc | BUZZ  | 0 | 185 | 2026-10-31 19:43:32+00
+
+El `BUZZER_RESULT ok:true attempts:1` confirma la entrega ESP-NOW al primer
+intento y el `BUZZ value=1` reporta la sirena **ya sonando en bucle latched**;
+el paro con `seconds=0` la silencio (`BUZZ value=0`). Antes de actualizar el
+buzzer esta misma prueba dio `ok:false sin_respuesta` (su firmware anterior
+descartaba 0xFFFF): la diferencia prueba que el cambio de contrato funciona.
 
 ## AT-026 (HUB-IF-015 v0.6) — 2a oprimida: silencio auditable
 

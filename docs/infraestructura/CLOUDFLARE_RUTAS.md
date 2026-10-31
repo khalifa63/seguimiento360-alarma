@@ -33,6 +33,13 @@ Nota: el 2026-08-06 se observo el origen de nodered apuntando a `http://<IP-DEL-
 
 ## Recomendaciones de endurecimiento (por fases, sin romper lo operativo)
 
+HTML sin cache de navegador (fase12-nginx, 2026-10-31): el conf de nginx
+(`/home/antonio/iot-alarma/nginx/default.conf`, backup `.bak-fase12-*`) anade
+`location ~* \.html$` con `Cache-Control: no-cache always`. Sin ello, el cache
+heuristico del navegador dejo a la PWA viendo un dashboard.html viejo por horas
+tras un deploy (aparecia la MAC del hub ya eliminada). El HTML se revalida
+siempre; css/js/imagenes siguen con versionado ?v=.
+
 1. Cambiar los origenes del tunnel a nombres de contenedor (nodered:1880, traccar:8082, etc.)
 2. Una vez hecho lo anterior, restringir los puertos publicados a 127.0.0.1 (ejemplo: 127.0.0.1:1880:1880) sin afectar el tunnel
 3. Retirar 8883 y 9001 de mosquitto hasta que se necesiten

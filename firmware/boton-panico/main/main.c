@@ -15,9 +15,13 @@
 //   - anti-rebote por software de 50 ms (nivel estable, patron del prototipo
 //     pruebas/pulzador: GPIO4, pull-up interna, flanco 1->0 = oprimida).
 //   - rate-limit propio: maximo un PANIC cada 3 s.
-//   - reenvio SOLO si el ACK no llega (hasta 3 intentos, 300 ms entre
-//     intentos, misma seq): un PANIC duplicado alternaria el toggle dos
-//     veces; Node-RED ademas descarta seq repetidas.
+//   - UN envio por oprimida, igual que el REED: el hub no ACKea eventos de
+//     datos (solo el PAIR del chequeo de enlace), asi que un reenvio sin
+//     ACK solo duplicaria. Los duplicados de entrega (MQTT QoS1) los cubre
+//     el dedup por seq de Node-RED.
+//
+// NOTA de contrato: el event_code del frame es de 4 bytes; el nodo envia
+// "PANI" y el hub lo publica como "PANIC" en el JSON (HUB-IF-002/005).
 //
 // Reporta ademas:
 //   - HEAR cada 600 s (coincide con NODE_HEARTBEAT_SEC del hub; value=0: el
@@ -72,11 +76,11 @@ static const char *TAG = "NODE_PANICO";
 #define ACK_LOST_MAX            6            // 6 fallos = 60 s -> desvincular
 #define BATTERY_FIXED           100          // Alimentado por cargador de telefono
 
-/* Protecciones propias del PANIC (ruta de toggle, sin cooldown de Node-RED):
- * rate-limit entre oprimidas y reintentos ACK-gateados. */
+/* Proteccion propia del PANIC (ruta de toggle, sin cooldown de Node-RED):
+ * rate-limit entre oprimidas. El envio es unico por oprimida (el hub no
+ * ACKea eventos de datos; los duplicados de entrega los deduplica
+ * Node-RED por seq). */
 #define PANIC_MIN_INTERVAL_S    3            // maximo 1 PANIC cada 3 s
-#define PANIC_REINTENTOS_MAX    3            // reenvios si el ACK no llega
-#define PANIC_REINTENTO_MS      300          // espera entre reintentos
 
 /*
  * MAC semilla (HUB-IF-011): destino del primer PAIR de un nodo de fabrica.
@@ -106,11 +110,8 @@ static int       button_estable = 1;     // 1 = sin oprimir (pull-up)
 static int       candidato = 1;          // muestra anterior
 static int64_t   desde_cambio_ms = 0;    // instante del ultimo cambio de muestra
 
-/* PANIC en vuelo: reenvio solo si el ACK no llega (misma seq). */
-static bool      panic_pendiente = false;
-static uint8_t   panic_seq = 0;
-static int       panic_intentos = 0;
-static int64_t   panic_enviado_ms = 0;
+/* PANIC: un envio por oprimida (sin reintentos: el hub no ACKea eventos
+ * de datos). last_panic_s alimenta el rate-limit propio. */
 static uint32_t  last_panic_s = 0;       // ultima oprimida enviada (rate-limit)
 
 // ========================== 3. INICIALIZACIÓN DEL BOTON =====================
@@ -192,13 +193,14 @@ static void send_frame(const char *event_code, uint8_t value)
 }
 
 /* PANIC: la oprimida del boton. value=1 SIEMPRE (el toggle armado/desarmado
- * lo lleva Node-RED por contexto, no el nodo). Registra el seq para el
- * reenvio ACK-gateado: esp_now_send es fire-and-forget, sin confirmacion de
- * entrega, y un PANIC perdido dejaria el toggle desincronizado. */
+ * lo lleva Node-RED por contexto, no el nodo). El event_code en el aire es
+ * "PANI" (4 bytes); el hub lo publica como "PANIC" (HUB-IF-002 v0.6).
+ * Envio UNICO por oprimida, mismo patron que el REED: la integridad del
+ * enlace la vigila el chequeo PAIR/ACK, no un reenvio por evento. */
 static void send_panic(void)
 {
     espnow_payload_v1_t payload = {0};
-    memcpy(payload.event_code, "PANIC", 4);
+    memcpy(payload.event_code, "PANI", 4);
     payload.seq           = seq_counter++;
     payload.battery_level = BATTERY_FIXED;
     payload.value         = 1;
@@ -220,44 +222,12 @@ static void send_panic(void)
         return;
     }
 
-    panic_pendiente = true;
-    panic_seq       = payload.seq;
-    panic_intentos  = 1;
-    panic_enviado_ms = esp_timer_get_time() / 1000;
-
-    ESP_LOGI(TAG, "PANIC enviado (seq=%d, intento 1/%d)", payload.seq,
-             PANIC_REINTENTOS_MAX);
+    ESP_LOGI(TAG, "PANIC enviado (seq=%d)", payload.seq);
     esp_now_send(hub_mac, (const uint8_t *)&frame, espnow_frame_size(sizeof(payload)));
 
     set_led(1);
     vTaskDelay(pdMS_TO_TICKS(60));
     set_led(0);
-}
-
-/* Reenvio del PANIC con la MISMA seq si el ACK no llega. Con seq nueva, un
- * PANIC duplicado alternaria el toggle dos veces (armar+desarmar); con la
- * misma seq, Node-RED descarta el repetido (HUB-IF-015 v0.6). */
-static void panic_reintento(void)
-{
-    espnow_payload_v1_t payload = {0};
-    memcpy(payload.event_code, "PANIC", 4);
-    payload.seq           = panic_seq;
-    payload.battery_level = BATTERY_FIXED;
-    payload.value         = 1;
-
-    espnow_frame_t frame;
-    if (espnow_build_frame(&frame, ESPNOW_FT_DATA_EVENT, payload.seq,
-                           own_mac, hub_mac,
-                           (const uint8_t *)&payload,
-                           sizeof(payload)) != ESP_OK) {
-        return;
-    }
-
-    panic_intentos++;
-    panic_enviado_ms = esp_timer_get_time() / 1000;
-    ESP_LOGW(TAG, "PANIC sin ACK: reintento %d/%d (seq=%d)",
-             panic_intentos, PANIC_REINTENTOS_MAX, panic_seq);
-    esp_now_send(hub_mac, (const uint8_t *)&frame, espnow_frame_size(sizeof(payload)));
 }
 
 /* Barrido de canales para el PAIR (ampliacion de HUB-IF-011).
@@ -351,13 +321,6 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
 
     ESP_LOGI(TAG, "ACK del hub recibido (seq=%u)", frame.seq);
     ack_lost = 0;   /* enlace vivo: reinicia el contador de vigilancia */
-
-    /* ACK del PANIC en vuelo: entrega confirmada, sin reintentos. */
-    if (panic_pendiente && frame.seq == panic_seq) {
-        panic_pendiente = false;
-        ESP_LOGI(TAG, "PANIC (seq=%d) confirmado por el hub tras %d intento(s).",
-                 panic_seq, panic_intentos);
-    }
 
     if (pairing_mac_changed(frame.src_mac)) {
         uint8_t vieja[6];
@@ -519,19 +482,6 @@ void app_main(void)
                 } else {
                     last_panic_s = now;
                     send_panic();
-                }
-            }
-        }
-
-        /* Reenvio del PANIC mientras el ACK no llegue (misma seq). */
-        if (panic_pendiente && pairing_is_linked()) {
-            if ((esp_timer_get_time() / 1000 - panic_enviado_ms) >= PANIC_REINTENTO_MS) {
-                if (panic_intentos < PANIC_REINTENTOS_MAX) {
-                    panic_reintento();
-                } else {
-                    panic_pendiente = false;
-                    ESP_LOGE(TAG, "PANIC (seq=%d) sin ACK tras %d intentos. "
-                             "Pulsar de nuevo.", panic_seq, PANIC_REINTENTOS_MAX);
                 }
             }
         }

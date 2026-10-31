@@ -24,14 +24,17 @@ SPEC-02 v0.6):
   nada: si alternara, una oprimida perdida desincronizaría el estado para
   siempre. Node-RED alterna por MAC del botón y además descarta `PANIC`
   repetidos con la misma `seq`.
+- **Código en el aire:** el `event_code` del frame es de 4 bytes — el nodo
+  envía `PANI` y el hub lo publica como `PANIC` en el JSON (SPEC-02 v0.6,
+  HUB-IF-002/005).
 - **Anti-rebote:** 50 ms de nivel estable (patrón del prototipo
   `pruebas/pulzador`), sondeo cada 10 ms por tarea, sin interrupciones.
 - **Rate-limit propio:** máximo un `PANIC` cada 3 s; las oprimidas dentro
   de esa ventana se registran en el log pero no se envían.
-- **Reenvío con ACK-gate:** `esp_now_send` no confirma entrega; un `PANIC`
-  perdido dejaría el toggle desincronizado. El nodo reenvía **con la misma
-  seq** hasta 3 intentos (300 ms entre intentos) si no llega el ACK; con
-  seq nueva, un duplicado alternaría el toggle dos veces.
+- **Un envío por oprimida** (mismo patrón que el REED): el hub no ACKea
+  eventos de datos —solo el `PAIR` del chequeo de enlace—, así que un
+  reenvío sin ACK solo duplicaría. Los duplicados de entrega (MQTT QoS1)
+  los cubre el dedup por `seq` de Node-RED (toggle, inserción y push).
 - **Sin enlace no se encola:** una oprimida sin hub se registra en el log
   y no se envía. El pánico es una orden en tiempo real; encolarla sonaría
   cuando el enlace volviera, minutos después de la emergencia.

@@ -186,7 +186,13 @@ deja rastro de decisiones, hallazgos y pendientes.
     la llave de cierre de `verSalud()` y duplicando un `finally`
     (SyntaxError: el modulo no corre y el spinner queda eterno). Se
     reparo (commit 6edad8a). Leccion: tras cualquier patch de portal,
-    validar el modulo con `node --check` ANTES de publicar.
+    validar el modulo con `node --check` ANTES de publicar. Segunda
+    caida del mismo arbol (fase15): editar el CONTENIDO de un modulo ya
+    versionado (comun-2026d.js se publico sin `estadoEvento` y minutos
+    despues con el) deja navegadores con la copia vieja cacheada y el
+    import falla en el enlace -> pantalla en "Cargando". Regla: si un
+    modulo cambia, bump de nombre (se creo comun-2026e.js) — no se
+    reescribe un nombre ya publicado.
 21. **"1 cm"/"0 cm" en los eventos del reed y del buzzer (fase14-
     eventos, peticion del usuario)**: el value de sus tramas es estado
     (1/0), no distancia, pero la tabla de eventos caia en la rama cm.

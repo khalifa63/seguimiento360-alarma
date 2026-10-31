@@ -70,7 +70,7 @@ background:rgba(0,0,0,.65);align-items:center;justify-content:center;
 padding:20px;z-index:50;">
   <div class="tarjeta" style="max-width:460px;">
     <h1 style="font-size:1.2rem;">Editar nodo</h1>
-    <p class="sub" id="modal-mac" style="font-family:monospace;"></p>
+    <p class="sub" id="modal-mac" style="font-family:monospace;display:none;"></p>
     <form id="form-editar">
       <div class="campo">
         <label for="f-nombre">Nombre</label>
@@ -187,7 +187,7 @@ async function cargar() {
     }
 
     h += '<div class="tabla-env"><table>';
-    h += '<thead><tr><th>Nombre</th><th>MAC</th><th>Ubicacion</th>'
+    h += '<thead><tr><th>Nombre</th><th>Ubicacion</th>'
        + '<th>Medicion</th><th>Hub</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
     for (const n of nodos) {
       /* nodes.status en la base nobody lo baja cuando el nodo calla: se queda
@@ -201,7 +201,6 @@ async function cargar() {
                                : (n.status === 'pending' ? 'sin emparejar' : 'sin datos'));
       h += '<tr>';
       h += '<td data-etiqueta="Nombre"><strong>' + esc(n.node_name || '(sin nombre)') + '</strong></td>';
-      h += '<td data-etiqueta="MAC" class="mono">' + esc(n.node_mac) + '</td>';
       h += '<td data-etiqueta="Ubicacion">' + esc(n.location || '-')
          + (n.room ? ' / ' + esc(n.room) : '') + '</td>';
       h += '<td data-etiqueta="' + etiquetaMedicion(n) + '">' + valorMedicion(n) + '</td>';
@@ -256,7 +255,6 @@ function abrir(id) {
   const n = nodos.find(x => x.node_id === id);
   if (!n) return;
   editando = n;
-  document.getElementById('modal-mac').textContent = n.node_mac;
   document.getElementById('f-nombre').value = n.node_name || '';
   document.getElementById('f-ubicacion').value = n.location || '';
   document.getElementById('f-cuarto').value = n.room || '';
@@ -353,8 +351,7 @@ function preguntarBorrar(id) {
   if (!n) return;
   borrando = n;
   document.getElementById('borrar-texto').innerHTML =
-    'Se saca <strong>' + esc(n.node_name || n.node_mac) + '</strong> ('
-    + esc(n.node_mac) + ') de la lista y se le ordena al hub <strong>'
+    'Se saca <strong>' + esc(n.node_name || n.node_mac) + '</strong> de la lista y se le ordena al hub <strong>'
     + esc(n.hub) + '</strong> que lo olvide.<br><br>'
     + 'Para volver a usarlo habra que emparejarlo otra vez.';
   modalBorrar.style.display = 'flex';
@@ -466,7 +463,7 @@ async function probarEsnow(id, btn) {
       const visto = r.hub_visto ? ' (ultimo latido hace ' + esc(r.hub_visto) + ')' : '';
       abrirPanel('Prueba ESP-NOW',
         '<div class="veredicto v-mal"><strong>' + esc(n.node_name || n.node_mac)
-        + '</strong><br>El hub ' + esc(r.hub_serial) + visto + ' no esta conectado a la red,'
+        + '</strong><br>El hub ' + esc(n.hub) + visto + ' no esta conectado a la red,'
         + ' asi que no se le puede pedir la prueba. Revisa su alimentacion y el WiFi'
         + ' antes de probar el enlace con el nodo.</div>');
       return;
@@ -474,8 +471,8 @@ async function probarEsnow(id, btn) {
 
     const inicio = Date.now();
     abrirPanel('Prueba ESP-NOW · ' + (n.node_name || n.node_mac),
-      '<div class="espera" id="espera">El hub ' + esc(r.hub_serial)
-      + ' esta buscando al nodo ' + esc(n.node_mac) + ' por ESP-NOW…</div>');
+      '<div class="espera" id="espera">El hub ' + esc(n.hub)
+      + ' esta buscando al nodo ' + esc(n.node_name || n.node_mac) + ' por ESP-NOW…</div>');
 
     /* El hub reintenta el ping unas cuantas veces antes de rendirse: damos
        30 s y mostramos el cronometro para que no parezca que se colgo. */
@@ -515,7 +512,7 @@ async function probarEsnow(id, btn) {
 
     abrirPanel('Prueba ESP-NOW · ' + (n.node_name || n.node_mac),
       '<div class="veredicto ' + cab.cls + '"><strong>' + cab.txt + '</strong>'
-      + '<br>' + esc(n.node_mac) + ' via ' + esc(r.hub_serial)
+      + '<br>' + esc(n.node_name || n.node_mac) + ' via ' + esc(n.hub)
       + ' · ' + Math.max(1, Math.round(seg)) + ' s'
       + '<br><span style="font-size:.85rem;">' + detalle + '</span></div>'
       + '<p style="color:var(--txt2);font-size:.82rem;margin:0;">Prueba marcada a las '
@@ -547,7 +544,7 @@ async function silenciar(id, btn) {
     const r = await api('/api/nodes/' + id + '/mute', { method: 'post' });
     abrirPanel('Silenciar sirena',
       '<div class="veredicto v-ok"><strong>Orden de silencio enviada</strong>'
-      + '<br>' + esc(r.node_mac) + ' via ' + esc(r.hub_serial)
+      + '<br>' + esc(r.node_name || n.node_name) + ' via ' + esc(n.hub)
       + ' · orden ' + esc(r.test_id) + '</div>'
       + '<p style="color:var(--txt2);font-size:.85rem;margin:0;">La sirena corta el'
       + ' sonido en cuanto recibe la orden. Si siguiera sonando, revisa su'

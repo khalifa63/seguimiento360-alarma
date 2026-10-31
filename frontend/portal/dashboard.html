@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Panel - Seguimiento 360</title>
 <link rel="stylesheet" href="estilo-2026f.css">
+<style>
+  /* Boton discreto de la tarjeta del hub (fase12-dashboard) */
+  .mini {
+    background: none; border: 1px solid var(--linea); color: var(--txt2);
+    border-radius: 7px; padding: 5px 10px; font-size: .78rem; cursor: pointer;
+    font-family: inherit; line-height: 1.2;
+  }
+  .mini:hover:not(:disabled) { border-color: var(--acc); color: var(--txt); }
+  .mini:disabled { opacity: .45; cursor: default; }
+</style>
 </head>
 <body>
 <div id="cabecera"></div>
@@ -17,6 +27,27 @@
     <div class="cargando"><div class="girador"></div>Cargando...</div>
   </div>
 </main>
+
+<!-- Renombrar hub (fase12-dashboard): el nombre es lo unico editable, la
+     MAC/serial es dato del instalador y no se muestra. -->
+<div id="modal-hub" style="display:none;position:fixed;inset:0;
+background:rgba(0,0,0,.65);align-items:center;justify-content:center;
+padding:20px;z-index:50;">
+  <div class="tarjeta" style="max-width:460px;">
+    <h1 style="font-size:1.2rem;">Renombrar hub</h1>
+    <p class="sub" id="h-sub" style="color:var(--txt2);font-size:.85rem;"></p>
+    <p id="h-err" style="display:none;color:var(--err);font-size:.85rem;"></p>
+    <form id="form-hub">
+      <div class="campo">
+        <label for="h-nombre">Nombre</label>
+        <input type="text" id="h-nombre" required maxlength="64">
+      </div>
+      <button type="submit" class="btn" id="h-btn">Guardar</button>
+      <button type="button" class="btn" id="h-cancelar"
+              style="background:var(--panel2);margin-top:8px;">Cancelar</button>
+    </form>
+  </div>
+</div>
 
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, hace,
@@ -40,8 +71,10 @@ async function cargar() {
     ]);
 
     const sitios = ov.sites || [];
-    const hubs = sitios.flatMap(s => s.hubs || []);
+    const hubs = sitios.flatMap(s => (s.hubs || []).map(hu =>
+      Object.assign({}, hu, { sitio: s.site_name })));
     const nodos = hubs.flatMap(h => h.nodes || []);
+    hubsLista = hubs;
     const armados = hubs.filter(h => h.alarm_state === 'armed').length;
     const activos = hubs.filter(h => h.hub_status === 'active').length;
 
@@ -86,11 +119,12 @@ async function cargar() {
           h += '<span class="pastilla ' + (vivo ? 'p-ok' : 'p-err') + '">'
              + (vivo ? 'en linea' : 'sin conexion') + '</span> ';
           h += '<span class="pastilla ' + (armado ? 'p-err' : 'p-gris') + '">'
-             + (armado ? 'armado' : 'desarmado') + '</span>';
+             + (armado ? 'armado' : 'desarmado') + '</span> ';
+          h += '<button class="mini" data-hub-editar="' + hub.hub_id
+             + '">Renombrar</button>';
           h += '</span></div>';
           h += '<div style="color:var(--txt2);font-size:.82rem;margin-top:8px;">';
-          h += 'MAC <span class="mono">' + esc(hub.hub_mac) + '</span>'
-             + ' &middot; visto ' + hace(hub.last_seen) + '</div>';
+          h += 'Visto ' + hace(hub.last_seen) + '</div>';
 
           const ns = hub.nodes || [];
           if (ns.length) {
@@ -149,11 +183,66 @@ async function cargar() {
     h += '</div>';
 
     cont.innerHTML = h;
+
+    cont.querySelectorAll('[data-hub-editar]').forEach(b => {
+      b.addEventListener('click', () => abrirHub(Number(b.dataset.hubEditar)));
+    });
   } catch (err) {
     cont.innerHTML = '<div class="bloque"><div class="vacio">'
       + esc(err.message) + '</div></div>';
   }
 }
+
+/* ------------------------------------------------------------------ hubs */
+/* (fase12-dashboard) Renombrar el hub desde el panel: PUT /api/hubs/:id
+   cambia solo el nombre en la BD, igual que en la pantalla Nodos. La
+   MAC/serial queda como dato de instalador en la BD. */
+let hubsLista = [];
+let hubEditando = null;
+const modalHub = document.getElementById('modal-hub');
+
+function abrirHub(id) {
+  const hu = hubsLista.find(x => x.hub_id === id);
+  if (!hu) return;
+  hubEditando = hu;
+  document.getElementById('h-sub').textContent = 'Hub ' + hu.hub_id
+    + ' \u00B7 sitio ' + (hu.sitio || '-') + ' \u00B7 '
+    + (hu.nodes || []).length + ' nodo(s)';
+  document.getElementById('h-err').style.display = 'none';
+  document.getElementById('h-nombre').value =
+    hu.nombre === '(sin nombre)' ? '' : hu.nombre;
+  modalHub.style.display = 'flex';
+}
+function cerrarHub() { modalHub.style.display = 'none'; hubEditando = null; }
+document.getElementById('h-cancelar').addEventListener('click', cerrarHub);
+modalHub.addEventListener('click', (e) => { if (e.target === modalHub) cerrarHub(); });
+
+document.getElementById('form-hub').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!hubEditando) return;
+  const nombre = document.getElementById('h-nombre').value.trim();
+  const err = document.getElementById('h-err');
+  if (!nombre) {
+    err.textContent = 'El nombre no puede quedar vacio.';
+    err.style.display = 'block';
+    return;
+  }
+  const btn = document.getElementById('h-btn');
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try {
+    await api('/api/hubs/' + hubEditando.hub_id,
+              { method: 'PUT', body: { name: nombre } });
+    cerrarHub();
+    cargar();
+  } catch (e2) {
+    err.textContent = e2.message || 'No se pudo renombrar el hub.';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+  }
+});
 
 cargar();
 </script>

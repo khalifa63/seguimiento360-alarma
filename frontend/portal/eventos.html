@@ -49,7 +49,7 @@
 
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, fecha,
-         evento, EVENTOS } from '/portal/comun-2026c.js';
+         evento, EVENTOS } from '/portal/comun-2026d.js';
 
 if (!exigirSesion()) throw new Error('sin sesion');
 document.getElementById('cabecera').innerHTML = cabecera('eventos');
@@ -127,17 +127,9 @@ async function cargar() {
         h += '<td data-etiqueta="Dispositivo">' + esc(e.node_name || e.node_mac) + '</td>';
         h += '<td data-etiqueta="Ubicacion" style="color:var(--txt2);">'
            + esc(p.room || p.location || '-') + '</td>';
-        h += '<td data-etiqueta="Estado">' + (e.event_type === 'DOOR'
-                    ? (e.distance_cm === 1 ? 'Cerrado' : (e.distance_cm === 0 ? 'Abierto' : '-'))
-                    : (e.event_type === 'PANIC'
-                    ? (e.distance_cm === 1 ? 'Oprimido' : '-')
-                    : (e.event_type === 'BUZZ'
-                    ? (e.distance_cm === 1 ? 'Sonando' : (e.distance_cm === 0 ? 'Silencio' : '-'))
-                    : (e.distance_cm != null
-                        ? (e.distance_cm >= 254
-                            ? (e.distance_cm === 255 ? 'sin eco' : 'eco fuera de rango')
-                            : e.distance_cm + ' cm')
-                        : '-')))) + '</td>';
+        /* (fase14b) Estado por tipo de dispositivo; logica unica en
+           estadoEvento() (comun-2026d.js). */
+        h += '<td data-etiqueta="Estado">' + estadoEvento(e) + '</td>';
         h += '<td data-etiqueta="Bateria">' + (e.battery_level != null ? e.battery_level + '%' : '-') + '</td>';
         h += '<td data-etiqueta="Sec." class="mono" style="color:var(--txt2);">'
            + (e.sequence_number != null ? e.sequence_number : '-') + '</td>';

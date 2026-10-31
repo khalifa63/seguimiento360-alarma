@@ -150,6 +150,10 @@ prueba con el portal): el aviso al celular ya lo emitió el sensor que disparó
 la alarma —el buzzer es el actuador que el usuario escucha—, y el `BUZZ`
 queda como dato auditable en `events` sin pasar por el push. (La v0.4 lo
 había clasificado como media; se revierte con este cambio del flow.)
+**Excepción v0.6 (botón de pánico):** el `BUZZ` de silencio (`value=0`) se
+clasifica **media** y genera push, como confirmación auditable de que el
+bucle de sirena terminó (segunda oprimida, **Silenciar** o `disarm`); el
+`BUZZ` de arranque (`value=1`) sigue sin push.
 
 ## HUB-IF-006: Comandos al hub
 

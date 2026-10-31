@@ -2963,5 +2963,106 @@
     "buzzer_mqtt_out0001"
    ]
   ]
+ },
+ {
+  "id": "hubs1a2b00000001",
+  "type": "http in",
+  "z": "4b3c23e37880f78c",
+  "name": "PUT /api/hubs/:id",
+  "url": "/api/hubs/:id",
+  "method": "put",
+  "upload": false,
+  "swaggerDoc": "",
+  "x": 130,
+  "y": 1050,
+  "wires": [
+   [
+    "hubs1a2b00000002"
+   ]
+  ]
+ },
+ {
+  "id": "hubs1a2b00000002",
+  "type": "function",
+  "z": "4b3c23e37880f78c",
+  "name": "Validar JWT (hubs)",
+  "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\ntry {\n    msg._user = jwt.verify(auth.slice(7), jwtSecret);\n    return [msg, null];\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token inválido o expirado' };\n    return [null, msg];\n}",
+  "outputs": 2,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 360,
+  "y": 1050,
+  "wires": [
+   [
+    "hubs1a2b00000003"
+   ],
+   [
+    "1b13019bc1ce3345"
+   ]
+  ]
+ },
+ {
+  "id": "hubs1a2b00000003",
+  "type": "function",
+  "z": "4b3c23e37880f78c",
+  "name": "Preparar UPDATE hub",
+  "func": "const hubId = parseInt(msg.req.params.id, 10);\nconst nombre = ((msg.payload || {}).name || '').trim();\n\nif (!hubId || !nombre) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'Debe enviar el nombre del hub' };\n    return [null, msg];\n}\nif (nombre.length > 64) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'El nombre no puede pasar de 64 caracteres' };\n    return [null, msg];\n}\n\nmsg.params = [nombre, hubId, msg._user.tenant_id];\nreturn [msg, null];",
+  "outputs": 2,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 580,
+  "y": 1050,
+  "wires": [
+   [
+    "hubs1a2b00000004"
+   ],
+   [
+    "1b13019bc1ce3345"
+   ]
+  ]
+ },
+ {
+  "id": "hubs1a2b00000004",
+  "type": "postgresql",
+  "z": "4b3c23e37880f78c",
+  "name": "UPDATE hub nombre",
+  "query": "UPDATE hubs h\nSET name = $1\nWHERE h.id = $2\n  AND h.tenant_id = $3\nRETURNING h.id, h.site_id, h.serial_number, h.name, h.status,\n          h.last_seen, h.tenant_id;",
+  "postgreSQLConfig": "s360_pg_alarmas",
+  "split": false,
+  "rowsPerMsg": 1,
+  "outputs": 1,
+  "x": 810,
+  "y": 1050,
+  "wires": [
+   [
+    "hubs1a2b00000005"
+   ]
+  ]
+ },
+ {
+  "id": "hubs1a2b00000005",
+  "type": "function",
+  "z": "4b3c23e37880f78c",
+  "name": "Respuesta hub",
+  "func": "const row = Array.isArray(msg.payload) ? msg.payload[0] : null;\n\nif (!row) {\n    msg.statusCode = 404;\n    msg.payload = { error: 'Hub no encontrado o sin permisos de tenant' };\n    return msg;\n}\n\nmsg.statusCode = 200;\nmsg.payload = {\n    success: true,\n    hub: row,\n    message: 'Hub renombrado'\n};\nreturn msg;",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 1030,
+  "y": 1050,
+  "wires": [
+   [
+    "434c6237784282d0"
+   ]
+  ]
  }
 ]

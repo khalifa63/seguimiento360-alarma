@@ -110,6 +110,26 @@ padding:20px;z-index:50;">
   </div>
 </div>
 
+<!-- Renombrar hub (fase11-hubs): el nombre es lo unico editable, la
+     MAC/serial es dato del instalador y no se muestra. -->
+<div id="modal-hub" style="display:none;position:fixed;inset:0;
+background:rgba(0,0,0,.65);align-items:center;justify-content:center;
+padding:20px;z-index:50;">
+  <div class="tarjeta" style="max-width:460px;">
+    <h1 style="font-size:1.2rem;">Renombrar hub</h1>
+    <p class="sub" id="h-sub" style="color:var(--txt2);font-size:.85rem;"></p>
+    <form id="form-hub">
+      <div class="campo">
+        <label for="h-nombre">Nombre</label>
+        <input type="text" id="h-nombre" required maxlength="64">
+      </div>
+      <button type="submit" class="btn" id="h-btn">Guardar</button>
+      <button type="button" class="btn" id="h-cancelar"
+              style="background:var(--panel2);margin-top:8px;">Cancelar</button>
+    </form>
+  </div>
+</div>
+
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, hace, fecha,
          evento } from '/portal/comun-2026c.js';
@@ -122,10 +142,14 @@ const cont = document.getElementById('contenido');
 const msg = document.getElementById('msg');
 const modal = document.getElementById('modal');
 const modalBorrar = document.getElementById('modal-borrar');
+const modalHub = document.getElementById('modal-hub');
 const panel = document.getElementById('panel');
 const panelTitulo = document.getElementById('panel-titulo');
 const panelCuerpo = document.getElementById('panel-cuerpo');
 let nodos = [];
+/* Hubs del sitio (fase11-hubs): el nombre es lo unico editable del
+   hub, la MAC/serial queda como dato de instalador en la BD. */
+let hubs = [];
 /* Estado del panico por MAC del boton (GET /api/panico: contexto global
    panico_arm de Node-RED, HUB-IF-015 v0.6). Se recarga junto al overview. */
 let panicoEstado = {};
@@ -148,6 +172,27 @@ document.getElementById('panel-cerrar').addEventListener('click', cerrarPanel);
 
 const CLASE = { ok: 'p-ok', aviso: 'p-warn', mal: 'p-err', neutro: 'p-gris' };
 const PALABRA = { ok: 'normal', aviso: 'revisar', mal: 'falla', neutro: 'sin datos' };
+
+/* ------------------------------------------------------------------ hubs */
+/* (fase11-hubs) Resumen de hubs: nombre editable, sin MAC (dato de instalador). */
+function bloqueHubs() {
+  if (hubs.length === 0) return '';
+  let s = '<div class="tabla-env" style="margin-bottom:14px;"><table>'
+        + '<thead><tr><th>Hub</th><th>Sitio</th><th>Nodos</th>'
+        + '<th>Ultimo latido</th><th>Acciones</th></tr></thead><tbody>';
+  for (const hu of hubs) {
+    s += '<tr>'
+       + '<td data-etiqueta="Hub"><strong>' + esc(hu.nombre) + '</strong></td>'
+       + '<td data-etiqueta="Sitio">' + esc(hu.sitio || '-') + '</td>'
+       + '<td data-etiqueta="Nodos">' + hu.nodos + '</td>'
+       + '<td data-etiqueta="Latido">' + hace(hu.visto) + '</td>'
+       + '<td data-etiqueta="Acciones"><button class="mini" data-hub-editar="'
+       + hu.hub_id + '">Editar nombre</button></td>'
+       + '</tr>';
+  }
+  s += '</tbody></table></div>';
+  return s;
+}
 
 /* --------------------------------------------------------------- la tabla */
 async function cargar() {
@@ -174,10 +219,19 @@ async function cargar() {
             hub_visto: hub.last_seen
           }));
         }
+        hubs.push({
+          hub_id: hub.hub_id,
+          nombre: hub.hub_name || '(sin nombre)',
+          sitio: s.site_name,
+          estado: hub.hub_status,
+          visto: hub.last_seen,
+          nodos: (hub.nodes || []).length
+        });
       }
     }
 
     let h = '';
+    h += bloqueHubs();
     if (nodos.length === 0) {
       h = '<div class="bloque"><div class="vacio">No tienes nodos vinculados.'
         + '<br><br>Vincula uno pulsando el boton BOOT del hub, o abriendo '
@@ -241,6 +295,9 @@ async function cargar() {
     });
     cont.querySelectorAll('[data-mute]').forEach(b => {
       b.addEventListener('click', () => silenciar(Number(b.dataset.mute), b));
+    });
+    cont.querySelectorAll('[data-hub-editar]').forEach(b => {
+      b.addEventListener('click', () => abrirHub(Number(b.dataset.hubEditar)));
     });
   } catch (err) {
     cont.innerHTML = '<div class="bloque"><div class="vacio">'
@@ -612,9 +669,53 @@ async function verSalud(id, btn) {
     btn.disabled = false;
     btn.textContent = original;
   }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Si, borrarlo';
+  }
+});
+
+/* ------------------------------------------------------------------ hubs */
+/* (fase11-hubs) Renombrar el hub: PUT /api/hubs/:id solo cambia el
+   nombre en la BD; nada tecnico viaja al hub por MQTT porque su firmware
+   no usa el nombre. */
+let hubEditando = null;
+
+function abrirHub(id) {
+  const hu = hubs.find(x => x.hub_id === id);
+  if (!hu) return;
+  hubEditando = hu;
+  document.getElementById('h-sub').textContent = 'Hub ' + hu.hub_id
+    + ' · sitio ' + (hu.sitio || '-') + ' · ' + hu.nodos + ' nodo(s)';
+  document.getElementById('h-nombre').value =
+    hu.nombre === '(sin nombre)' ? '' : hu.nombre;
+  modalHub.style.display = 'flex';
 }
+function cerrarHub() { modalHub.style.display = 'none'; hubEditando = null; }
+document.getElementById('h-cancelar').addEventListener('click', cerrarHub);
+modalHub.addEventListener('click', (e) => { if (e.target === modalHub) cerrarHub(); });
+
+document.getElementById('form-hub').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!hubEditando) return;
+  const nombre = document.getElementById('h-nombre').value.trim();
+  if (!nombre) { aviso('El nombre no puede quedar vacio.'); return; }
+  const btn = document.getElementById('h-btn');
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try {
+    await api('/api/hubs/' + hubEditando.hub_id,
+              { method: 'PUT', body: { name: nombre } });
+    cerrarHub();
+    aviso('Hub renombrado.', true);
+    cargar();
+  } catch (err) {
+    aviso(err.message || 'No se pudo renombrar el hub.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+  }
+});
 
 cargar();
-</script>
 </body>
 </html>

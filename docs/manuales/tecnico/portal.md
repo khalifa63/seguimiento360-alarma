@@ -30,6 +30,7 @@ Verificados en el flujo desplegado:
 | GET | `/api/nodes` | dispositivos (mismo dato, otra ruta) |
 | POST | `/api/nodes` | registra un dispositivo |
 | PUT | `/api/nodes/:id` | edita y sincroniza con el aparato |
+| PUT | `/api/hubs/:id` | renombra el hub (solo el nombre, tenant-scoped) |
 | DELETE | `/api/nodes/:id` | borra |
 | GET | `/api/overview` | informe jerarquico: sitios -> hubs -> nodos |
 | GET | `/api/events` | historial de eventos, con filtros |
@@ -37,6 +38,11 @@ Verificados en el flujo desplegado:
 | POST | `/api/ota/trigger` | lanza una actualizacion de firmware |
 
 Todos menos el registro y el login **exigen JWT**.
+
+El nombre del hub se edita desde la pantalla Nodos (seccion Hubs, 2026-10-31):
+`PUT /api/hubs/:id` cambia solo el nombre en la BD. La MAC/serial del hub es
+dato de instalador y no se muestra ni se edita; el nombre no viaja por MQTT
+porque el firmware del hub no lo usa.
 
 ## Registro
 

@@ -39,6 +39,14 @@ Verificados en el flujo desplegado:
 
 Todos menos el registro y el login **exigen JWT**.
 
+Los eventos (`GET /api/events`) traen `device_type` del nodo (2026-10-31):
+el Estado se muestra legible segun el tipo — Cerrado/Abierto para el reed
+(DOOR y HEAR), Oprimido para el boton (PANIC/PANI), Sonando/Silencio para el
+buzzer (BUZZ) y solo bateria en los latidos que no son de estado. Los cm
+solo aplican a nodos que si miden distancia. Logica unica en
+`estadoEvento()` (comun-2026d.js). Los HTML del portal se sirven con
+`Cache-Control: no-cache` para evitar versiones viejas en el navegador.
+
 El nombre del hub se edita desde la pantalla Nodos (seccion Hubs, 2026-10-31):
 `PUT /api/hubs/:id` cambia solo el nombre en la BD. La MAC/serial del hub es
 dato de instalador y no se muestra ni se edita; el nombre no viaja por MQTT

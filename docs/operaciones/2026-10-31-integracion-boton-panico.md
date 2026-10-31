@@ -167,6 +167,39 @@ deja rastro de decisiones, hallazgos y pendientes.
     (el usuario las escucho y oprimio el panico para pararlas). Para probar
     el ciclo del hub, usar transiciones reales del sensor.
 
+18. **La MAC seguia visible en el portal (mismo dia, petición del
+    usuario)**: la pantalla de nodos y la tarjeta del hub del Panel
+    mostraban la MAC/serial — dato de instalador, no de usuario final.
+    Se quito de ambas vistas (commit d0bf6c3/903b7dd) y se creo el
+    renombrado de hubs: `PUT /api/hubs/:id` (tenant-scoped, solo el
+    nombre, sin MQTT) con seccion Hubs en Nodos y boton Renombrar en el
+    Panel (commit 0120489).
+19. **El cache del navegador mostro un dashboard viejo por horas**: el
+    portal no enviaba `Cache-Control` y el cache heuristico de Chrome
+    (Android) sirvio el HTML anterior con la MAC ya eliminada; el
+    reinicio de la PWA solo hacia bfcache. Fix de raiz: nginx envia
+    `Cache-Control: no-cache` para todo HTML del portal (fase12-nginx,
+    conf respaldada). Los modulos JS siguen la convencion de bump de
+    nombre (comun-2026c -> 2026d).
+20. **Un patch de HTML roto deja la pantalla en "Cargando" sin error
+    visible**: el patch de Hubs en nodos.html inserto el JS consumiendo
+    la llave de cierre de `verSalud()` y duplicando un `finally`
+    (SyntaxError: el modulo no corre y el spinner queda eterno). Se
+    reparo (commit 6edad8a). Leccion: tras cualquier patch de portal,
+    validar el modulo con `node --check` ANTES de publicar.
+21. **"1 cm"/"0 cm" en los eventos del reed y del buzzer (fase14-
+    eventos, peticion del usuario)**: el value de sus tramas es estado
+    (1/0), no distancia, pero la tabla de eventos caia en la rama cm.
+    Ademas el HEAR es un latido que mandan TODOS los nodos: mostrar
+    "Abierto" para el boton/buzzer tambien era falso. Fix: `/api/events`
+    ahora devuelve `device_type` (JOIN nodes/devices) y la logica de
+    estado vive unica en `estadoEvento()` (comun-2026d.js): reed
+    (sensor_magnetic) -> Cerrado/Abierto, boton (boton_panico) ->
+    Oprimido, buzzer (actuador_buzzer) -> Sonando/Silencio, latidos de
+    boton/buzzer -> solo bateria, cm solo para tipos que si miden
+    (p.ej. ALRM del ultrasonico). PANI (codigo de cable legacy) se
+    muestra como Panico.
+
 ## Verificación (resumen; el detalle crudo está en SPEC-03)
 
 | AT | Alcance | Resultado |

@@ -1368,8 +1368,8 @@
   "type": "function",
   "z": "7bfa17039520b422",
   "name": "Parsear evento a params",
-  "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Valor del evento: clave nueva `value` (SPEC-02 v0.3) con fallback a la\n// historica `distance_cm` mientras siga habiendo hubs sin reflashear.\nconst valor = (d.value != null ? d.value : (d.distance_cm != null ? d.distance_cm : null));\n\n// --- Mensaje 1: INSERT event ---\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  valor,\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// --- Mensaje 2: push, solo para alarmas ---\nconst ev = String(d.event).toUpperCase();\n\n// Gravedad: define el titulo y el tono del aviso\nconst GRAVES = [\"FIRE\",\"GAS\",\"SMOKE\",\"PANIC\",\"SOS\",\"SEIS\",\"ALRM\"];\n// BUZZ (activacion de sirena, HUB-IF-015) NO genera notificacion\n// (decision 2026-10-30): el aviso ya lo emitio el sensor que disparo la\n// alarma; el buzzer es el actuador que el usuario escucha. El BUZZ queda\n// como dato auditable en events (mensaje 1) y no pasa por el push.\nconst MEDIAS = [\"DOOR\",\"MOV\",\"HUM\"];\nlet gravedad = \"aviso\";\nif (GRAVES.some(p => ev.startsWith(p))) gravedad = \"critica\";\nelse if (MEDIAS.some(p => ev.startsWith(p))) gravedad = \"media\";\n\nif (gravedad === \"aviso\") { return [msg, null, null]; }\n\n// Estado legible para puertas: 1=Cerrado, 0=Abierto (SPEC-02 v0.3)\nconst esDoor = ev.startsWith(\"DOOR\");\nconst estado = esDoor && valor != null ? (Number(valor) === 1 ? \"Cerrado\" : \"Abierto\") : null;\n\n// El SELECT de tokens necesita el hub ($1) y el mac del nodo ($2) para\n// resolver el nombre desde la base de datos (el hub no lo sabe).\nconst msgPush = {\n  params: [hubMac, d.mac || null],\n  push: {\n    event: ev,\n    gravedad: gravedad,\n    nodo: d.node_name || d.name || d.mac || \"sensor\",\n    habitacion: d.room || null,\n    ubicacion: d.location || null,\n    estado: estado,\n    distancia: (esDoor ? null : (valor != null ? Number(valor) : null)),\n    bateria: (d.battery != null ? Number(d.battery) : null),\n    secuencia: (d.seq != null ? Number(d.seq) : null)\n  },\n  // Texto corto, para el registro del nodo\n  alarma: \"Alarma: \" + (d.node_name || d.name || d.mac || \"sensor\")\n};\n\n// --- Mensaje 3: despacho de sirena (HUB-IF-015, SPEC-02 v0.4) ---\n// La decision de disparar vive aqui (Node-RED): alarmas criticas o apertura\n// de puerta (DOOR value=0). El cierre (value=1) y la confirmacion BUZZ no\n// re-disparan. La duracion la resuelve el nodo despachador desde la BD.\nconst disparaSirena = gravedad === \"critica\" ||\n                      (ev === \"DOOR\" && valor != null && Number(valor) === 0);\nconst msgBuzz = disparaSirena ? {\n  tenant: tid,\n  site: sid,\n  hubMac: hubMac,\n  srcEvent: ev\n} : null;\n\nreturn [msg, msgPush, msgBuzz];",
-  "outputs": 3,
+  "func": "const parts = msg.topic.split(\"/\");\nconst tid = parseInt(parts[2], 10);\nconst sid = parseInt(parts[4], 10);\nconst hubMac = parts[6];\nconst d = msg.payload || {};\nif (!d.event) { return null; }\n\n// Valor del evento: clave nueva `value` (SPEC-02 v0.3) con fallback a la\n// historica `distance_cm` mientras siga habiendo hubs sin reflashear.\nconst valor = (d.value != null ? d.value : (d.distance_cm != null ? d.distance_cm : null));\n\n// --- Mensaje 1: INSERT event ---\nmsg.params = [\n  tid, sid, hubMac,\n  d.mac || null,\n  d.node_name || d.name || null,\n  String(d.event).toUpperCase(),\n  (d.battery != null ? d.battery : null),\n  valor,\n  (d.seq != null ? d.seq : null),\n  JSON.stringify(d)\n];\n\n// --- Mensaje 2: push, solo para alarmas ---\nconst ev = String(d.event).toUpperCase();\n\n// Gravedad: define el titulo y el tono del aviso\nconst GRAVES = [\"FIRE\",\"GAS\",\"SMOKE\",\"PANIC\",\"SOS\",\"SEIS\",\"ALRM\"];\n// BUZZ (activacion de sirena, HUB-IF-015) NO genera notificacion\n// (decision 2026-10-30): el aviso ya lo emitio el sensor que disparo\n// la alarma; el buzzer es el actuador que el usuario escucha. Excepcion\n// v0.6 (boton de panico): el BUZZ de silencio (value=0) se clasifica\n// media como confirmacion auditable del paro del bucle (2a oprimida,\n// Silenciar del portal o disarm). El BUZZ de arranque sigue sin push.\nconst MEDIAS = [\"DOOR\",\"MOV\",\"HUM\"];\nlet gravedad = \"aviso\";\nif (GRAVES.some(p => ev.startsWith(p))) gravedad = \"critica\";\nelse if (MEDIAS.some(p => ev.startsWith(p))) gravedad = \"media\";\nelse if (ev === \"BUZZ\" && valor != null && Number(valor) === 0) gravedad = \"media\";\n\nif (gravedad === \"aviso\") { return [msg, null, null, null]; }\n\n// Estado legible para puertas: 1=Cerrado, 0=Abierto (SPEC-02 v0.3);\n// el BUZZ de silencio (v0.6) lleva su propio texto de confirmacion.\nconst esDoor = ev.startsWith(\"DOOR\");\nconst esBuzzSilencio = (ev === \"BUZZ\" && valor != null && Number(valor) === 0);\nconst estado = esBuzzSilencio ? \"Sirena silenciada\"\n             : (esDoor && valor != null ? (Number(valor) === 1 ? \"Cerrado\" : \"Abierto\") : null);\n\n// El SELECT de tokens necesita el hub ($1) y el mac del nodo ($2) para\n// resolver el nombre desde la base de datos (el hub no lo sabe).\nconst msgPush = {\n  params: [hubMac, d.mac || null],\n  push: {\n    event: ev,\n    gravedad: gravedad,\n    nodo: d.node_name || d.name || d.mac || \"sensor\",\n    habitacion: d.room || null,\n    ubicacion: d.location || null,\n    estado: estado,\n    distancia: (esDoor ? null : (valor != null ? Number(valor) : null)),\n    bateria: (d.battery != null ? Number(d.battery) : null),\n    secuencia: (d.seq != null ? Number(d.seq) : null)\n  },\n  // Texto corto, para el registro del nodo\n  alarma: (esBuzzSilencio ? \"Sirena silenciada: \" : \"Alarma: \") +\n          (d.node_name || d.name || d.mac || \"sensor\")\n};\n\n// --- Mensaje 3: despacho de sirena (HUB-IF-015, SPEC-02 v0.4) ---\n// La decision de disparar vive aqui (Node-RED): alarmas criticas o apertura\n// de puerta (DOOR value=0). El cierre (value=1) y la confirmacion BUZZ no\n// re-disparan. La duracion la resuelve el nodo despachador desde la BD.\n// El PANIC (v0.6) NO dispara por aqui: tiene ruta de toggle propia\n// (mensaje 4, \"Alterna panico por boton\"), sin cooldown de 60 s.\nconst disparaSirena = (gravedad === \"critica\" && ev !== \"PANIC\") ||\n                      (ev === \"DOOR\" && valor != null && Number(valor) === 0);\nconst msgBuzz = disparaSirena ? {\n  tenant: tid,\n  site: sid,\n  hubMac: hubMac,\n  srcEvent: ev\n} : null;\n\n// --- Mensaje 4: ruta de panico (HUB-IF-015 v0.6) ---\n// Cada oprimida del boton de panico llega como PANIC value=1. El toggle\n// armado/desarmado lo lleva \"Alterna panico por boton\" (contexto global\n// por MAC del boton, dedup por seq); este mensaje solo lleva los datos\n// del sitio y del boton.\nconst msgPanico = (ev === \"PANIC\") ? {\n  tenant: tid,\n  site: sid,\n  hubMac: hubMac,\n  srcEvent: ev,\n  srcMac: d.mac || null,\n  seq: (d.seq != null ? Number(d.seq) : null),\n  valor: valor\n} : null;\n\nreturn [msg, msgPush, msgBuzz, msgPanico];\n",
+  "outputs": 4,
   "timeout": 0,
   "noerr": 0,
   "x": 420,
@@ -1383,6 +1383,9 @@
    ],
    [
     "buzzer_disp_fn0001"
+   ],
+   [
+    "panico_toggle_fn0001"
    ]
   ]
  },
@@ -2837,5 +2840,92 @@
   "rowsPerMsg": 1,
   "outputs": 1,
   "query": "SELECT n.id, n.mac_address, n.name, n.status, n.last_seen, n.buzzer_seconds, d.device_type,\n       h.serial_number, h.tenant_id, h.site_id, h.status AS hub_status,\n       h.last_seen AS hub_last_seen\nFROM nodes n\nJOIN hubs h ON h.id = n.hub_id\nLEFT JOIN devices d ON lower(d.serial_number) = lower(n.mac_address)\nWHERE n.id = $1 AND h.tenant_id = $2;"
+ },
+ {
+  "id": "panico_toggle_fn0001",
+  "type": "function",
+  "z": "7bfa17039520b422",
+  "name": "Alterna panico por boton",
+  "func": "/* Alternar el estado del panico por MAC del boton (HUB-IF-015 v0.6).\n * Entrada: mensaje 4 de \"Parsear evento a params\". El estado vive en el\n * contexto GLOBAL (panico_arm) para que GET /api/panico del portal lo lea\n * desde otro nodo. Cada oprimida alterna:\n *   armado=false -> armar    (buzzer seconds=0xFFFF, bucle continuo)\n *   armado=true  -> desarmar (buzzer seconds=0)\n * Dedup por seq: el nodo reenvia el PANIC con la misma seq si el ACK se\n * pierde y MQTT QoS1 puede entregar duplicados; con la misma seq cuenta\n * una sola vez (HUB-IF-015 v0.6). Sin cooldown de 60 s: esa ruta es de\n * los DOOR del reed; aqui el toggle ya evita el re-disparo. */\nconst d = msg.payload || {};\nconst mac = String(d.srcMac || '').toLowerCase();\nif (!mac) { return null; }\nconst seq = (d.seq != null ? Number(d.seq) : null);\n\nconst panico = global.get('panico_arm') || {};\nconst reg = panico[mac] || { armado: false, desde: null, seq: null };\nif (seq != null && reg.seq === seq) {\n    node.warn('PANIC duplicado (seq ' + seq + ') de ' + mac + ': omitido.');\n    return null;\n}\nconst accion = reg.armado ? 'desarmar' : 'armar';\nreg.armado = (accion === 'armar');\nreg.desde = new Date().toISOString();\nreg.seq = seq;\npanico[mac] = reg;\nglobal.set('panico_arm', panico);\n\nnode.warn('PANICO ' + (accion === 'armar' ? 'ARMADO' : 'DESARMADO') +\n          ' por boton ' + mac + ' (seq ' + seq + ')');\nreturn {\n    tenant: msg.tenant,\n    site: msg.site,\n    hubMac: msg.hubMac,\n    accion: accion,\n    botonMac: mac\n};\n",
+  "outputs": 1,
+  "x": 680,
+  "y": 300,
+  "wires": [
+   [
+    "panico_desp_fn0001"
+   ]
+  ]
+ },
+ {
+  "id": "panico_desp_fn0001",
+  "type": "function",
+  "z": "7bfa17039520b422",
+  "name": "Despachar buzzer por panico",
+  "func": "/* Despacho de buzzer por panico (HUB-IF-015 v0.6).\n * Entrada: salida de \"Alterna panico por boton\". Busca los buzzers activos\n * del sitio con el MISMO JOIN del despacho por alarma (buzzer_disp_fn0001):\n *   - armar    -> seconds=0xFFFF (65535): bucle continuo latched.\n *   - desarmar -> seconds=0: paro, sin el filtro de duracion, para que el\n *                 silencio alcance a cualquier buzzer activo del sitio.\n * La confirmacion es el BUZZ del nodo (value=1 al arrancar el bucle, 0 al\n * parar), auditable en events. La sirena tambien se apaga con Silenciar\n * del portal (POST /api/nodes/:id/mute) o con disarm del hub. */\nconst pg = global.get('pg');\nconst dbConfig = global.get('dbConfig');\nif (!pg || !dbConfig) {\n    node.error('Despacho panico: faltan pg/dbConfig en el contexto global');\n    return null;\n}\nif (!msg || !msg.hubMac || !msg.accion) { return null; }\nconst armar = (msg.accion === 'armar');\nconst segundos = armar ? 65535 : 0;\n\nconst SQL = `\nSELECT n.mac_address\nFROM nodes n\nJOIN devices d ON lower(d.serial_number) = lower(n.mac_address)\nWHERE n.hub_id = (SELECT id FROM hubs WHERE serial_number = $1::varchar)\n  AND d.device_type = 'actuador_buzzer'\n  AND n.status = 'active'\n  ` + (armar ? \"AND COALESCE(n.buzzer_seconds, 30) > 0\" : \"\") + `\n`;\n\nconst client = new pg.Client({ ...dbConfig, connectionTimeoutMillis: 5000 });\nconst salida = [];\ntry {\n    await client.connect();\n    const r = await client.query(SQL, [msg.hubMac]);\n    for (const row of r.rows) {\n        const mac = String(row.mac_address).toLowerCase();\n        const tidCmd = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);\n        salida.push({\n            topic: 'seguimiento360/tenant/' + msg.tenant + '/site/' + msg.site +\n                   '/hub/' + String(msg.hubMac).replace(/:/g, '').toLowerCase() + '/command',\n            payload: JSON.stringify({\n                command: 'buzzer',\n                mac: mac,\n                seconds: segundos,\n                tid: tidCmd,\n                src_event: 'PANIC'\n            })\n        });\n        node.warn('PANICO ' + (armar ? 'ARMAR' : 'DESARMAR') + ': buzzer ' + mac +\n                  ' seconds=' + segundos + ' (tid ' + tidCmd + ')');\n    }\n} catch (e) {\n    node.error('Despacho panico fallo: ' + e.message);\n} finally {\n    try { await client.end(); } catch (e) {}\n}\nif (salida.length === 0) { return null; }\nreturn [salida];\n",
+  "outputs": 1,
+  "x": 940,
+  "y": 300,
+  "wires": [
+   [
+    "buzzer_mqtt_out0001"
+   ]
+  ]
+ },
+ {
+  "id": "panico_get0001",
+  "type": "http in",
+  "z": "7bfa17039520b422",
+  "name": "GET /api/panico",
+  "url": "/api/panico",
+  "method": "get",
+  "x": 160,
+  "y": 520,
+  "wires": [
+   [
+    "panico_jwt0001"
+   ]
+  ]
+ },
+ {
+  "id": "panico_jwt0001",
+  "type": "function",
+  "z": "7bfa17039520b422",
+  "name": "JWT panico (verificacion)",
+  "func": "/* Verificacion JWT para GET /api/panico (mismo patron del mute y la\n * salud): el estado del panico solo lo consulta su tenant. */\nconst jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\nlet usuario;\ntry {\n    usuario = jwt.verify(auth.slice(7), jwtSecret);\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token invalido o expirado' };\n    return [null, msg];\n}\nmsg._user = usuario;\nreturn [msg, null];\n",
+  "outputs": 2,
+  "x": 400,
+  "y": 520,
+  "wires": [
+   [
+    "panico_est0001"
+   ],
+   [
+    "s360http_err"
+   ]
+  ]
+ },
+ {
+  "id": "panico_est0001",
+  "type": "function",
+  "z": "7bfa17039520b422",
+  "name": "Estado panico (contexto)",
+  "func": "/* Estado del panico para el portal (HUB-IF-015 v0.6): lee el toggle del\n * contexto global panico_arm (mismo registro que escribe \"Alterna panico\n * por boton\"). Devuelve un registro por MAC de boton con armado, desde y\n * la ultima seq aceptada. */\nconst panico = global.get('panico_arm') || {};\nconst botones = Object.keys(panico).map(mac => ({\n    mac: mac,\n    armado: !!panico[mac].armado,\n    desde: panico[mac].desde || null,\n    seq: panico[mac].seq != null ? panico[mac].seq : null\n}));\nmsg.statusCode = 200;\nmsg.payload = { success: true, botones: botones, ahora: new Date().toISOString() };\nreturn msg;\n",
+  "outputs": 1,
+  "x": 640,
+  "y": 520,
+  "wires": [
+   [
+    "panico_resp0001"
+   ]
+  ]
+ },
+ {
+  "id": "panico_resp0001",
+  "type": "http response",
+  "z": "7bfa17039520b422",
+  "name": "HTTP panico",
+  "x": 880,
+  "y": 520,
+  "wires": []
  }
 ]

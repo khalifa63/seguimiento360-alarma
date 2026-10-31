@@ -6,10 +6,12 @@
 // buzzer a 5 V). El PWM lo genera LEDC a 2700 Hz con duty 90 % (mas volumen
 // que 50 %), tal como quedo validado en el prototipo pruebas/buzzer.
 //
-// Se activa por comando del hub (HUB-IF-015, SPEC-02 v0.4): llega un frame
+// Se activa por comando del hub (HUB-IF-015, SPEC-02 v0.5): llega un frame
 // ESPNOW_FT_CMD con espnow_payload_buzzer_t (magia 0xE8) y suena `seconds`
-// continuos (1..300 s). Al arrancar responde BUZZ (DATA_EVENT, value=1), que
-// el hub publica como evento auditable en la tabla events.
+// continuos (1..300 s). seconds=0 es PARO INMEDIATO: silencia ya y confirma
+// con BUZZ value=0 (HUB-IF-006 v0.5). Al arrancar responde BUZZ
+// (DATA_EVENT, value=1), que el hub publica como evento auditable en la
+// tabla events.
 //
 // Reporta ademas:
 //   - HEAR cada 600 s (coincide con NODE_HEARTBEAT_SEC del hub; value = 1 si
@@ -20,7 +22,7 @@
 // PAIR dirigido a la MAC semilla, MAC real del hub aprendida del ACK y
 // guardada en NVS (s360node/hub_mac), desvinculacion tras 60 s sin ACK.
 //
-// Contrato: docs/firmware/specs/02-interfaces.md (HUB-IF-001/002/015, v0.4).
+// Contrato: docs/firmware/specs/02-interfaces.md (HUB-IF-001/002/005/006/015, v0.5).
 // Base: firmware/reed-sensor/ (pairing, PONG, HEAR, vigilancia de enlace) y
 // prototipo pruebas/buzzer/ (LEDC 2700 Hz, duty 90 %, CAP_3).
 // ============================================================================
@@ -163,6 +165,15 @@ static void buzzer_start(uint16_t seconds)
         s_buzz_started_s = now;
     }
     s_buzz_deadline = fin;
+}
+
+/* Paro inmediato (HUB-IF-006 v0.5, seconds=0). Silencia ya, sin esperar
+ * vencimiento. */
+static void buzzer_stop_now(void)
+{
+    s_buzz_deadline = 0;
+    buzzer_off();
+    s_sounding = false;
 }
 
 /* Corte por vencimiento, llamado del bucle principal cada 100 ms. */
@@ -323,14 +334,25 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             return;
         }
 
-        /* Activacion de la sirena (HUB-IF-015, SPEC-02 v0.4): frame
-         * ESPNOW_FT_CMD con espnow_payload_buzzer_t (magia 0xE8). Se
-         * valida el rango de seconds (1..300); fuera de rango se descarta
-         * para no dejar la sirena pegada ni apagarla de golpe. */
+        /* Comando de sirena (HUB-IF-015, SPEC-02 v0.5): frame
+         * ESPNOW_FT_CMD con espnow_payload_buzzer_t (magia 0xE8).
+         * seconds=0 es PARO INMEDIATO; 1..300 arranca (o extensiona) la
+         * sirena; fuera de rango se descarta para no dejar la sirena pegada
+         * ni silenciarla por error. */
         if (frame.payload_len >= sizeof(espnow_payload_buzzer_t) &&
             frame.payload[0] == ESPNOW_BUZZER_MAGIC) {
             espnow_payload_buzzer_t cmd;
             memcpy(&cmd, frame.payload, sizeof(cmd));
+            if (cmd.seconds == 0) {
+                bool estaba_sonando = s_sounding;
+                buzzer_stop_now();
+                /* La confirmacion de paro tambien es auditable: BUZZ con
+                 * value=0 sube a events como "silenciado" (HUB-IF-005). */
+                send_frame("BUZZ", 0);
+                ESP_LOGI(TAG, "BUZZER paro recibido (seq=%u): sirena %s.",
+                         frame.seq, estaba_sonando ? "silenciada" : "ya silenciosa");
+                return;
+            }
             if (cmd.seconds < BUZZER_SECONDS_MIN || cmd.seconds > BUZZER_SECONDS_MAX) {
                 ESP_LOGW(TAG, "BUZZER invalido: seconds=%u fuera de rango (1..300). Descartado.",
                          (unsigned)cmd.seconds);

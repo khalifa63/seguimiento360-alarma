@@ -23,6 +23,7 @@ deja rastro de decisiones, hallazgos y pendientes.
 | 8 | AT-024..AT-028 con evidencia cruda | `test:` (este ciclo) |
 | + | Buzzer flasheado y re-emparejado: AT-025 completo (bucle latched audible) | `test:` (este ciclo) |
 | + | Campo: PANI→PANIC en el hub, envio unico del boton, dedup x3, push de prueba en salud (AT-029) | `fix:` x3 + `test:` |
+| + | Campo reed: cooldown 10 s y src_mac en el despacho (ciclo de sirena activo, AT-030) | `fix(nodered)` + `test:` |
 | — | Fix: toggle lee `msg.srcMac` en raíz + salud de `boton_panico` | `3b9b842` |
 | 9 | Bitácora + push | (este commit) |
 
@@ -117,6 +118,17 @@ deja rastro de decisiones, hallazgos y pendientes.
     prueba de campo. Los pushes de la primera ronda salian `201 (media)`
     para los DOOR: la entrega push funcionaba; lo que faltaba era el PANIC
     clasificado critico (hallazgo 10).
+13. **"Abro el reed y ya no suena" (campo 20:09-20:10)**: dos causas de
+    flow, ninguna de radio. (a) El cooldown anti-retrigger de 60 s se comia
+    las aperturas reales — bajo a 10 s porque el dedup por seq ya cubre los
+    duplicados de transporte. (b) El despacho de alarma nunca llevaba
+    `src_mac`, asi que el ciclo de sirena de CR-002 no se activaba para el
+    reed (rafaga unica de `buzzer_seconds`). Con src_mac el hub re-verifica:
+    rafagas mientras la puerta este abierta, fin al cerrar (verificado con
+    captura MQTT: rafaga 1, rafaga 2 con el mismo tid, cierre -> fin).
+    Los push de cada DOOR salieron `201 (media)` x2 tokens: la entrega en
+    el servidor estaba sana; si el telefono no los muestra, revisar
+    permisos de notificacion y que el navegador/PWA este vivo.
 
 ## Verificación (resumen; el detalle crudo está en SPEC-03)
 

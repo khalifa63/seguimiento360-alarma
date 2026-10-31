@@ -686,10 +686,17 @@ LEDC (2700 Hz, duty 90 %).
   `device_type='actuador_buzzer'`. El hub no conoce el valor: lo resuelve
   Node-RED al construir el comando, que es la única fuente de la duración.
 - **Anti-retrigger:** Node-RED guarda en contexto la última activación por
-  MAC del buzzer (cooldown 60 s) para no re-disparar con los `DOOR`
-  repetidos que produce la transición de la puerta. El cooldown solo
-  limita despatches nuevos de Node-RED: **el ciclo de sirena no pasa por
-  él** (HUB-IF-015).
+  MAC del buzzer para no re-disparar con los `DOOR` repetidos que produce
+  la transición de la puerta. Desde el ajuste de campo del 2026-10-31 el
+  cooldown es de **10 s** (antes 60): el dedup por `seq` ya cubre los
+  duplicados de transporte, y un cooldown largo se comía las aperturas
+  reales de la puerta. El cooldown solo limita despatches nuevos de
+  Node-RED: **el ciclo de sirena no pasa por él** (HUB-IF-015).
+- **El despacho de alarma lleva `src_mac` (ajuste de campo v0.6):** con él
+  el hub levanta el **ciclo de sirena** de CR-002 también para las alarmas
+  del reed — ráfaga `seconds` → pausa 5 s → re-verificación del sensor:
+  puerta abierta, nueva ráfaga; puerta cerrada, fin del ciclo. Antes el
+  comando salía sin `src_mac` y la alarma quedaba en una ráfaga única.
 
 ### Botón de pánico y bucle de sirena (v0.6)
 

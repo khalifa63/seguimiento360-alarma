@@ -1232,3 +1232,37 @@ diagnostico tambien verificada: `GET /api/nodes/10/health -> 200` con
 Pendiente menor: flashear el boton con el envio unico cuando vuelva a
 estar por USB (el dedup ya cubre su firmware vigente).
 
+## AT-030 (HUB-IF-015 v0.5/0.6) — Ciclo de sirena del reed y cooldown de campo
+
+Primera ronda de campo con los tres nodos en cargadores: abrir el reed sonaba
+una vez y "nunca mas". Dos causas, ambas corregidas en el flow:
+
+1. **El cooldown anti-retrigger de 60 s** se comia las aperturas reales:
+   abrir de nuevo antes de un minuto quedaba omitido
+   (`Sirena ... en cooldown (20 s): omitido`). El dedup por seq ya cubre
+   los duplicados de transporte, asi que el cooldown bajo a **10 s**.
+2. **El despacho de alarma no llevaba `src_mac`**, de modo que el ciclo de
+   sirena de CR-002 (v0.5) nunca se activaba para el reed: la alarma era
+   una rafaga unica de `buzzer_seconds` aunque la puerta siguiera abierta.
+   Ahora el despacho lo envia y el hub re-verifica.
+
+Verificacion con captura MQTT (apertura simulada, espera, cierre):
+
+    .../event   {"...","event":"DOOR","seq":300,"value":0,...}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":10,
+                 "tid":"mvwub3ye-8tza4","src_event":"DOOR",
+                 "src_mac":"00:70:07:1c:6f:a4"}
+    .../diag    {"event":"BUZZER_RESULT","ok":true,"attempts":1,"reason":"ok"}
+    .../event   {"...","event":"BUZZ","seq":176,"value":1,...}      <- rafaga 1
+    .../diag    {"event":"BUZZER_RESULT","ok":true,"attempts":2,"reason":"ok"}  <- mismo tid
+    .../event   {"...","event":"BUZZ","seq":179,"value":1,...}      <- rafaga 2 (puerta abierta)
+    .../event   {"...","event":"DOOR","seq":301,"value":1,...}      <- cierre
+    .../event   {"...","event":"BUZZ","seq":182,"value":1,...}      <- rafaga en curso al cerrar
+    (la siguiente re-verificacion lee value=1 -> fin del ciclo, sin mas rafagas)
+
+Resultado: **PASS** (2026-10-31). Los push de los DOOR salieron en cada
+evento (`PUSH OK 201 (media)` x2 tokens, entrega confirmada en el log del
+broker), el cooldown de 10 s permite reaperturas reales y el ciclo repite
+rafagas mientras la puerta siga abierta hasta el cierre, **Silenciar** o
+`disarm`.
+

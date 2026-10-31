@@ -3,8 +3,9 @@
 La integración del módulo buzzer como nodo de alarma quedó completa de extremo
 a extremo: spec (SPEC-02 v0.4), migración de BD, firmware del hub y del nodo
 (ESP32-C3), despacho en Node-RED, portal editable y verificación con pruebas
-de aceptación (AT-020..AT-023). Este documento deja rastro de decisiones,
-hallazgos y lo que quedó pendiente.
+de aceptación (AT-020..AT-023) y el ciclo de sirena local del hub (SPEC-02
+v0.5). Este documento deja rastro de decisiones, hallazgos y lo que quedó
+pendiente.
 
 ## Qué se hizo
 
@@ -18,11 +19,19 @@ hallazgos y lo que quedó pendiente.
 | 6 | Portal: `buzzer_seconds` editable + overview SQL | `feat(portal)` |
 | 7 | `POST /api/nodes` registra `device_type` + `buzzer_seconds` | `feat(api)` |
 | 8 | AT-020..AT-023 con evidencia cruda | `test:` |
+| v0.5 | SPEC-02: ciclo de sirena local del hub (CR-002 cerrado) | `a0487e5` |
+| v0.5 | Hub: ciclo con re-verificacion, cancelaciones y paro inmediato | `714151e` |
+| v0.5 | Buzzer: paro con seconds=0 + BUZZ value=0 | `993df50` |
+| v0.5 | Portal: boton Silenciar | `656726c` |
+| v0.5 | Flow: endpoint /api/nodes/:id/mute + snapshot | `4fbf9a5` |
 
 ## Decisiones
 
-- **La decisión de disparar vive en Node-RED** (config en la BD), no en el
-  firmware del hub. El hub solo lleva el comando por ESP-NOW.
+- **La decisión de disparar vive en Node-RED** (config en la BD); el hub
+  lleva el comando por ESP-NOW. **La continuación del ciclo es local del
+  hub** (v0.5): ráfaga `seconds` → pausa 5 s → re-verificación del sensor
+  que disparó (`src_mac`); en alarma repite ráfaga, en estado normal para.
+  Opera sin internet y con Node-RED caído.
 - **El BUZZ sube a la BD** a diferencia del PONG: la activación de la sirena
   es dato operativo auditable (`events`, clasificado `media`).
 - **Extensión, no reinicio:** si el buzzer recibe otro comando mientras suena,
@@ -56,8 +65,11 @@ hallazgos y lo que quedó pendiente.
 
 ## Pendientes
 
-- **CR-002 — disparo local en el hub** para operar sin internet
-  (Node-RED caído): decidir en el hub y mantener el cooldown local.
+- ~~**CR-002 — disparo local en el hub**~~ **CERRADO (v0.5).** Implementado
+  como ciclo de sirena local: ráfaga X s + pausa 5 s + re-verificación del
+  sensor origen por `src_mac`; cancelación por cierre, `disarm`, Silenciar
+  del portal (`seconds=0`) o sensor perdido. Persistencia RAM: no sobrevive
+  reinicio del hub (limitación v1 documentada en HUB-IF-015).
 - **Push de BUZZ a Firebase/Gotify**: el flujo clasifica BUZZ como media y
   genera el push, pero la entrega depende de tokens FCM registrados; verificar
   con un dispositivo real (fuera de alcance de esta sesión).

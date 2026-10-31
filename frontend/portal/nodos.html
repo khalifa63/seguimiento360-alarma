@@ -200,6 +200,9 @@ async function cargar() {
          + texto + '</span></td>';
       h += '<td data-etiqueta="Acciones"><div class="acciones">'
          + '<button class="mini" data-probar="' + n.node_id + '">Probar ESP-NOW</button>'
+         + (tipoDe(n) === 'actuador_buzzer'
+            ? '<button class="mini" data-mute="' + n.node_id + '">Silenciar</button>'
+            : '')
          + '<button class="mini" data-salud="' + n.node_id + '">Salud</button>'
          + '<button class="mini" data-editar="' + n.node_id + '">Editar</button>'
          + '<button class="mini peligro" data-borrar="' + n.node_id + '">Borrar</button>'
@@ -225,6 +228,9 @@ async function cargar() {
     });
     cont.querySelectorAll('[data-salud]').forEach(b => {
       b.addEventListener('click', () => verSalud(Number(b.dataset.salud), b));
+    });
+    cont.querySelectorAll('[data-mute]').forEach(b => {
+      b.addEventListener('click', () => silenciar(Number(b.dataset.mute), b));
     });
   } catch (err) {
     cont.innerHTML = '<div class="bloque"><div class="vacio">'
@@ -489,6 +495,45 @@ async function probarEsnow(id, btn) {
   } catch (err) {
     abrirPanel('Prueba ESP-NOW', '<div class="veredicto v-mal">'
       + esc(err.message || 'La prueba no se pudo ejecutar.') + '</div>');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+/* ------------------------------------------------------------------ mute */
+/* Silencio manual (HUB-IF-015 v0.5, POST /api/nodes/:id/mute): publica
+   {"command":"buzzer","seconds":0} al hub. Es sincrono: el flow responde
+   202 al momento y 503 si el hub esta sin red. El 503 no trae campo
+   "error" (solo "motivo"), asi que api() lanzaria "Error 503" generico:
+   se traduce aqui por estado. */
+async function silenciar(id, btn) {
+  const n = nodos.find(x => x.node_id === id);
+  if (!n) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Silenciando...';
+  cerrarPanel();
+  try {
+    const r = await api('/api/nodes/' + id + '/mute', { method: 'post' });
+    abrirPanel('Silenciar sirena',
+      '<div class="veredicto v-ok"><strong>Orden de silencio enviada</strong>'
+      + '<br>' + esc(r.node_mac) + ' via ' + esc(r.hub_serial)
+      + ' · orden ' + esc(r.test_id) + '</div>'
+      + '<p style="color:var(--txt2);font-size:.85rem;margin:0;">La sirena corta el'
+      + ' sonido en cuanto recibe la orden. Si siguiera sonando, revisa su'
+      + ' alimentacion o repite el intento.</p>');
+  } catch (err) {
+    if (err.status === 503) {
+      abrirPanel('Silenciar sirena', '<div class="veredicto v-mal">'
+        + '<strong>No se pudo enviar la orden</strong>'
+        + '<br>El hub no esta conectado a la red, asi que no hay puerta por donde'
+        + ' mandar el silencio. Revisa su alimentacion y el WiFi y vuelve'
+        + ' a intentarlo.</div>');
+    } else {
+      abrirPanel('Silenciar sirena', '<div class="veredicto v-mal">'
+        + esc(err.message || 'La orden no se pudo ejecutar.') + '</div>');
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = original;

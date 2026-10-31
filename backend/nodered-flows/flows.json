@@ -2412,7 +2412,7 @@
   "split": false,
   "rowsPerMsg": 1,
   "outputs": 1,
-  "query": "SELECT n.id, n.mac_address, n.name, n.status, n.last_seen,  h.serial_number, h.tenant_id, h.site_id, h.status AS hub_status,  h.last_seen AS hub_last_seen FROM nodes n JOIN hubs h ON h.id = n.hub_id WHERE n.id = $1 AND h.tenant_id = $2;"
+  "query": "SELECT n.id, n.mac_address, n.name, n.status, n.last_seen, n.buzzer_seconds, d.device_type,\n       h.serial_number, h.tenant_id, h.site_id, h.status AS hub_status,\n       h.last_seen AS hub_last_seen\nFROM nodes n\nJOIN hubs h ON h.id = n.hub_id\nLEFT JOIN devices d ON lower(d.serial_number) = lower(n.mac_address)\nWHERE n.id = $1 AND h.tenant_id = $2;"
  },
  {
   "id": "s360ping_arm",
@@ -2710,5 +2710,132 @@
   ],
   "statusCode": "",
   "headers": ""
+ },
+ {
+  "id": "mute_in0001",
+  "type": "http in",
+  "z": "4b3c23e37880f78c",
+  "name": "POST /api/nodes/:id/mute",
+  "url": "/api/nodes/:id/mute",
+  "method": "post",
+  "upload": false,
+  "swaggerDoc": "",
+  "x": 160,
+  "y": 1330,
+  "wires": [
+   [
+    "mute_jwt00001"
+   ]
+  ]
+ },
+ {
+  "id": "mute_arm0001",
+  "type": "function",
+  "z": "4b3c23e37880f78c",
+  "name": "Armar MUTE ESP-NOW",
+  "func": "/* Silencio manual de la sirena (POST /api/nodes/:id/mute, HUB-IF-015 v0.5).\n * Reutiliza el SELECT de s360ping_sel, que ahora trae device_type y\n * buzzer_seconds. Publica {\"command\":\"buzzer\",\"mac\":...,\"seconds\":0} al\n * topic command del hub: el nodo corta el PWM al momento y confirma con BUZZ value=0,\n * que sube a events como fila auditable de paro (HUB-IF-005 v0.5;\n * verificado en produccion: la sirena silencia en <1 s). Fire-and-forget: la respuesta HTTP sale\n * en el momento, la confirmacion de que se callo la da la casa. */\nconst row = Array.isArray(msg.payload) ? msg.payload[0] : null;\nif (!row) {\n    msg.statusCode = 404;\n    msg.payload = { error: 'Nodo no encontrado o sin permisos' };\n    return [null, null, msg];\n}\nif (row.device_type !== 'actuador_buzzer') {\n    msg.statusCode = 400;\n    msg.payload = { error: 'El nodo no es una sirena (device_type='\n        + (row.device_type || 'null') + ')' };\n    return [null, null, msg];\n}\n/* Mismo criterio del ping: sin hub vivo no hay puerta por donde mandar la\n * orden, y no hay que hacer esperar al portal para decirlo. */\nconst HB = 600;\nconst edad = row.hub_last_seen\n    ? (Date.now() - new Date(row.hub_last_seen).getTime()) / 1000\n    : null;\nconst hubVivo = row.hub_status === 'active' && edad != null && edad < HB;\nif (!hubVivo) {\n    msg.statusCode = 503;\n    msg.payload = {\n        success: false, motivo: 'hub_sin_red',\n        node_mac: row.mac_address, node_name: row.name,\n        hub_serial: row.serial_number, hub_status: 'offline',\n        hub_visto: (edad == null ? 'nunca' : Math.round(edad) + ' s'),\n        solicitado_en: new Date().toISOString()\n    };\n    return [null, null, msg];\n}\nconst tid = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);\nmsg._resp = {\n    success: true, mute: true, test_id: tid,\n    node_mac: row.mac_address, node_name: row.name,\n    hub_serial: row.serial_number, solicitado_en: new Date().toISOString()\n};\nmsg.topic = 'seguimiento360/tenant/' + row.tenant_id + '/site/' + row.site_id +\n            '/hub/' + String(row.serial_number).replace(/:/g, '').toLowerCase() + '/command';\nmsg.payload = {\n    command: 'buzzer', mac: row.mac_address, seconds: 0,\n    tid: tid, src_event: 'MUTE'\n};\nnode.warn('Sirena: orden de silencio a ' + row.mac_address + ' (tid ' + tid + ')');\nreturn [msg, msg, null];\n",
+  "outputs": 3,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 600,
+  "y": 1330,
+  "wires": [
+   [
+    "mute_out0001"
+   ],
+   [
+    "mute_resp_fn001"
+   ],
+   [
+    "s360http_err"
+   ]
+  ]
+ },
+ {
+  "id": "mute_out0001",
+  "type": "mqtt out",
+  "z": "4b3c23e37880f78c",
+  "name": "📤 MUTE al Hub",
+  "topic": "",
+  "qos": "1",
+  "retain": "false",
+  "respTopic": "",
+  "contentType": "application/json",
+  "userProps": "",
+  "broker": "6fbb1b5b4df3541f",
+  "x": 860,
+  "y": 1300,
+  "wires": []
+ },
+ {
+  "id": "mute_resp_fn001",
+  "type": "function",
+  "z": "4b3c23e37880f78c",
+  "name": "Cuerpo 202 mute",
+  "func": "msg.statusCode = 202;\nmsg.payload = msg._resp || { success: false };\nreturn msg;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 860,
+  "y": 1370,
+  "wires": [
+   [
+    "mute_resp0001"
+   ]
+  ]
+ },
+ {
+  "id": "mute_resp0001",
+  "type": "http response",
+  "z": "4b3c23e37880f78c",
+  "name": "HTTP 202 mute",
+  "statusCode": "",
+  "headers": "",
+  "x": 1080,
+  "y": 1370,
+  "wires": []
+ },
+ {
+  "id": "mute_jwt00001",
+  "type": "function",
+  "z": "4b3c23e37880f78c",
+  "name": "JWT mute (verificacion)",
+  "x": 330,
+  "y": 1330,
+  "wires": [
+   [
+    "mute_sel00001"
+   ],
+   [
+    "s360http_err"
+   ]
+  ],
+  "func": "const jwt = global.get('jwt');\nconst jwtSecret = global.get('jwtSecret');\nconst auth = (msg.req.headers['authorization'] || '');\nif (!auth.startsWith('Bearer ')) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'No autorizado' };\n    return [null, msg];\n}\nlet usuario;\ntry {\n    usuario = jwt.verify(auth.slice(7), jwtSecret);\n} catch(e) {\n    msg.statusCode = 401;\n    msg.payload = { error: 'Token invalido o expirado' };\n    return [null, msg];\n}\n/* El id va en la URL y el tenant en el token: sin tenant en los params\n * cualquier usuario podria borrar o sondear nodos de otra vivienda. */\nconst nodeId = parseInt(msg.req.params.id, 10);\nif (!nodeId) {\n    msg.statusCode = 400;\n    msg.payload = { error: 'ID de nodo invalido' };\n    return [null, msg];\n}\nmsg._user = usuario;\nmsg.params = [nodeId, usuario.tenant_id];\nreturn [msg, null];",
+  "outputs": 2,
+  "initialize": null
+ },
+ {
+  "id": "mute_sel00001",
+  "type": "postgresql",
+  "z": "4b3c23e37880f78c",
+  "name": "SELECT nodo mute",
+  "x": 470,
+  "y": 1330,
+  "wires": [
+   [
+    "mute_arm0001"
+   ]
+  ],
+  "postgreSQLConfig": "s360_pg_alarmas",
+  "split": false,
+  "rowsPerMsg": 1,
+  "outputs": 1,
+  "query": "SELECT n.id, n.mac_address, n.name, n.status, n.last_seen, n.buzzer_seconds, d.device_type,\n       h.serial_number, h.tenant_id, h.site_id, h.status AS hub_status,\n       h.last_seen AS hub_last_seen\nFROM nodes n\nJOIN hubs h ON h.id = n.hub_id\nLEFT JOIN devices d ON lower(d.serial_number) = lower(n.mac_address)\nWHERE n.id = $1 AND h.tenant_id = $2;"
  }
 ]

@@ -75,3 +75,8 @@ Actualizacion 2026-10-29 (SPEC-02 v0.3): la ingesta escribe la columna
 como la historica `distance_cm` del JSON del hub, para la transicion hasta
 reflashear el hub. La consulta de eventos expone `value AS distance_cm`
 mientras la UI termina su migracion.
+
+Actualizacion 2026-10-30 (SPEC-02 v0.3): la ingesta resuelve `node_name` con
+COALESCE desde la tabla `nodes` cuando el hub lo manda vacio, y la rama de
+push consulta name/room/location por mac del nodo. El push de DOOR muestra
+el estado legible (Cerrado/Abierto) en lugar de "N cm".

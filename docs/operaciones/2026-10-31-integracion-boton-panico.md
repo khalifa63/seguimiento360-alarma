@@ -25,6 +25,8 @@ deja rastro de decisiones, hallazgos y pendientes.
 | + | Campo: PANI→PANIC en el hub, envio unico del boton, dedup x3, push de prueba en salud (AT-029) | `fix:` x3 + `test:` |
 | + | Campo reed: cooldown 10 s y src_mac en el despacho (ciclo de sirena activo, AT-030) | `fix(nodered)` + `test:` |
 | + | Rearme por estado: abierto -> sirena continua, cerrado -> silencio; el silencio manda (AT-031) | `fix(nodered)` + `test:` |
+| + | Boton flasheado en campo (envio unico verificado) + ubicacion Cuarto de huespedes (AT-032) | (ops) |
+| + | Push del panico sin "1 cm" (Boton oprimido) y eventos.html por codigo de evento | `fix(nodered)` + `fix(portal)` |
 | — | Fix: toggle lee `msg.srcMac` en raíz + salud de `boton_panico` | `3b9b842` |
 | 9 | Bitácora + push | (este commit) |
 
@@ -146,6 +148,18 @@ deja rastro de decisiones, hallazgos y pendientes.
     "no llegan push" con `PUSH OK 201` en los logs del broker de la app,
     pedir re-entrada a la PWA (despierta/re-registra el SW) y verificar el
     `updated_at` de `user_fcm_tokens` (se refresca en cada registro).
+16. **El push del panico decia "1 cm"**: el payload del push trataba el
+    `value` del evento como distancia para todo lo que no fuera DOOR, y el
+    PANIC trae value=1. Corregido: PANIC lleva estado "Boton oprimido" y
+    solo los codigos de distancia (`ALRM`, legado) llevan cm en el push;
+    `eventos.html` tambien (PANIC -> "Oprimido", BUZZ -> "Sonando/
+    Silencio"). Regla: el `value` del evento es el que sea segun el
+    event_code — nunca asumir centimetros.
+17. **Flasheo del boton en campo (AT-032)**: MAC verificada antes de
+    flashear (el hub en el otro puerto), re-vinculacion instantanea por NVS
+    y envio unico confirmado (una fila por oprimida). El buzzer, ademas,
+    se reinicio solo durante la prueba y se re-vinculo por el barrido sin
+    intervencion — la resiliencia del enlace (HUB-IF-011) se verifica sola.
 15. **Simular transiciones por MQTT desincroniza el estado del hub**:
     los eventos publicados a `event` solo llegan a Node-RED/BD — el hub
     aprende el estado del sensor por ESP-NOW. En una prueba, un "cierre"
@@ -165,14 +179,14 @@ deja rastro de decisiones, hallazgos y pendientes.
 
 ## Pendientes
 
-- **Flashear el botón con el envío único** (`fix` commiteado): requiere un
-  momento de USB; mientras tanto su firmware vigente reenvia 3 veces y el
-  dedup de Node-RED lo colapsa (verificado en campo, AT-029).
-- **Editar nombre/ubicación del botón en el portal**: los placeholders
-  ("Sin Habitación") salen en el título del push ("🚨 ALARMA — Sin
-  Habitación"); con el cuarto bien puesto el titulo leera la habitación.
-- **Alcance**: si el botón se mueve a otro piso, validar el enlace con
-  «Probar ESP-NOW» antes de fijarlo (ESP-NOW no atraviesa bien varias losas).
+- Ninguno bloqueante al cierre de esta bitacora. Recordatorios de operacion:
+  - **Alcance**: si el botón o el buzzer se mueven a otro piso, validar el
+    enlace con «Probar ESP-NOW» antes de fijarlos (ESP-NOW no atraviesa bien
+    varias losas).
+  - **Alimentación**: los tres nodos van por cargador de teléfono (misma
+    lección de brownout del REED); el USB del servidor es solo para flashear.
+  - **Puerta abierta prolongada**: `events` acumula una fila `BUZZ` por
+    ráfaga (~4/min) mientras esté abierta — es la auditoría de la sirena.
 
 ## Referencias
 

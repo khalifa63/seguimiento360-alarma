@@ -1301,3 +1301,30 @@ mientras la puerta siga abierta; cualquier transicion de la puerta lo
 expira. Nota de operacion: mientras la puerta permanezca abierta, `events`
 acumula una fila `BUZZ` por rafaga (~4/min): es la auditoria de cuánto sono.
 
+## AT-032 (HUB-IF-015 v0.6) — Flasheo del boton en campo y push sin "1 cm"
+
+Con el boton conectado por USB (MAC verificada antes de flashear,
+`ttyACM1 = a0:f2:62:f1:d0:f0`; el hub en `ttyACM0`), se flasheo el firmware
+de envio unico a las 21:17:50:
+
+- **Re-vinculacion instantanea**: `HEAR seq=1` al primer ACK del arranque
+  (la NVS sobrevivio al flasheo; sin barrido).
+- **Envio unico verificado en campo**: las oprimidas posteriores (seq 2 y
+  seq 4) dejaron UNA fila cada una en `events` — sin los triplicados del
+  firmware anterior. El dedup por seq de Node-RED queda como segunda
+  barrera (cubre reenvios de MQTT QoS1).
+- **Ubicacion**: `node_cfg` con room "Cuarto de huespedes" publicado a las
+  21:18:32; la BD y el hub quedan con Casa Principal / Cuarto de huespedes.
+- **Hallazgo corregido — el "1 cm"**: el cuerpo del push del PANIC mostraba
+  "1 cm": el payload del push trataba el `value` como distancia para todo
+  lo que no fuera DOOR. Corregido en el flow (PANIC lleva estado
+  "Boton oprimido"; solo los codigos de distancia — `ALRM`, legado del
+  ultrasonico — llevan cm) y en `eventos.html` (PANIC -> "Oprimido",
+  BUZZ -> "Sonando/Silencio"). El hub observo ademas que el buzzer se
+  reinicio solo durante la prueba (su seq reinicio) y se re-vinculo por el
+  barrido sin intervencion: resiliencia del enlace verificada.
+
+Resultado: **PASS** (2026-10-31). El cuerpo del push del panico queda
+"Botón de Pánico · Botón oprimido · batería 100%" y la lista de eventos del
+portal muestra "Oprimido"/"Sonando"/"Silencio" por codigo de evento.
+

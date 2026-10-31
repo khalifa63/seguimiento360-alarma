@@ -24,6 +24,7 @@ deja rastro de decisiones, hallazgos y pendientes.
 | + | Buzzer flasheado y re-emparejado: AT-025 completo (bucle latched audible) | `test:` (este ciclo) |
 | + | Campo: PANI→PANIC en el hub, envio unico del boton, dedup x3, push de prueba en salud (AT-029) | `fix:` x3 + `test:` |
 | + | Campo reed: cooldown 10 s y src_mac en el despacho (ciclo de sirena activo, AT-030) | `fix(nodered)` + `test:` |
+| + | Rearme por estado: abierto -> sirena continua, cerrado -> silencio; el silencio manda (AT-031) | `fix(nodered)` + `test:` |
 | — | Fix: toggle lee `msg.srcMac` en raíz + salud de `boton_panico` | `3b9b842` |
 | 9 | Bitácora + push | (este commit) |
 
@@ -129,6 +130,20 @@ deja rastro de decisiones, hallazgos y pendientes.
     Los push de cada DOOR salieron `201 (media)` x2 tokens: la entrega en
     el servidor estaba sana; si el telefono no los muestra, revisar
     permisos de notificacion y que el navegador/PWA este vivo.
+14. **Alarma por estado del reed (peticion del usuario, 20:4x)**: "abierto ->
+    sona; cerrado -> silencio; no por cambio de estado". El ciclo del hub ya
+    daba la continuidad una vez armado, pero el armado era por transicion y
+    se perdia con reinicios y silencios. Solucion en el flow: rearme por
+    estado cada 60 s (lee el ultimo DOOR/HEAR de events por reed) que
+    re-dispatcha la sirena si esta abierta, **respetando el silencio
+    vigente** (BUZZ value=0 lo fija; DOOR value=1 lo expira). No toco
+    firmware: sin inundar events con reportes periodicos del nodo.
+15. **Simular transiciones por MQTT desincroniza el estado del hub**:
+    los eventos publicados a `event` solo llegan a Node-RED/BD — el hub
+    aprende el estado del sensor por ESP-NOW. En una prueba, un "cierre"
+    simulado no llego al hub y su ciclo siguio disparando rafagas ~3.5 min
+    (el usuario las escucho y oprimio el panico para pararlas). Para probar
+    el ciclo del hub, usar transiciones reales del sensor.
 
 ## Verificación (resumen; el detalle crudo está en SPEC-03)
 

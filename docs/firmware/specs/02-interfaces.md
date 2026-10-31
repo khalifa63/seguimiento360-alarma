@@ -697,6 +697,17 @@ LEDC (2700 Hz, duty 90 %).
   del reed — ráfaga `seconds` → pausa 5 s → re-verificación del sensor:
   puerta abierta, nueva ráfaga; puerta cerrada, fin del ciclo. Antes el
   comando salía sin `src_mac` y la alarma quedaba en una ráfaga única.
+- **Rearme por estado (v0.6, ajuste de campo):** un temporizador de
+  Node-RED revisa cada 60 s el último `DOOR`/`HEAR` de cada reed en
+  `events`: si es apertura (`value=0`) re-dispatcha la sirena (con
+  `src_mac`, así el ciclo del hub mantiene las ráfagas). El estado vive en
+  la BD —fuente auditable—, de modo que **abierto → suena** sobrevive
+  reinicios de Node-RED y del hub y no depende de transiciones.
+  **El silencio manda:** un `BUZZ value=0` (paro confirmado: 2.ª oprimida,
+  Silenciar o `disarm`) fija un silencio vigente que el rearme respeta
+  mientras la puerta siga abierta, y un cierre (`DOOR value=1`) lo expira.
+  Mientras la puerta permanece abierta, cada ráfaga del ciclo deja su fila
+  `BUZZ` en `events` (auditoría de cuánto sonó).
 
 ### Botón de pánico y bucle de sirena (v0.6)
 

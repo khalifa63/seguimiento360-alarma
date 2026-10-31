@@ -1266,3 +1266,36 @@ broker), el cooldown de 10 s permite reaperturas reales y el ciclo repite
 rafagas mientras la puerta siga abierta hasta el cierre, **Silenciar** o
 `disarm`.
 
+## AT-031 (HUB-IF-015 v0.6) — Rearme por estado: abierto suena, cerrado calla
+
+Peticion del usuario: la alarma del reed debe seguir el ESTADO (abierto ->
+sona; cerrado -> silencio), no la transicion. Implementado como un tempor
+izador de Node-RED (60 s) que lee el ultimo `DOOR`/`HEAR` de cada reed en
+`events` y re-dispatcha la sirena si esta abierta, salvo silencio vigente.
+
+Con la puerta "abierta" (ultimo DOOR value=0), captura de 90 s:
+
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":10,
+                 "tid":"mvwviw6v-rear","src_event":"DOOR",
+                 "src_mac":"00:70:07:1c:6f:a4"}          <- rearme 1 (15:48:49)
+    .../diag    {"event":"BUZZER_RESULT","ok":true,"attempts":1}
+    .../event   {"...","event":"BUZZ","seq":145,"value":1,...}
+    .../event   {"...","event":"BUZZ","seq":147,"value":1,...}  <- ciclo
+    .../command {"command":"buzzer",...,"tid":"mvwvk6ie-rear",...}  <- rearme 2 (15:49:49)
+    .../event   {"...","event":"BUZZ","seq":148,"value":1,...}      <- sirena continua
+
+Silenciar con la puerta abierta (POST /api/nodes/9/mute -> 202): 80 s con
+**cero comandos y cero BUZZ 1** — el silencio vigente (BUZZ value=0 fija la
+bandera `reed_silenciado`) manda sobre el rearme. El cierre (`DOOR value=1`)
+expira el silencio y la apertura siguiente re-arma:
+
+    .../event   {"...","event":"DOOR","seq":320,"value":1,...}   <- cierre: expira silencio
+    .../command {"command":"buzzer",...,"seconds":10,...,"src_mac":...}  <- re-arma
+    .../event   {"...","event":"BUZZ","seq":169,"value":1,...}
+
+Resultado: **PASS** (2026-10-31). Abierto -> suena (rafagas del ciclo,
+re-armado cada 60 s); cerrado -> silencio; Silenciar sostiene el silencio
+mientras la puerta siga abierta; el cierre lo expira. Nota de operacion:
+mientras la puerta permanezca abierta, `events` acumula una fila `BUZZ`
+por rafaga (~4/min): es la auditoria de cuánto sono.
+

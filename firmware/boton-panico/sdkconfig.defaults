@@ -1,0 +1,12 @@
+# Consola por USB nativo (S3 DevKit): los logs aparecen de inmediato (leccion
+# del hub, SPEC-02 "Fallos del enlace": la consola por adaptador UART
+# externo dio el diagnostico a ciegas).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Mitigacion de brownout: potencia maxima del radio reducida. El arranque del
+# RF (phy_init) derruba la alimentacion de un puerto USB debil; el nodo va
+# alimentado por cargador de telefono (misma leccion del REED y del buzzer).
+# Para ESP-NOW a corto alcance 10 dBm sobran.
+CONFIG_ESP_PHY_MAX_WIFI_TX_POWER=10
+CONFIG_ESP_PHY_MAX_TX_POWER=10

@@ -669,10 +669,7 @@ async function verSalud(id, btn) {
     btn.disabled = false;
     btn.textContent = original;
   }
-  } finally {
-    btn.disabled = false; btn.textContent = 'Si, borrarlo';
-  }
-});
+}
 
 /* ------------------------------------------------------------------ hubs */
 /* (fase11-hubs) Renombrar el hub: PUT /api/hubs/:id solo cambia el
@@ -717,5 +714,6 @@ document.getElementById('form-hub').addEventListener('submit', async (e) => {
 });
 
 cargar();
+</script>
 </body>
 </html>

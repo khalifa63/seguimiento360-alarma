@@ -1165,8 +1165,14 @@ static void publish_event_to_mqtt(const uint8_t *sender_mac, security_payload_t 
     char mac_str[18];
     format_mac(sender_mac, mac_str, sizeof(mac_str));
 
-    char event_str[5] = {0};
+    char event_str[6] = {0};
     memcpy(event_str, payload->event_code, 4);
+    /* El event_code del frame es de 4 bytes: el botón de pánico envía
+     * "PANI" en el aire y el contrato publica "PANIC" en el JSON
+     * (HUB-IF-002/005, SPEC-02 v0.6). */
+    if (memcmp(event_str, "PANI", 4) == 0) {
+        memcpy(event_str, "PANIC", 5);
+    }
 
     // Construir tópico dinámico multi-tenant
     char mqtt_topic[128];

@@ -11,8 +11,14 @@ ESP-NOW al hub, con el frame v1 compartido.
 |---|---|---|
 | `DOOR` | Cada transición de estado (anti-rebote por muestreo de 100 ms, cambio estable en 2 muestras) | 1 = Cerrado (imán cerca), 0 = Abierto |
 | `HEAR` | Cada 600 s (coincide con `NODE_HEARTBEAT_SEC` del hub) | estado actual |
-| `PAIR` | Al arrancar y cada 30 s (chequeo de enlace / registro) | 0 |
+| `PAIR` | Al arrancar, cada 10 s vinculado (chequeo de enlace) y cada 30 s sin vincular | 0 |
 | `PONG` | Solo al recibir un `PING` del hub (prueba de enlace del portal) | seq del ping |
+
+- **Alarma por estado en el sistema (SPEC-02 v0.6):** el nodo reporta por
+  transición; la continuidad "abierto → sirena mientras esté abierta" la
+  dan el ciclo de sirena del hub (`src_mac`) y el rearme por estado de
+  Node-RED (HUB-IF-015 v0.6). El silencio (Silenciar, `disarm`) expira con
+  la siguiente transición de la puerta.
 
 - **Barrido de canales (2026-10-30):** el PAIR recorre los canales 1..13 con
   `pair_channel_sweep()` y el nodo queda en el canal que responde. El hub
@@ -58,7 +64,7 @@ idf.py -p /dev/ttyUSB0 flash monitor    # salir con Ctrl+]
 
 ## Referencias
 
-- Contrato: `docs/firmware/specs/02-interfaces.md` (HUB-IF-001/002/005, v0.3).
+- Contrato: `docs/firmware/specs/02-interfaces.md` (HUB-IF-001/002/005/015, v0.6).
 - Protocolo y pairing: `docs/firmware/specs/02-interfaces.md` (sección
   HUB-IF-010) y `pairing.c` (FW-008).
 - Semilla: `firmware/sensor-ultrasonic/main_backup/` (nodo ultrasónico v1).

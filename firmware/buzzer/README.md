@@ -2,27 +2,35 @@
 
 Firmware ESP-IDF del **nodo buzzer** (peer del hub): buzzer **pasivo** en
 **GPIO3** con PWM LEDC (2700 Hz, duty 90 %, `GPIO_DRIVE_CAP_3`), según quedó
-validado en el prototipo `pruebas/buzzer/`. Suena la duración que el hub le
-manda por ESP-NOW (HUB-IF-015, SPEC-02 v0.4) y confirma con el evento `BUZZ`.
+validado en el prototipo `pruebas/buzzer/`. Suena según `seconds`, que el
+hub le manda por ESP-NOW (HUB-IF-015, SPEC-02 v0.6): **1..300 s continuos**,
+**0 = paro inmediato** o **0xFFFF = bucle continuo latched** (botón de
+pánico); confirma con el evento `BUZZ`.
 
 ## Comportamiento
 
 | Evento | Cuándo | `value` |
 |---|---|---|
-| `BUZZ` | Al arrancar la sirena tras un comando válido del hub (1..300 s) | 1 = sonando |
+| `BUZZ` | Al arrancar la sirena tras un comando válido del hub (1..300 s, o bucle latched 0xFFFF) | 1 = sonando |
+| `BUZZ` | Al recibir `seconds=0` (paro: Silenciar del portal, 2.ª oprimida del pánico o `disarm`) | 0 = silenciado |
 | `HEAR` | Cada 600 s (coincide con `NODE_HEARTBEAT_SEC` del hub) | 1 si está sonando, 0 si no |
 | `PAIR` | Al arrancar y en cada chequeo de enlace (10 s vinculado, barrido 8 s sin vincular) | 0 |
 | `PONG` | Solo al recibir un `PING` del hub (prueba de enlace del portal) | seq del ping |
 
 - **Activación (HUB-IF-015):** el hub manda un frame `ESPNOW_FT_CMD` con
   `espnow_payload_buzzer_t` (magia `0xE8`, 20 bytes: magic, seconds u16,
-  src_event[4], tid[13]). El nodo valida `seconds` en **1..300** y descarta
-  fuera de rango (no deja la sirena pegada ni la apaga de golpe). Suena
-  **continuos** los `seconds` pedidos: primero arranca el sonido, luego
-  responde `BUZZ`.
+  src_event[4], tid[13]). El nodo valida `seconds`: **0 = paro inmediato**
+  (silencia ya y responde `BUZZ value=0`), **1..300 = sirena continuos**
+  (primero arranca el sonido, luego responde `BUZZ`) y **0xFFFF = bucle
+  continuo latched**; cualquier otro valor se descarta (no deja la sirena
+  pegada ni la apaga de golpe).
 - **Extensión:** si llega otro comando mientras suena, la duración se
   **extiende** (`deadline = max(deadline, ahora + seconds)`); un trigger
   repetido no corta una alarma más larga en curso.
+- **Bucle latched (v0.6, botón de pánico):** con `seconds=0xFFFF` suena sin
+  plazo (`s_latched`, deadline al máximo `uint32`): el corte solo llega con
+  un `seconds=0` — la 2.ª oprimida del botón, **Silenciar** del portal o
+  `disarm`.
 - **Barrido de canales:** igual que el REED — el PAIR recorre los canales
   1..13 con `pair_channel_sweep()` y el nodo queda en el canal que responde.
   El hub vive en el canal del router, que puede cambiar solo; si cambia, la
@@ -71,9 +79,9 @@ idf.py -p /dev/ttyACM0 flash monitor    # salir con Ctrl+]
 ## Referencias
 
 - Contrato: `docs/firmware/specs/02-interfaces.md` (HUB-IF-001/002/005/015,
-  v0.4).
+  v0.6).
 - Protocolo y pairing: `docs/firmware/specs/02-interfaces.md` (sección
-  HUB-IF-010 / HUB-IF-011) y `docs/manuales/tecnico/protocolo-comun.md` v0.4.
+  HUB-IF-010 / HUB-IF-011) y `docs/manuales/tecnico/protocolo-comun.md`.
 - Nodo de referencia: `firmware/reed-sensor/` (pairing, PONG, HEAR,
   vigilancia de enlace, LED).
 - Prototipo de audio: `pruebas/buzzer/` (LEDC 2700 Hz, duty 90 %, CAP_3).

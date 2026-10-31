@@ -255,6 +255,13 @@ static esp_timer_handle_t s_ciclo_timer = NULL;
  * estado (1 = Cerrado), así que el ciclo puede vigilar con cualquiera. */
 static int8_t s_last_value[MAX_NODES];
 
+/* Bucle latched de pánico (HUB-IF-015, v0.6): el hub recuerda en RAM a qué
+ * buzzer mandó seconds=0xFFFF (botón de pánico), para que el paro por
+ * seconds=0 y disarm sepan a quién silenciar. No hay ciclo de sirena: no
+ * hay sensor que re-verificar; el bucle solo termina con un comando. */
+static bool    s_latch_activo = false;
+static uint8_t s_latch_mac[6];
+
 /* Van a continuacion, pero el handler de MQTT las necesita antes. */
 static void publish_ping_result(const uint8_t *mac, bool ok, const char *razon,
                                 int rtt_ms, int intentos, int seq);
@@ -841,17 +848,57 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                        &sensor[3], &sensor[4], &sensor[5]) == 6;
 
                             if (segundos == 0) {
-                                /* Paro inmediato (Silenciar del portal). Se
-                                 * manda el frame de paro y se cancela el
-                                 * ciclo si es el mismo buzzer. */
+                                /* Paro inmediato (Silenciar del portal o
+                                 * segunda oprimida del botón de pánico). Se
+                                 * manda el frame de paro y se cancelan el
+                                 * ciclo y el bucle latched si son el mismo
+                                 * buzzer. */
                                 buzzer_enviar_paro(objetivo);
                                 if (s_ciclo.activo &&
                                     memcmp(s_ciclo.mac_buzzer, objetivo, 6) == 0) {
                                     s_ciclo.activo = false;
                                     ESP_LOGI(TAG, "CICLO: parado por comando de paro remoto.");
                                 }
+                                if (s_latch_activo &&
+                                    memcmp(s_latch_mac, objetivo, 6) == 0) {
+                                    s_latch_activo = false;
+                                    ESP_LOGI(TAG, "LATCH: bucle de pánico parado por comando de paro remoto.");
+                                }
+                            } else if (segundos == ESPNOW_BUZZER_LATCHED) {
+                                /* Bucle continuo latched (HUB-IF-015 v0.6):
+                                 * botón de pánico. Sin ciclo de sirena (no
+                                 * hay sensor que re-verificar); se recuerda
+                                 * en RAM el buzzer sonando para que el paro
+                                 * y disarm sepan a quién silenciar. La
+                                 * confirmación es el BUZZ (value=1) del
+                                 * nodo, con la misma maquinaria de
+                                 * reintentos y BUZZER_RESULT que la
+                                 * activación normal. */
+                                memset(&s_buzzer, 0, sizeof(s_buzzer));
+                                memcpy(s_buzzer.mac, objetivo, 6);
+                                s_buzzer.seconds = (uint16_t)segundos;
+                                if (cJSON_IsString(tid_json) && tid_json->valuestring) {
+                                    strncpy(s_buzzer.tid, tid_json->valuestring,
+                                            sizeof(s_buzzer.tid) - 1);
+                                }
+                                if (cJSON_IsString(src_json) && src_json->valuestring &&
+                                    strlen(src_json->valuestring) >= 4) {
+                                    memcpy(s_buzzer.src_event, src_json->valuestring, 4);
+                                } else {
+                                    memcpy(s_buzzer.src_event, "PANIC", 4);
+                                }
+                                s_buzzer.pendiente = true;
+                                s_buzzer.intentos = 1;
+                                hub_enviar_buzzer();
+                                esp_timer_start_once(s_buzzer_timer, BUZZER_ESPERA_US);
+                                s_latch_activo = true;
+                                memcpy(s_latch_mac, objetivo, 6);
+                                ESP_LOGI(TAG, "LATCH: bucle de sirena a %02x:%02x:%02x:%02x:%02x:%02x "
+                                         "(se apaga con seconds=0, Silenciar o disarm).",
+                                         objetivo[0], objetivo[1], objetivo[2],
+                                         objetivo[3], objetivo[4], objetivo[5]);
                             } else if (segundos < 1 || segundos > 300) {
-                                ESP_LOGW(TAG, "buzzer: seconds=%d fuera de rango (1..300). Descartado.",
+                                ESP_LOGW(TAG, "buzzer: seconds=%d fuera de rango (1..300 o 0xFFFF). Descartado.",
                                          segundos);
                             } else if (s_buzzer.pendiente) {
                                 /* Ráfaga en vuelo: no se re-envía, pero un
@@ -941,6 +988,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                          * 2026-10-30). */
                         if (cmd == SM_ALARM_CMD_DISARM) {
                             ciclo_parar(true, "disarm");
+                            /* El bucle latched de pánico (HUB-IF-015 v0.6)
+                             * también se silencia al desarmar la alarma. */
+                            if (s_latch_activo) {
+                                buzzer_enviar_paro(s_latch_mac);
+                                s_latch_activo = false;
+                                ESP_LOGI(TAG, "LATCH: bucle de pánico parado por disarm.");
+                            }
                         }
                     } else {
                         ESP_LOGW(TAG, "Comando no reconocido: %s", cmd_data);
@@ -1445,8 +1499,13 @@ static void hub_enviar_buzzer(void) {
         publish_buzzer_result(s_buzzer.mac, false, "radio", s_buzzer.intentos);
         return;
     }
-    ESP_LOGI(TAG, "BUZZER %d/%d al nodo: suenar %u s (esperando BUZZ).",
-             s_buzzer.intentos, BUZZER_INTENTOS_MAX, s_buzzer.seconds);
+    if (s_buzzer.seconds == ESPNOW_BUZZER_LATCHED) {
+        ESP_LOGI(TAG, "BUZZER %d/%d al nodo: BUCLE LATCHED (esperando BUZZ).",
+                 s_buzzer.intentos, BUZZER_INTENTOS_MAX);
+    } else {
+        ESP_LOGI(TAG, "BUZZER %d/%d al nodo: suenar %u s (esperando BUZZ).",
+                 s_buzzer.intentos, BUZZER_INTENTOS_MAX, s_buzzer.seconds);
+    }
 }
 
 static void buzzer_timer_cb(void *arg) {
@@ -1695,6 +1754,15 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         /* Sin return: el BUZZ continua como evento normal. */
     }
 
+    /* Oprimida del botón de pánico (HUB-IF-005/015, v0.6). Cada oprimida es
+     * un PANIC value=1; el toggle armado/desarmado lo lleva Node-RED por
+     * contexto, no el hub. Ruta propia: sin cooldown, sin ciclo de sirena;
+     * el hub solo la publica (evento crítico para Node-RED). */
+    if (memcmp(payload->event_code, "PANIC", 4) == 0) {
+        ESP_LOGW(TAG, "PANIC de %s (seq=%d): boton de panico oprimido.",
+                 mac_str, payload->seq);
+    }
+
     // --- LÓGICA DE EVENTOS NORMALES (ALRM, HEAR, etc.) ---
     int node_idx = find_node_index(sender_mac);
     if (node_idx >= 0) {
@@ -1703,8 +1771,12 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
         save_node_registry();
 
         /* Ultimo valor reportado por el nodo (RAM, para el ciclo de sirena
-         * de HUB-IF-015 v0.5). DOOR y HEAR del reed llevan el mismo estado. */
-        s_last_value[node_idx] = (int8_t)payload->value;
+         * de HUB-IF-015 v0.5). DOOR y HEAR del reed llevan el mismo estado.
+         * El PANIC del botón de pánico (v0.6) no es estado de sensor: no
+         * toca s_last_value (su value=1 no significa "cerrado"). */
+        if (memcmp(payload->event_code, "PANIC", 4) != 0) {
+            s_last_value[node_idx] = (int8_t)payload->value;
+        }
 
         /* Cancelacion por cierre (HUB-IF-015 v0.5): el sensor que disparo el
          * ciclo reporta estado normal (value=1 en DOOR o HEAR). La rafaga en

@@ -69,6 +69,10 @@ cada oprimida — el nodo no alterna nada, el estado armado/desarmado lo
 lleva Node-RED por contexto y de ahi sale el comando buzzer con
 `seconds=0xFFFF` (bucle continuo) o `seconds=0` (silencio).
 
+**Detalle del codigo en el aire:** `event_code` son 4 bytes, asi que la
+trama lleva `PANI` y el hub lo publica como `PANIC` en el JSON (mismo
+criterio que cualquier codigo futuro de 5 letras).
+
 ### Payload de configuracion
 
 Lo usa el hub para mandar al nodo las credenciales WiFi y la URL del OTA.

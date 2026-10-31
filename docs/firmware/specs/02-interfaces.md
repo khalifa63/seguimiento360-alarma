@@ -74,6 +74,12 @@ v0.3**: siguen siendo 7 bytes; lo que cambió es el nombre del byte 6.
 | `PANIC` | botón de pánico (`firmware/boton-panico`, v0.6) | 1 en cada oprimida; el estado armado/desarmado lo lleva Node-RED por contexto (HUB-IF-015) |
 | nuevos (`SMOKE`, ...) | futuros nodos | su métrica propia, documentada aquí al darlos de alta |
 
+**Detalle del código en el aire (v0.6, hallazgo del e2e):** el `event_code`
+del payload es de **4 bytes**, así que el botón envía `PANI` en la trama y el
+hub lo publica como `PANIC` en el JSON (HUB-IF-004). El contrato MQTT y la
+BD ven `PANIC`; la trama ve `PANI`. Lo mismo aplica a cualquier código de
+5 letras futuro.
+
 ### Historia del byte 6 (v0.2)
 
 Hasta v0.2 el byte se llamaba `distance_cm` (antes `reserved` en el nodo), un
@@ -706,11 +712,11 @@ con un toggle por MAC del botón.
 
 - **Anti-rebote y rate-limit propios:** el nodo filtra el rebote con 50 ms
   de nivel estable y no emite dos `PANIC` con menos de 3 s de diferencia.
-  Cada oprimida es exactamente un `PANIC`, con reenvío **solo si el ACK no
-  llega** (hasta 3 intentos, 300 ms entre intentos): un PANIC duplicado
-  alternaría el toggle dos veces. Node-RED además descarta un `PANIC` con
-  la misma `seq` que el último aceptado del botón (protege contra la
-  entrega duplicada de MQTT QoS1 con el ACK perdido).
+  Cada oprimida es **un único envío** — el hub no ACKea eventos de datos
+  (solo el `PAIR` del chequeo de enlace, HUB-IF-011), de modo que un reenvío
+  sin ACK solo duplicaría. Los duplicados de entrega (MQTT QoS1, reintentos
+  de un firmware viejo) los cubren el **dedup por `seq` de Node-RED** en el
+  toggle, en la inserción en `events` y en el push.
 - **Sin cooldown:** la ruta pánico→buzzer **no pasa por el cooldown de 60
   s** del despacho por alarma (ese filtra los `DOOR` repetidos del reed);
   el toggle por contexto ya evita el re-disparo.

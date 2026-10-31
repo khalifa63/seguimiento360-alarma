@@ -1286,8 +1286,10 @@ Con la puerta "abierta" (ultimo DOOR value=0), captura de 90 s:
 
 Silenciar con la puerta abierta (POST /api/nodes/9/mute -> 202): 80 s con
 **cero comandos y cero BUZZ 1** — el silencio vigente (BUZZ value=0 fija la
-bandera `reed_silenciado`) manda sobre el rearme. El cierre (`DOOR value=1`)
-expira el silencio y la apertura siguiente re-arma:
+bandera `reed_silenciado`) manda sobre el rearme. **Cualquier transicion
+real de la puerta (DOOR 0 o 1) expira el silencio** (ajuste del 2026-10-31:
+solo el cierre dejaba muda la primera apertura tras un Silenciar). La
+apertura siguiente re-arma:
 
     .../event   {"...","event":"DOOR","seq":320,"value":1,...}   <- cierre: expira silencio
     .../command {"command":"buzzer",...,"seconds":10,...,"src_mac":...}  <- re-arma
@@ -1295,7 +1297,7 @@ expira el silencio y la apertura siguiente re-arma:
 
 Resultado: **PASS** (2026-10-31). Abierto -> suena (rafagas del ciclo,
 re-armado cada 60 s); cerrado -> silencio; Silenciar sostiene el silencio
-mientras la puerta siga abierta; el cierre lo expira. Nota de operacion:
-mientras la puerta permanezca abierta, `events` acumula una fila `BUZZ`
-por rafaga (~4/min): es la auditoria de cuánto sono.
+mientras la puerta siga abierta; cualquier transicion de la puerta lo
+expira. Nota de operacion: mientras la puerta permanezca abierta, `events`
+acumula una fila `BUZZ` por rafaga (~4/min): es la auditoria de cuánto sono.
 

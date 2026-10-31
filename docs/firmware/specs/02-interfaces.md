@@ -704,10 +704,11 @@ LEDC (2700 Hz, duty 90 %).
   la BD —fuente auditable—, de modo que **abierto → suena** sobrevive
   reinicios de Node-RED y del hub y no depende de transiciones.
   **El silencio manda:** un `BUZZ value=0` (paro confirmado: 2.ª oprimida,
-  Silenciar o `disarm`) fija un silencio vigente que el rearme respeta
-  mientras la puerta siga abierta, y un cierre (`DOOR value=1`) lo expira.
-  Mientras la puerta permanece abierta, cada ráfaga del ciclo deja su fila
-  `BUZZ` en `events` (auditoría de cuánto sonó).
+  Silenciar o `disarm`) fija un silencio vigente que el rearme respeta, y
+  **cualquier transición real de la puerta** (`DOOR` 0 o 1) lo expira:
+  la acción del usuario sobre la puerta re-arma la alarma. Mientras la
+  puerta permanece abierta, cada ráfaga del ciclo deja su fila `BUZZ` en
+  `events` (auditoría de cuánto sonó).
 
 ### Botón de pánico y bucle de sirena (v0.6)
 

@@ -1179,3 +1179,56 @@ Resultado: PASS (2026-10-31). El nodo responde el PONG del ping del hub
 lista GRAVES del flow desde la integracion del buzzer) y el `BUZZ` de
 silencio (`value=0`) sale como **media** (excepcion v0.6 de HUB-IF-005).
 
+## AT-029 (HUB-IF-002/005/015 v0.6) — Prueba en campo: PANI→PANIC, dedup y push
+
+Con los tres nodos en cargadores, la primera ronda de campo destapo tres
+defectos, corregidos y reverificados el mismo dia:
+
+1. **El `event_code` del frame es de 4 bytes** — el boton enviaba `PANI`
+   y el toggle de Node-RED (`event === "PANIC"`) nunca corria: la oprimida
+   no sonaba ni notificaba (solo quedaba la fila `PANI` en `events`).
+   Correccion: el hub normaliza el codigo de la trama y publica `PANIC`
+   en el JSON (`firmware/hub/main.c`, `publish_event_to_mqtt`).
+2. **El hub no ACKea eventos de datos** (solo el `PAIR` del chequeo de
+   enlace): el reenvio ACK-gateado del boton triplicaba cada oprimida
+   (3 filas con la misma `seq`). Correccion: envio unico por oprimida
+   (`firmware/boton-panico`, mismo patron del REED) + **dedup por
+   (mac, evento, seq)** en Node-RED para la insercion y el push.
+3. **Notificacion de prueba en el diagnostico**: cada consulta de salud
+   envia un push de prueba por la misma cadena que una alarma real
+   (SELECT de tokens del tenant -> webpush) y responde
+   `prueba_notificacion: "enviada"`.
+
+Evidencia de la prueba en campo (usuario con el pulsador en su ubicacion;
+captura MQTT y `events`):
+
+    .../event   {"...","event":"PANIC","seq":113,"value":1,...}
+    .../event   {"...","event":"BUZZ","seq":105,"value":1,...}
+    .../event   {"...","event":"PANIC","seq":115,"value":1,...}
+    .../event   {"...","event":"BUZZ","seq":106,"value":0,...}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":0,...}
+
+    926 | a0:f2:62:f1:d0:f0 | PANIC | 1 | 113 | 20:04:16   <- 1 fila por oprimida
+    927 | 1c:db:d4:f0:25:fc | BUZZ  | 1 | 105 | 20:04:17   <- sirena en bucle
+    928 | a0:f2:62:f1:d0:f0 | PANIC | 1 | 115 | 20:04:20
+    929 | 1c:db:d4:f0:25:fc | BUZZ  | 0 | 106 | 20:04:21   <- silencio
+    930 | a0:f2:62:f1:d0:f0 | PANIC | 1 | 118 | 20:04:46
+    931 | 1c:db:d4:f0:25:fc | BUZZ  | 1 | 110 | 20:04:46
+    932 | a0:f2:62:f1:d0:f0 | PANIC | 1 | 124 | 20:05:30
+    933 | 1c:db:d4:f0:25:fc | BUZZ  | 0 | 115 | 20:05:30
+
+Push critico recibido en el celular del usuario (confirmacion en campo):
+
+    [function:Alterna panico por boton] PANICO ARMADO por boton a0:f2:62:f1:d0:f0 (seq 118)
+    [function:Firebase Push Real] PUSH OK 201 (critica) -> 🚨 ALARMA — Sin Habitación
+
+Los reenvios del firmware viejo del boton aparecen como
+`PANIC duplicado (seq N): omitido` y no generan ni fila ni push extra
+(el firmware nuevo del boton, ya commiteado, envia una sola vez).
+
+Resultado: **PASS** (2026-10-31, en campo). La notificacion de prueba del
+diagnostico tambien verificada: `GET /api/nodes/10/health -> 200` con
+`prueba_notificacion: "enviada"` y `PUSH OK 201 (aviso)` en el log.
+Pendiente menor: flashear el boton con el envio unico cuando vuelva a
+estar por USB (el dedup ya cubre su firmware vigente).
+

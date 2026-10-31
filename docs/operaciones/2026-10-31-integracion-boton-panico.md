@@ -22,6 +22,7 @@ deja rastro de decisiones, hallazgos y pendientes.
 | 7 | Registro del nodo (devices id 10 + nodes id 10, serial minúsculas) | (SQL directo, sin commit) |
 | 8 | AT-024..AT-028 con evidencia cruda | `test:` (este ciclo) |
 | + | Buzzer flasheado y re-emparejado: AT-025 completo (bucle latched audible) | `test:` (este ciclo) |
+| + | Campo: PANI→PANIC en el hub, envio unico del boton, dedup x3, push de prueba en salud (AT-029) | `fix:` x3 + `test:` |
 | — | Fix: toggle lee `msg.srcMac` en raíz + salud de `boton_panico` | `3b9b842` |
 | 9 | Bitácora + push | (este commit) |
 
@@ -99,6 +100,23 @@ deja rastro de decisiones, hallazgos y pendientes.
    ACK y quedo vinculado en el primer ciclo. Tras actualizar el firmware de
    cualquier nodo, **verificar `Hub vinculado en NVS` y re-emparejar si hace
    falta**.
+10. **"PANIC" no cabe en el event_code (4 bytes)** — hallazgo de la primera
+    ronda de campo: el boton enviaba `PANI` y el toggle de Node-RED nunca
+    corria (sin sonido, sin push; solo la fila `PANI` en `events`). El hub
+    ahora normaliza `PANI` -> `PANIC` en el JSON (HUB-IF-002). Regla para
+    codigos nuevos: maximo 4 caracteres en la trama.
+11. **El hub no ACKea eventos de datos** (solo el PAIR del chequeo de
+    enlace, HUB-IF-011): el reenvio ACK-gateado del boton triplicaba cada
+    oprimida. Corregido a envio unico (patron REED) + dedup por
+    (mac, evento, seq) en Node-RED para insercion y push. Leccion: antes de
+    disenar reintentos, verificar que el receptor realmente confirme.
+12. **Notificacion de prueba en el diagnostico** (peticion del usuario):
+    cada consulta de salud envia un push de prueba por la cadena real de
+    push y responde `prueba_notificacion: "enviada"`. Verificado: `PUSH OK
+    201 (aviso)` y el push critico del PANIC recibido en el celular en la
+    prueba de campo. Los pushes de la primera ronda salian `201 (media)`
+    para los DOOR: la entrega push funcionaba; lo que faltaba era el PANIC
+    clasificado critico (hallazgo 10).
 
 ## Verificación (resumen; el detalle crudo está en SPEC-03)
 
@@ -112,16 +130,13 @@ deja rastro de decisiones, hallazgos y pendientes.
 
 ## Pendientes
 
-- **Oprimidas físicas de cierre** (opcional, registro humano): la ruta
-  ESP-NOW del botón está probada (HEAR + PONG con rtt 65 ms, AT-024/AT-028) y
-  los AT-025/026 usan el evento PANIC publicado a nivel MQTT (mismo topic y
-  JSON que emite el hub). Con el buzzer ya actualizado, repetir
-  1.ª/2.ª oprimida con la mano cuando se monte el botón en su ubicación.
-- **Alimentar el botón y el buzzer por cargador de teléfono**: ambos pasaron
-  por el USB del servidor para flashear. Misma lección de brownout del REED.
-  El buzzer debe volver a su cargador en la Sala (el botón aún no tiene
-  ubicación definitiva).
-- **Alcance**: si el botón se monta en otro piso, validar el enlace con
+- **Flashear el botón con el envío único** (`fix` commiteado): requiere un
+  momento de USB; mientras tanto su firmware vigente reenvia 3 veces y el
+  dedup de Node-RED lo colapsa (verificado en campo, AT-029).
+- **Editar nombre/ubicación del botón en el portal**: los placeholders
+  ("Sin Habitación") salen en el título del push ("🚨 ALARMA — Sin
+  Habitación"); con el cuarto bien puesto el titulo leera la habitación.
+- **Alcance**: si el botón se mueve a otro piso, validar el enlace con
   «Probar ESP-NOW» antes de fijarlo (ESP-NOW no atraviesa bien varias losas).
 
 ## Referencias

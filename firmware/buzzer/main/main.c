@@ -6,12 +6,13 @@
 // buzzer a 5 V). El PWM lo genera LEDC a 2700 Hz con duty 90 % (mas volumen
 // que 50 %), tal como quedo validado en el prototipo pruebas/buzzer.
 //
-// Se activa por comando del hub (HUB-IF-015, SPEC-02 v0.5): llega un frame
-// ESPNOW_FT_CMD con espnow_payload_buzzer_t (magia 0xE8) y suena `seconds`
-// continuos (1..300 s). seconds=0 es PARO INMEDIATO: silencia ya y confirma
-// con BUZZ value=0 (HUB-IF-006 v0.5). Al arrancar responde BUZZ
-// (DATA_EVENT, value=1), que el hub publica como evento auditable en la
-// tabla events.
+// Se activa por comando del hub (HUB-IF-015, SPEC-02 v0.6): llega un frame
+// ESPNOW_FT_CMD con espnow_payload_buzzer_t (magia 0xE8) y suena segun
+// `seconds`: 1..300 continuos, 0xFFFF en BUCLE CONTINUO LATCHED (v0.6, boton
+// de panico: suena sin plazo hasta nueva orden) y seconds=0 es PARO
+// INMEDIATO: silencia ya y confirma con BUZZ value=0 (HUB-IF-006 v0.5). Al
+// arrancar responde BUZZ (DATA_EVENT, value=1), que el hub publica como
+// evento auditable en la tabla events.
 //
 // Reporta ademas:
 //   - HEAR cada 600 s (coincide con NODE_HEARTBEAT_SEC del hub; value = 1 si
@@ -22,7 +23,7 @@
 // PAIR dirigido a la MAC semilla, MAC real del hub aprendida del ACK y
 // guardada en NVS (s360node/hub_mac), desvinculacion tras 60 s sin ACK.
 //
-// Contrato: docs/firmware/specs/02-interfaces.md (HUB-IF-001/002/005/006/015, v0.5).
+// Contrato: docs/firmware/specs/02-interfaces.md (HUB-IF-001/002/005/006/015, v0.6).
 // Base: firmware/reed-sensor/ (pairing, PONG, HEAR, vigilancia de enlace) y
 // prototipo pruebas/buzzer/ (LEDC 2700 Hz, duty 90 %, CAP_3).
 // ============================================================================
@@ -57,10 +58,12 @@ static const char *TAG = "NODE_BUZZER";
 #define LEDC_CHANNEL            LEDC_CHANNEL_0
 
 /* Duracion de la sirena por comando (HUB-IF-015). Fuera de rango se
- * descarta: un seconds=0 o un valor enorme no deben dejar la sirena pegada
- * ni apagarla de golpe. */
+ * descarta: un valor enorme (que no sea el latched 0xFFFF) no debe dejar
+ * la sirena pegada ni apagarla de golpe. */
 #define BUZZER_SECONDS_MIN      1
 #define BUZZER_SECONDS_MAX      300
+/* seconds=0xFFFF: bucle continuo latched (v0.6, boton de panico). La
+ * constante viene del contrato compartido (espnow_protocol.h). */
 
 /* LED de estado: en la ESP32-C3 SuperMini el LED azul integrado esta en
  * GPIO8 y es ACTIVO BAJO (se enciende con nivel 0). Cambio documentado
@@ -105,6 +108,7 @@ static int      ack_lost = 0;            // chequeos de enlace sin ACK
  * guarda el instante de arranque para que el log de corte reporte la
  * duracion real y no el epoch del deadline. */
 static bool     s_sounding = false;
+static bool     s_latched = false;       // bucle continuo (0xFFFF): solo seconds=0 corta
 static uint32_t s_buzz_deadline = 0;
 static uint32_t s_buzz_started_s = 0;
 
@@ -168,18 +172,34 @@ static void buzzer_start(uint16_t seconds)
 }
 
 /* Paro inmediato (HUB-IF-006 v0.5, seconds=0). Silencia ya, sin esperar
- * vencimiento. */
+ * vencimiento. Tambien cancela el bucle latched (v0.6). */
 static void buzzer_stop_now(void)
 {
     s_buzz_deadline = 0;
     buzzer_off();
     s_sounding = false;
+    s_latched = false;
+}
+
+/* Bucle continuo latched (HUB-IF-015 v0.6, seconds=0xFFFF, boton de
+ * panico): suena sin plazo; solo un seconds=0 (2a oprimida, Silenciar del
+ * portal o disarm) lo corta. El deadline al maximo uint32 hace que
+ * buzzer_tick nunca dispare el corte. */
+static void buzzer_start_latched(void)
+{
+    if (!s_sounding) {
+        buzzer_on();
+        s_sounding = true;
+        s_buzz_started_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    }
+    s_latched = true;
+    s_buzz_deadline = UINT32_MAX;
 }
 
 /* Corte por vencimiento, llamado del bucle principal cada 100 ms. */
 static void buzzer_tick(uint32_t now)
 {
-    if (s_sounding && now >= s_buzz_deadline) {
+    if (s_sounding && !s_latched && now >= s_buzz_deadline) {
         buzzer_off();
         s_sounding = false;
         ESP_LOGI(TAG, "Sirena detenida tras %u s",
@@ -334,11 +354,12 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             return;
         }
 
-        /* Comando de sirena (HUB-IF-015, SPEC-02 v0.5): frame
+        /* Comando de sirena (HUB-IF-015, SPEC-02 v0.6): frame
          * ESPNOW_FT_CMD con espnow_payload_buzzer_t (magia 0xE8).
-         * seconds=0 es PARO INMEDIATO; 1..300 arranca (o extensiona) la
-         * sirena; fuera de rango se descarta para no dejar la sirena pegada
-         * ni silenciarla por error. */
+         * seconds=0 es PARO INMEDIATO; 0xFFFF es BUCLE CONTINUO LATCHED
+         * (boton de panico, v0.6); 1..300 arranca (o extensiona) la
+         * sirena; fuera de rango se descarta para no dejar la sirena
+         * pegada ni silenciarla por error. */
         if (frame.payload_len >= sizeof(espnow_payload_buzzer_t) &&
             frame.payload[0] == ESPNOW_BUZZER_MAGIC) {
             espnow_payload_buzzer_t cmd;
@@ -351,6 +372,19 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
                 send_frame("BUZZ", 0);
                 ESP_LOGI(TAG, "BUZZER paro recibido (seq=%u): sirena %s.",
                          frame.seq, estaba_sonando ? "silenciada" : "ya silenciosa");
+                return;
+            }
+            if (cmd.seconds == ESPNOW_BUZZER_LATCHED) {
+                /* Bucle continuo por boton de panico: suena hasta nueva
+                 * orden. Primero suena, luego confirma (mismo orden que
+                 * la activacion por alarma). */
+                bool arranca = !s_sounding;
+                buzzer_start_latched();
+                send_frame("BUZZ", 1);
+                ESP_LOGI(TAG, "BUZZER bucle latched recibido (seq=%u): sirena %s.",
+                         frame.seq,
+                         arranca ? "en bucle continuo"
+                                 : "ya sonando, sigue en bucle");
                 return;
             }
             if (cmd.seconds < BUZZER_SECONDS_MIN || cmd.seconds > BUZZER_SECONDS_MAX) {
@@ -497,7 +531,7 @@ void app_main(void)
              own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
     ESP_LOGI(TAG, "  Frame: v1 (magic 0x%02X, cabecera %d B, CRC16)",
              ESPNOW_FRAME_MAGIC, ESPNOW_HEADER_SIZE);
-    ESP_LOGI(TAG, "  Sirena: %u..%u s por comando (HUB-IF-015)",
+    ESP_LOGI(TAG, "  Sirena: %u..%u s o bucle latched 0xFFFF (HUB-IF-015 v0.6)",
              (unsigned)BUZZER_SECONDS_MIN, (unsigned)BUZZER_SECONDS_MAX);
     ESP_LOGI(TAG, "========================================");
 

@@ -1041,3 +1041,121 @@ Salud (boton «Probar ESP-NOW» del portal, heredado del REED):
   `"node_name":"Nodo Buzzer"`.
 - La fecha del firmware del buzzer reportada en el boot (`v6.0.0-pre-ota-...`)
   es la de `git describe` de la rama de desarrollo, no un campo del contrato.
+
+## AT-024 (HUB-IF-015 v0.6) — Registro del boton de panico
+
+Alta en BD con el serial en minusculas (leccion del
+[2026-10-30](../../operaciones/2026-10-30-duplicado-nodos-y-ping.md)) y
+ventana de emparejamiento por MQTT (`{"action":"pairing"}`, 120 s):
+
+    devices: id 10 | a0:f2:62:f1:d0:f0 | boton_panico | panico-v0.1 | bound
+    nodes:   id 10 | hub 10 | Botón de Pánico | Casa Principal | pending -> active
+
+Arranque del nodo (`firmware/boton-panico` v0.1, consola serie):
+
+    W (430)  NODE_PANICO: Oprimida sin enlace: PANIC no enviado (no se encola).
+    I (1060) NODE_PANICO: ACK del hub recibido (seq=0)
+    I (1060) NODE_PANICO: Nodo VINCULADO con el hub 3c:dc:75:62:c2:b0
+    I (1060) NODE_PANICO: Enlace confirmado: se inician los eventos de estado.
+    I (1060) NODE_PANICO: Enviando: HEAR | value=0 | Seq=1
+    I (10010) NODE_PANICO: Solicitando emparejamiento (seq=2)
+    I (10040) NODE_PANICO: ACK del hub recibido (seq=2)
+
+Resultado: PASS (2026-10-31). El nodo queda vinculado en el primer PAIR del
+arranque; el PAIR/ACK cada 10 s es el chequeo de enlace normal (HUB-IF-011).
+La oprimida del arranque sin enlace se registra y NO se encola: una orden de
+panico no debe sonar cuando el enlace vuelva minutos despues. El HEAR subio a
+`events` (id 838, value=0) y la ingesta puso el nodo en `active`.
+
+## AT-025 (HUB-IF-015 v0.6) — 1a oprimida: toggle y comando latch
+
+El evento `PANIC` se publica tal como lo emite el hub (mismo topic y JSON de
+HUB-IF-004) para poder automatizar la prueba; una oprimida fisica deja la
+misma huella en MQTT (misma ruta ESP-NOW que el HEAR ya demuestra, AT-028).
+Captura MQTT del armado:
+
+    .../event   {"mac":"a0:f2:62:f1:d0:f0","node_name":"Botón de Pánico",
+                 "event":"PANIC","seq":250,"battery":100,"value":1,
+                 "tenant":"2","site":"1"}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":65535,
+                 "tid":"mvwsfigc-xvlo4","src_event":"PANIC"}
+    .../diag    {"event":"BUZZER_RESULT","mac":"1c:db:d4:f0:25:fc","ok":false,
+                 "attempts":3,"reason":"sin_respuesta","tid":"mvwsfigc-xvl"}
+
+Resultado: **PARCIAL** (2026-10-31). El toggle de Node-RED alterno a armado y
+el despacho busco los buzzers activos del sitio con el mismo JOIN del despacho
+por alarma (`device_type='actuador_buzzer'`, `status='active'`,
+`COALESCE(buzzer_seconds,30) > 0`) y publico `seconds=65535`. El hub nuevo
+recibio el comando y mando el frame latch 3 veces; el nodo buzzer no confirmo
+porque **su firmware aun no trae la semantica 0xFFFF** (su handler vigente
+descarta fuera de 1..300; la actualizacion esta compilada y commiteada,
+pendiente de flasheo fisico). El `BUZZER_RESULT ok:false` es la evidencia del
+intento y el mismo mecanismo de reintentos del HUB-IF-015.
+
+## AT-026 (HUB-IF-015 v0.6) — 2a oprimida: silencio auditable
+
+Despues del armado, la segunda oprimida alterna a desarmado y publica el paro:
+
+    .../event   {"...","event":"PANIC","seq":251,"value":1,...}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":0,
+                 "tid":"mvwsc2al-k60cz","src_event":"PANIC"}
+    .../event   {"mac":"1c:db:d4:f0:25:fc","node_name":"Nodo Buzzer",
+                 "event":"BUZZ","seq":99,"value":0,...}
+
+Resultado: PASS (2026-10-31). El `BUZZ value=0` confirma que el paro llego al
+buzzer por ESP-NOW y quedo en `events` como fila auditable de silencio
+(HUB-IF-005). El toggle quedo desarmado
+(`GET /api/panico -> armado:false, seq:251`).
+
+**Dedup por seq** (proteccion contra PANIC duplicado con ACK perdido, v0.6):
+dos publicaciones identicas con `seq=260` producen un solo toggle y un aviso
+de descarte en el flow:
+
+    [function:Alterna panico por boton] PANICO ARMADO por boton a0:f2:62:f1:d0:f0 (seq 260)
+    [function:Alterna panico por boton] PANIC duplicado (seq 260) de a0:f2:62:f1:d0:f0: omitido.
+
+Resultado: PASS (2026-10-31). Con seq nueva el toggle cambia; con la misma
+seq solo cuenta la primera.
+
+## AT-027 (HUB-IF-006 v0.5/0.6) — Silenciar del portal con el toggle armado
+
+Con el boton armado (seq 222), el boton **Silenciar** del portal publica el
+paro por el mismo endpoint de CR-002:
+
+    POST /api/nodes/9/mute -> HTTP 202
+      {"success":true,"mute":true,"test_id":"mvws2odg-hhs1g",
+       "node_mac":"1c:db:d4:f0:25:fc","hub_serial":"3cdc7562c2b0"}
+    .../command {"command":"buzzer","mac":"1c:db:d4:f0:25:fc","seconds":0,
+                 "tid":"mvws2odg-hhs1g","src_event":"MUTE"}
+    .../event   {"...","event":"BUZZ","seq":32,"value":0,...}
+    GET /api/panico -> {"botones":[{"mac":"a0:f2:62:f1:d0:f0","armado":true,
+                                    "desde":"...","seq":222}]}
+
+Resultado: PASS (2026-10-31). El silencio manual apaga la sirena sin tocar el
+toggle del boton (el estado armado persiste: silenciar no es desarmar), y el
+`BUZZ value=0` queda auditable. El portal (`nodos.html`) muestra el nodo
+`boton_panico` con su estado (`ARMADO`/`En paz`) y la ultima oprimida desde
+`GET /api/panico` (contexto global `panico_arm` de Node-RED).
+
+## AT-028 (HUB-IF-006) — Salud y prueba de enlace del boton
+
+Boton «Probar ESP-NOW» del portal y endpoint de salud:
+
+    POST /api/nodes/10/test -> HTTP 202
+      {"test_id":"mvwsgsy8-5v9va","node_mac":"a0:f2:62:f1:d0:f0",
+       "node_name":"Botón de Pánico","hub_serial":"3cdc7562c2b0"}
+    GET /api/nodes/10/test/result ->
+      {"state":"ok","rtt_ms":65,"razon":"ok","intentos":1,"seq_nodo":14}
+    GET /api/nodes/10/health -> HTTP 200, veredicto ok
+      - Hub por el que habla     -> Hub-62C2B0 (3cdc7562c2b0)        ok
+      - Habla por ESP-NOW        -> responde (prueba de hace 2 min)  ok
+      - Bateria                  -> 100 %                            ok
+      - Boton de panico          -> 16 oprimidas en 24 h             ok
+
+Resultado: PASS (2026-10-31). El nodo responde el PONG del ping del hub
+(mismo camino que el REED y el buzzer) y la salud tiene rama propia para
+`boton_panico` (reporta oprimidas PANIC y latidos HEAR de 24 h, no
+"distancias"). El push del `PANIC` sale clasificado **critico** (esta en la
+lista GRAVES del flow desde la integracion del buzzer) y el `BUZZ` de
+silencio (`value=0`) sale como **media** (excepcion v0.6 de HUB-IF-005).
+

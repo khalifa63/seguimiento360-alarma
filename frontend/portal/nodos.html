@@ -126,6 +126,9 @@ const panel = document.getElementById('panel');
 const panelTitulo = document.getElementById('panel-titulo');
 const panelCuerpo = document.getElementById('panel-cuerpo');
 let nodos = [];
+/* Estado del panico por MAC del boton (GET /api/panico: contexto global
+   panico_arm de Node-RED, HUB-IF-015 v0.6). Se recarga junto al overview. */
+let panicoEstado = {};
 
 function aviso(texto, ok) {
   msg.textContent = texto;
@@ -152,6 +155,14 @@ async function cargar() {
     /* /api/overview trae la jerarquia sitio > hub > nodos, que es
        justo lo que hace falta para agrupar. */
     const ov = await api('/api/overview');
+    /* Estado del toggle de panico por boton; si el endpoint falla la
+       columna cae a 'sin oprimir' sin romper la tabla. */
+    panicoEstado = {};
+    try {
+      const p = await api('/api/panico');
+      for (const b of p.botones || [])
+        panicoEstado[String(b.mac || '').toLowerCase()] = b;
+    } catch (e) { /* sin estado de panico: seguimos con la tabla */ }
     nodos = [];
     for (const s of ov.sites || []) {
       for (const hub of s.hubs || []) {
@@ -256,6 +267,9 @@ function abrir(id) {
     lblUmbral.textContent = 'Estado';
     inpUmbral.style.display = 'none';
     notaUmbral.style.display = 'block';
+    notaUmbral.textContent = tipoDe(n) === 'boton_panico'
+      ? 'El boton de panico no tiene parametros: cada oprimida envia un PANIC y Node-RED alterna armado/desarmado (HUB-IF-015 v0.6).'
+      : 'Este nodo solo reporta estado (Abierto/Cerrado): no tiene parametros editables.';
     inpUmbral.value = '';
   } else if (tipoDe(n) === 'sensor_ultrasonic') {
     lblUmbral.textContent = 'Distancia de referencia (cm)';
@@ -372,7 +386,11 @@ const MEDICION_POR_TIPO = {
   sensor_magnetic:   { etiqueta: 'Estado',      unidad: ''    },
   sensor_ultrasonic: { etiqueta: 'Distancia',   unidad: ' cm' },
   sensor_temperature:{ etiqueta: 'Temperatura', unidad: ' \u00B0C' },
-  actuador_buzzer:   { etiqueta: 'Sirena',      unidad: ' s'  }
+  actuador_buzzer:   { etiqueta: 'Sirena',      unidad: ' s'  },
+  /* Boton de panico (HUB-IF-015 v0.6): la "medicion" es el estado del
+     toggle armado/desarmado que lleva Node-RED en contexto (GET
+     /api/panico), con la ultima oprimida. */
+  boton_panico:      { etiqueta: 'Panico',      unidad: ''    }
 };
 function tipoDe(n) { return MEDICION_POR_TIPO[n.device_type] ? n.device_type : null; }
 function etiquetaMedicion(n) {
@@ -382,6 +400,15 @@ function etiquetaMedicion(n) {
 function valorMedicion(n) {
   const t = tipoDe(n);
   if (!t) return n.distance_threshold != null ? n.distance_threshold + ' cm' : '-';
+  if (t === 'boton_panico') {
+    /* Estado del toggle (contexto de Node-RED) + ultima oprimida que el
+       flow proceso. Si Node-RED se reinicio el toggle vuelve a desarmado:
+       es estado RAM por diseño (HUB-IF-015 v0.6). */
+    const reg = panicoEstado[String(n.node_mac || '').toLowerCase()];
+    if (!reg) return 'sin oprimir';
+    return (reg.armado ? 'ARMADO' : 'En paz')
+         + (reg.desde ? ' · oprimida ' + hace(reg.desde) : '');
+  }
   if (t === 'actuador_buzzer') {
     /* Duracion de sirena (HUB-IF-015): 0 = desactivado; NULL = default 30. */
     if (n.buzzer_seconds === 0) return 'Desactivado';
@@ -403,7 +430,9 @@ function valorMedicion(n) {
     return n.distance_threshold + ' cm';
   return '-';
 }
-function nodoEditable(n) { return tipoDe(n) !== 'sensor_magnetic'; }
+function nodoEditable(n) {
+  return tipoDe(n) !== 'sensor_magnetic' && tipoDe(n) !== 'boton_panico';
+}
 
 /* ------------------------------------------------------ prueba ESP-NOW live */
 const RAZON_ESPANOL = {

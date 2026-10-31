@@ -1,4 +1,4 @@
-# SPEC-02 — Contratos de Interface del Hub (v0.5)
+# SPEC-02 — Contratos de Interface del Hub (v0.6)
 
 Contratos entre nodo, hub, broker y backend. Es la fuente de verdad: el código
 deriva de aquí, no al revés. Un cambio incompatible exige *change request*.
@@ -14,6 +14,16 @@ deriva de aquí, no al revés. Un cambio incompatible exige *change request*.
 > o pérdida del nodo sensor; el comando buzzer lleva `src_mac`. La decisión
 > de disparar sigue viniendo de Node-RED: esto entrega la mitad del CR-002
 > (la continuación del ciclo es local, el disparo inicial no cambia).
+>
+> **Cambios v0.6 (2026-10-31):** nuevo código de evento `PANIC` para el
+> botón de pánico (`firmware/boton-panico`, HUB-IF-002/005) y **bucle de
+> sirena latched** (HUB-IF-015): el comando buzzer acepta `seconds=0xFFFF`
+> —bucle continuo hasta nueva orden— junto al `seconds=0` (paro, v0.5) y
+> 1..300 (ciclo, v0.5). La primera oprimida del botón arma el bucle; la
+> segunda lo desarma, igual que **Silenciar** del portal o `disarm`. El
+> toggle armado/desarmado lo lleva Node-RED por contexto, no el nodo.
+> **El frame v1 y `espnow_payload_buzzer_t` no cambian**: `0xFFFF` cabe en
+> su `uint16_t` sin tocar nada del contrato v1.
 >
 > **Cambios v0.4 (2026-10-30):** nuevo código de evento `BUZZ` (HUB-IF-005),
 > nuevo comando `buzzer` de activación de la sirena (HUB-IF-006) y nuevo
@@ -61,7 +71,8 @@ v0.3**: siguen siendo 7 bytes; lo que cambió es el nombre del byte 6.
 | `DOOR` | REED de apertura (`firmware/reed-sensor`) | 1 = Cerrado (imán cerca), 0 = Abierto |
 | `ALRM`, `HEAR` | ultrasónico (legado) | distancia medida en cm |
 | `PAIR` | todos | 0 |
-| nuevos (`SMOKE`, `PANIC`, ...) | futuros nodos | su métrica propia, documentada aquí al darlos de alta |
+| `PANIC` | botón de pánico (`firmware/boton-panico`, v0.6) | 1 en cada oprimida; el estado armado/desarmado lo lleva Node-RED por contexto (HUB-IF-015) |
+| nuevos (`SMOKE`, ...) | futuros nodos | su métrica propia, documentada aquí al darlos de alta |
 
 ### Historia del byte 6 (v0.2)
 
@@ -129,7 +140,8 @@ parsean `msg.topic.split('/')` y usan las posiciones 2 y 4.
 | `HEAR` | latido periódico |
 | `PONG` | respuesta del nodo al ping del hub (prueba de enlace, ver HUB-IF-006); se resuelve en el hub y no sube a la BD |
 | `BUZZ` | activación/paro confirmado de la sirena (nodo buzzer, ver HUB-IF-015): `value` 1 = sonando, 0 = silenciado por paro (`seconds=0`); **sí** sube a la BD (dato operativo auditable) |
-| `GAS`, `SMOKE`, `FIRE`, `PANIC`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
+| `PANIC` | oprimida del botón de pánico (`firmware/boton-panico`, v0.6): `value` 1 en cada oprimida; **no pasa por el cooldown de 60 s del despacho de sirena** — es una ruta de toggle propia (HUB-IF-015) |
+| `GAS`, `SMOKE`, `FIRE`, `MOV`, `SEIS`, `SOS`, `HUM` | reservados para otros tipos de nodo |
 
 Node-RED clasifica la gravedad para la notificación: **crítica** para `ALRM`,
 `GAS`, `SMOKE`, `FIRE`, `PANIC`, `SOS` y `SEIS`; **media** para `DOOR`, `MOV`
@@ -147,7 +159,8 @@ había clasificado como media; se revierte con este cambio del flow.)
               {"action":"pairing"}                      abre la ventana 120 s
               {"action":"unpair","mac":"aa:bb:cc:dd:ee:ff"}  olvida un nodo
               {"command":"buzzer","mac":"<mac-buzzer>","seconds":N,"tid":"<id>"}
-                                                        activa la sirena N segundos
+                                                        sirena: 1..300 = N segundos (v0.5),
+                                                        0 = paro (v0.5), 0xFFFF = bucle latched (v0.6)
 
 **Prueba de enlace (PING/PONG):** el botón «Probar ESP-NOW» del portal publica
 en el topic `command`:
@@ -194,8 +207,14 @@ al detectar una alarma que deba sonar la sirena:
   activo y manda al buzzer un frame de paro (magia `0xE8`, `seconds=0`) que
   silencia la salida de inmediato; el buzzer responde `BUZZ` con `value=0`
   ("silenciado"), que también sube a `events`. Lo emite Node-RED al pulsar
-  **Silenciar** en el portal y el propio hub al recibir `disarm`. Fuera de
-  0..300 el hub descarta el comando con advertencia.
+  **Silenciar** en el portal, con la segunda oprimida del botón de pánico
+  (v0.6) y el propio hub al recibir `disarm`.
+  **`seconds=0xFFFF` es un bucle continuo latched (v0.6, HUB-IF-015):** el
+  buzzer suena sin plazo hasta recibir un `seconds=0`; el hub **no levanta
+  ciclo de sirena** (no hay sensor que re-verificar) y solo lleva en RAM
+  qué buzzer quedó sonando, para que `disarm` sepa a quién mandar el paro.
+  Fuera de 0..300 y distinto de 0xFFFF el hub descarta el comando con
+  advertencia.
 - **Confirmación (BUZZ):** a diferencia del PONG, la activación de la sirena
   **sí es dato operativo auditable**: el nodo responde con un `BUZZ`
   (`DATA_EVENT`, `value=1`) al iniciar, el hub lo publica por MQTT como
@@ -659,6 +678,61 @@ LEDC (2700 Hz, duty 90 %).
   repetidos que produce la transición de la puerta. El cooldown solo
   limita despatches nuevos de Node-RED: **el ciclo de sirena no pasa por
   él** (HUB-IF-015).
+
+### Botón de pánico y bucle de sirena (v0.6)
+
+El nodo pulsador (`firmware/boton-panico`, ESP32-S3, GPIO4 con pull-up
+interna, botón NA a GND) es otro peer ESP-NOW del hub, mismo modelo que el
+REED y el buzzer: pairing por barrido de canales (HUB-IF-011), PONG y HEAR.
+Cada oprimida envía un `PANIC` (`DATA_EVENT`, `value=1`); el estado
+armado/desarmado **no lo lleva el nodo**: lo lleva Node-RED por contexto,
+con un toggle por MAC del botón.
+
+    [PANIC] --ESP-NOW PANIC--> [HUB] --MQTT event--> [Node-RED]
+                                   |                  | 1. alterna el estado por MAC
+                                   |                  |    del botón (contexto)
+                                   |                  | 2. busca buzzers activos del
+                                   |                  |    sitio (mismo JOIN del
+                                   |                  |    despacho de alarma)
+                                   |                  | 3. publica command buzzer
+    [BUZZER] <--ESP-NOW CMD--------+ <--MQTT command--+    0xFFFF (armar) | 0 (desarmar)
+        |— bucle continuo o silencio — BUZZ (DATA_EVENT) --> HUB --> MQTT --> events
+
+- **Anti-rebote y rate-limit propios:** el nodo filtra el rebote con 50 ms
+  de nivel estable y no emite dos `PANIC` con menos de 3 s de diferencia.
+  Cada oprimida es exactamente un `PANIC`, con reenvío **solo si el ACK no
+  llega** (hasta 3 intentos, 300 ms entre intentos): un PANIC duplicado
+  alternaría el toggle dos veces. Node-RED además descarta un `PANIC` con
+  la misma `seq` que el último aceptado del botón (protege contra la
+  entrega duplicada de MQTT QoS1 con el ACK perdido).
+- **Sin cooldown:** la ruta pánico→buzzer **no pasa por el cooldown de 60
+  s** del despacho por alarma (ese filtra los `DOOR` repetidos del reed);
+  el toggle por contexto ya evita el re-disparo.
+- **`seconds` del comando (resumen v0.6):** `0` = paro, `1..300` = ciclo
+  de sirena (v0.5), `0xFFFF` = bucle continuo latched. El payload
+  `espnow_payload_buzzer_t` (magia `0xE8`) no cambia: `0xFFFF` cabe en su
+  `uint16_t`. No hace falta un payload nuevo.
+- **Armar:** Node-RED busca los buzzers activos del sitio con la misma
+  consulta del despacho de alarma (`device_type='actuador_buzzer'`,
+  `status='active'`, `COALESCE(buzzer_seconds,30) > 0`) y publica
+  `seconds: 65535, src_event:"PANIC"` a cada uno. El buzzer arranca el
+  bucle (PWM sin plazo) y confirma `BUZZ value=1`: auditable en `events`.
+- **Desarmar (tres caminos):**
+  1. **Segunda oprimida:** Node-RED alterna el estado del botón y publica
+     `seconds: 0` a los buzzers activos del sitio (mismo JOIN **sin** el
+     filtro de duración: el paro debe alcanzar a cualquier buzzer que
+     siga sonando aunque su configuración haya cambiado).
+  2. **Silenciar (portal):** el botón de CR-002 publica `seconds=0`
+     (HUB-IF-006); apaga el bucle igual que apaga una ráfaga del ciclo.
+  3. **`disarm`:** el hub cancela el ciclo de sirena y además manda el
+     paro al buzzer que quedó en bucle latched.
+- **Estado del toggle:** vive en el contexto global de Node-RED
+  (`panico_arm`, un registro por MAC del botón con `armado`, `desde` y la
+  última `seq` aceptada). Si Node-RED se reinicia, el toggle vuelve a
+  desarmado aunque el buzzer siga sonando: **Silenciar** es el camino de
+  salida (misma limitación de estado RAM del ciclo, v0.5).
+- **Clasificación:** el `PANIC` es crítico (push); el `BUZZ` de arranque y
+  de silencio del bucle queda como dato auditable sin push (HUB-IF-005).
 
 ### Ciclo de sirena (v0.5): ráfaga, pausa y cancelación
 

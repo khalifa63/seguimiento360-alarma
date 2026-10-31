@@ -49,10 +49,10 @@ Cabecera: **19 bytes**. Payload maximo: **229 bytes** (el limite de ESP-NOW son
 
 | offset | Campo | Valores |
 |---|---|---|
-| 0-3 | `event_code` | `"PAIR"`, `"DOOR"`, `"ALRM"`, `"HEAR"`, `"PONG"`, `"BUZZ"` |
+| 0-3 | `event_code` | `"PAIR"`, `"DOOR"`, `"ALRM"`, `"HEAR"`, `"PONG"`, `"BUZZ"`, `"PANIC"` |
 | 4 | `seq` | contador |
 | 5 | `battery_level` | 0-100 |
-| 6 | `value` | semantica segun `event_code` (SPEC-02 v0.4) |
+| 6 | `value` | semantica segun `event_code` (SPEC-02 v0.6) |
 
 **El byte 6 cambio de nombre dos veces.** Nacio como `reserved` en el nodo y
 el hub lo llamaba `distance_cm` (v0.2, telemetria del ultrasónico): nombrarlo
@@ -63,6 +63,11 @@ sensor de apertura no mide distancias: `DOOR` usa 1=Cerrado / 0=Abierto,
 Con el nodo buzzer (v0.4, 2026-10-30) se agrega `BUZZ` (activacion confirmada
 de la sirena): `value=1` cuando el buzzer arranca a sonar. El detalle del
 comando y del payload nuevo esta en SPEC-02 HUB-IF-015.
+
+Con el boton de panico (v0.6, 2026-10-31) se agrega `PANIC`: `value=1` en
+cada oprimida — el nodo no alterna nada, el estado armado/desarmado lo
+lleva Node-RED por contexto y de ahi sale el comando buzzer con
+`seconds=0xFFFF` (bucle continuo) o `seconds=0` (silencio).
 
 ### Payload de configuracion
 

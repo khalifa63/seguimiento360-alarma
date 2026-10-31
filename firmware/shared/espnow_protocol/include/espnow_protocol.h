@@ -119,19 +119,30 @@ _Static_assert(sizeof(espnow_payload_config_t) <= ESPNOW_MAX_PAYLOAD,
  * Activacion de la sirena (HUB-IF-015, v0.4)
  *
  * El hub manda este CMD al nodo buzzer cuando Node-RED decide que una alarma
- * debe sonar. El buzzer suena `seconds` continuos (1..300) y responde con un
- * DATA_EVENT "BUZZ" (value=1) al iniciar, que el hub publica como evento
- * normal: la activacion de la sirena SI es dato operativo auditable.
+ * debe sonar. `seconds` (uint16_t) con semantica extendida (SPEC-02 v0.6):
+ *
+ *   0       paro inmediato (v0.5): silencia ya y responde BUZZ value=0
+ *   1..300  sirena continuos (o ciclo del hub, v0.5); responde BUZZ value=1
+ *   0xFFFF  bucle continuo latched (v0.6, boton de panico): suena sin plazo
+ *           hasta un seconds=0; responde BUZZ value=1 al arrancar
+ *
+ * y responde con un DATA_EVENT "BUZZ" al iniciar o parar, que el hub publica
+ * como evento normal: la activacion de la sirena SI es dato operativo
+ * auditable.
  *
  * `src_event` es el codigo del evento que disparo la alarma (DOOR, ALRM,
- * ...) para que el nodo pueda diferenciar el sonido si hace falta.
+ * PANIC, ...) para que el nodo pueda diferenciar el sonido si hace falta.
  * `tid` es el identificador de la alarma, opaco, y viaja tal cual al diag.
  * ------------------------------------------------------------------------ */
 #define ESPNOW_BUZZER_MAGIC   0xE8
 
+/* seconds = 0xFFFF: bucle continuo latched hasta un comando seconds=0
+ * (SPEC-02 v0.6, boton de panico). */
+#define ESPNOW_BUZZER_LATCHED 0xFFFF
+
 typedef struct __attribute__((packed)) {
     uint8_t  magic;        /* ESPNOW_BUZZER_MAGIC */
-    uint16_t seconds;      /* duracion de la sirena, 1..300 s */
+    uint16_t seconds;      /* 0 = paro, 1..300 s, 0xFFFF = bucle latched (v0.6) */
     uint8_t  src_event[4]; /* codigo del evento que disparo la alarma */
     char     tid[13];      /* identificador de la alarma, opaco */
 } espnow_payload_buzzer_t;

@@ -138,6 +138,14 @@ deja rastro de decisiones, hallazgos y pendientes.
     re-dispatcha la sirena si esta abierta, **respetando el silencio
     vigente** (BUZZ value=0 lo fija; DOOR value=1 lo expira). No toco
     firmware: sin inundar events con reportes periodicos del nodo.
+15. **"No llegan las notificaciones" — resolucion en campo (21:0x)**: el
+    servidor enviaba todo (`PUSH OK 201` x2 tokens en cada evento) pero el
+    telefono no las mostraba. El usuario **salio de la PWA y volvio a
+    entrar** y empezaron a llegar: el service worker estaba dormido/des-
+    registrado en el navegador del telefono. Regla de soporte: ante
+    "no llegan push" con `PUSH OK 201` en los logs del broker de la app,
+    pedir re-entrada a la PWA (despierta/re-registra el SW) y verificar el
+    `updated_at` de `user_fcm_tokens` (se refresca en cada registro).
 15. **Simular transiciones por MQTT desincroniza el estado del hub**:
     los eventos publicados a `event` solo llegan a Node-RED/BD — el hub
     aprende el estado del sensor por ESP-NOW. En una prueba, un "cierre"

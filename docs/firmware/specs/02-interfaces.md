@@ -158,7 +158,9 @@ bucle de sirena terminó (segunda oprimida, **Silenciar** o `disarm`); el
 ## HUB-IF-006: Comandos al hub
 
     ota_cmd:  {"url":"https://.../firmware.bin"}
-    node_cfg: {"mac":"...","name":"...","location":"...","room":"...","distance_threshold":N}
+    node_cfg: {"node_mac":"...","node_name":"...","location":"...","room":"...","distance_threshold":N}
+              (el hub parsea node_mac/node_name; el ejemplo anterior con
+              mac/name era incorrecto y se corrigio con el boton de panico)
     command:  {"action":"arm"} | {"action":"disarm"}
               {"action":"pairing"}                      abre la ventana 120 s
               {"action":"unpair","mac":"aa:bb:cc:dd:ee:ff"}  olvida un nodo

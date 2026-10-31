@@ -129,11 +129,15 @@ async function cargar() {
            + esc(p.room || p.location || '-') + '</td>';
         h += '<td data-etiqueta="Estado">' + (e.event_type === 'DOOR'
                     ? (e.distance_cm === 1 ? 'Cerrado' : (e.distance_cm === 0 ? 'Abierto' : '-'))
+                    : (e.event_type === 'PANIC'
+                    ? (e.distance_cm === 1 ? 'Oprimido' : '-')
+                    : (e.event_type === 'BUZZ'
+                    ? (e.distance_cm === 1 ? 'Sonando' : (e.distance_cm === 0 ? 'Silencio' : '-'))
                     : (e.distance_cm != null
                         ? (e.distance_cm >= 254
                             ? (e.distance_cm === 255 ? 'sin eco' : 'eco fuera de rango')
                             : e.distance_cm + ' cm')
-                        : '-')) + '</td>';
+                        : '-')))) + '</td>';
         h += '<td data-etiqueta="Bateria">' + (e.battery_level != null ? e.battery_level + '%' : '-') + '</td>';
         h += '<td data-etiqueta="Sec." class="mono" style="color:var(--txt2);">'
            + (e.sequence_number != null ? e.sequence_number : '-') + '</td>';

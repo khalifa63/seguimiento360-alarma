@@ -51,7 +51,7 @@ padding:20px;z-index:50;">
 
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, hace,
-         evento, estadoEvento, fecha, avisoNotificaciones, avisoInstalar } from '/portal/comun-2026d.js';
+         evento, estadoEvento, fecha, avisoNotificaciones, avisoInstalar } from '/portal/comun-2026e.js';
 
 if (!exigirSesion()) throw new Error('sin sesion');
 document.getElementById('cabecera').innerHTML = cabecera('panel');
@@ -161,7 +161,7 @@ async function cargar() {
       for (const e of lista) {
         const ev2 = evento(e.event_type);
         /* (fase14b) Estado legible segun el tipo de dispositivo; la
-           logica vive en estadoEvento() (comun-2026d.js). */
+           logica vive en estadoEvento() (comun-2026e.js). */
         let det = estadoEvento(e);
         if (e.battery_level != null) {
           det += (det !== '-' ? ' · ' : '') + e.battery_level + '%';

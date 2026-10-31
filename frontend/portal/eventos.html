@@ -49,7 +49,7 @@
 
 <script type="module">
 import { api, cabecera, conectarSalir, exigirSesion, esc, fecha,
-         evento, EVENTOS } from '/portal/comun-2026d.js';
+         evento, EVENTOS } from '/portal/comun-2026e.js';
 
 if (!exigirSesion()) throw new Error('sin sesion');
 document.getElementById('cabecera').innerHTML = cabecera('eventos');
@@ -128,7 +128,7 @@ async function cargar() {
         h += '<td data-etiqueta="Ubicacion" style="color:var(--txt2);">'
            + esc(p.room || p.location || '-') + '</td>';
         /* (fase14b) Estado por tipo de dispositivo; logica unica en
-           estadoEvento() (comun-2026d.js). */
+           estadoEvento() (comun-2026e.js). */
         h += '<td data-etiqueta="Estado">' + estadoEvento(e) + '</td>';
         h += '<td data-etiqueta="Bateria">' + (e.battery_level != null ? e.battery_level + '%' : '-') + '</td>';
         h += '<td data-etiqueta="Sec." class="mono" style="color:var(--txt2);">'

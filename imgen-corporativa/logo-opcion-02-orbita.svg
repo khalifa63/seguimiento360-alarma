@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260" role="img" aria-labelledby="title desc">
+  <title id="title">Seguimiento360 Alarma — Órbita</title><desc id="desc">Logotipo con órbita circular y punto de alerta.</desc>
+  <g transform="translate(24 28)"><circle cx="102" cy="102" r="82" fill="#F3F7FA" stroke="#123B5D" stroke-width="12"/><ellipse cx="102" cy="102" rx="82" ry="38" fill="none" stroke="#0F6B78" stroke-width="10" transform="rotate(-28 102 102)"/><circle cx="165" cy="61" r="18" fill="#E06B3C" stroke="#fff" stroke-width="7"/><path d="M71 112h23l13-26 18 49 15-32h21" fill="none" stroke="#123B5D" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g transform="translate(250 76)"><text font-family="Montserrat,Arial,sans-serif" font-size="54" font-weight="700" fill="#123B5D">Seguimiento<tspan fill="#0F6B78">360</tspan></text><text y="66" font-family="Montserrat,Arial,sans-serif" font-size="34" font-weight="600" letter-spacing="5" fill="#E06B3C">ALARMA</text></g>
+</svg>

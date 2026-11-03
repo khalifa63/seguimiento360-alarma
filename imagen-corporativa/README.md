@@ -61,3 +61,19 @@ No deformar, rotar, inclinar, aplicar sombras, añadir degradados, cambiar color
 ## Control de versiones
 
 Versión 1.0 · Sistema Conexión · Noviembre 2026. Antes de registrar la marca, realizar búsqueda denominativa y figurativa en la SIC de Colombia y validar disponibilidad de dominio.
+
+## Versiones para web
+
+- `web/logo-web-horizontal.svg`: cabecera, navegación y footer sobre fondo oscuro o neutro.
+- `web/logo-web-claro.svg`: cabecera sobre fondo claro.
+- `web/logo-web-cuadrado.svg`: avatar, tarjeta social y aplicaciones cuadradas.
+- `iconos-conexion/seguimiento360-pwa.ico`: favicon/shortcut icon multi-resolución (16, 32, 48, 64, 128 y 256 px).
+
+### Implementación recomendada
+
+```html
+<link rel="icon" href="/imagen-corporativa/iconos-conexion/seguimiento360-pwa.ico">
+<link rel="apple-touch-icon" href="/imagen-corporativa/iconos-conexion/conexion-pwa-navy.svg">
+```
+
+En web no alterar el logo horizontal, no aplicar filtros CSS y conservar un área libre mínima equivalente al diámetro del nodo central. Usar `logo-web-cuadrado.svg` cuando el espacio disponible sea menor que 180 px de ancho.

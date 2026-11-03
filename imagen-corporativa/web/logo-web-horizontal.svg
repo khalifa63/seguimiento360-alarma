@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260" role="img" aria-labelledby="title desc">
+  <title id="title">Seguimiento360 Alarma — Conexión</title><desc id="desc">Logotipo modular con nodos conectados y señal de alarma.</desc>
+  <g transform="translate(28 36)" fill="none" stroke="#123B5D" stroke-width="12" stroke-linecap="round"><path d="M45 122 98 70l52 52 52-52"/><path d="M98 70V30"/><path d="M150 122v38"/></g><g fill="#0F6B78"><circle cx="73" cy="158" r="20"/><circle cx="126" cy="106" r="20"/><circle cx="178" cy="158" r="20"/><circle cx="230" cy="106" r="20"/></g><circle cx="126" cy="66" r="14" fill="#E06B3C"/>
+  <g transform="translate(300 76)"><text font-family="Montserrat,Arial,sans-serif" font-size="54" font-weight="700" fill="#123B5D">Seguimiento<tspan fill="#0F6B78">360</tspan></text><text y="66" font-family="Montserrat,Arial,sans-serif" font-size="34" font-weight="600" letter-spacing="5" fill="#E06B3C">ALARMA</text></g>
+</svg>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 900 260"
+     width="900" height="260"
+     shape-rendering="geometricPrecision">
+
+  <!-- Fondo oscuro -->
+  <rect width="900" height="260" fill="#141416"/>
+
+  <!-- ================= ISOTIPO ================= -->
+  <g transform="translate(42, 30)">
+
+    <!-- Conexiones (detrás de los círculos) -->
+    <!-- Hub → nodo superior -->
+    <line x1="100" y1="100" x2="100" y2="26"
+          stroke="#07556B" stroke-width="10" stroke-linecap="round"/>
+    <!-- Hub → nodo inferior izquierdo -->
+    <line x1="100" y1="100" x2="30" y2="152"
+          stroke="#07556B" stroke-width="10" stroke-linecap="round"/>
+    <!-- Hub → nodo inferior derecho -->
+    <line x1="100" y1="100" x2="170" y2="152"
+          stroke="#07556B" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Hub central naranja coral -->
+    <circle cx="100" cy="100" r="21" fill="#E06B3C"/>
+    <!-- Brillo interior opcional -->
+    <circle cx="100" cy="100" r="9" fill="#F39A72" opacity="0.7"/>
+
+    <!-- Nodo superior -->
+    <circle cx="100" cy="26" r="16" fill="#0F6B78"/>
+    <!-- Nodo inferior izquierdo -->
+    <circle cx="30" cy="152" r="16" fill="#0F6B78"/>
+    <!-- Nodo inferior derecho -->
+    <circle cx="170" cy="152" r="16" fill="#0F6B78"/>
+
+  </g>
+
+  <!-- ================= TEXTO S360 ================= -->
+  <text x="270" y="130"
+        font-family="'Avenir Next', 'Montserrat', 'Bahnschrift', 'Segoe UI', sans-serif"
+        font-weight="600"
+        font-size="172"
+        letter-spacing="-5"
+        dominant-baseline="central">
+    <tspan fill="#F4F5F5">S</tspan><tspan fill="#0F6B78">360</tspan>
+  </text>
+
+</svg>

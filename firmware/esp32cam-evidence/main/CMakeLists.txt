@@ -1,0 +1,22 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "camera.c"
+        "sd_card.c"
+        "config.c"
+        "http_client.c"
+        "web_server.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        esp_http_client
+        esp_https_ota
+        esp_timer
+        json
+        wifi
+        esp_camera
+        sdmmc
+        driver
+        cjson
+        nvs_flash
+)

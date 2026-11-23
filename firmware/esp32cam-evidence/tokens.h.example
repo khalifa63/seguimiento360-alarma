@@ -1,0 +1,22 @@
+#ifndef TOKENS_H
+#define TOKENS_H
+
+// CONFIGURACIÓN DE SECRETOS — NO VERSIONAR ESTE ARCHIVO CON VALORES REALES
+// Copia este archivo a tokens.h y rellena tus valores.
+// tokens.h está en .gitignore
+
+// Token de autenticación de la cámara (>=32 chars, hex aleatorio)
+// Generar con: openssl rand -hex 32
+#define CAMERA_TOKEN "REEMPLAZAR_CON_TOKEN_CAMARA_32_CHARS_MINIMO"
+
+// Token de autenticación web (>=32 chars, hex aleatorio)
+#define WEB_TOKEN "REEMPLAZAR_CON_TOKEN_WEB_32_CHARS_MINIMO"
+
+// Host del servidor (sin https:// ni puerto)
+#define HOST "camera.seguimiento360.com"
+#define HTTPS_PORT 443
+
+// URL de galería pública con token web embebido (opcional)
+#define GALLERY_URL "https://camera.seguimiento360.com/?token=" WEB_TOKEN
+
+#endif // TOKENS_H

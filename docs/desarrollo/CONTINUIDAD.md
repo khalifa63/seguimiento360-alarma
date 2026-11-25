@@ -1,0 +1,59 @@
+# Continuidad de sesiones
+
+Este es el punto de entrada operativo para retomar el proyecto sin depender de la memoria del chat. Actualizarlo al cerrar cada sesión y contrastar sus datos con GitHub y los registros privados antes de actuar. No guardar secretos, direcciones privadas ni evidencia de usuarios.
+
+## Mensaje para iniciar una sesión nueva
+
+Copia este mensaje y adjunta este archivo, o pide leer su versión actual en GitHub:
+
+> Continuamos el proyecto Seguimiento360. Lee primero `AGENTS.md` y `docs/desarrollo/CONTINUIDAD.md` del repositorio `https://github.com/khalifa63/seguimiento360-alarma`, rama `main`. Verifica el directorio de trabajo, estado Git y versión remota antes de actuar; este archivo puede estar desactualizado si es una copia descargada. Distingue versión de fuentes de versión instalada. Resume brevemente el estado y retoma el primer pendiente seguro. No muevas ni descartes clones antiguos. No flashees, abras el puerto serie, captures ni reinicies servicios sin mi autorización. Responde en español y de forma corta. Actualiza el documento de continuidad al cerrar la sesión.
+
+## Autoridad y ubicación
+
+- GitHub: `https://github.com/khalifa63/seguimiento360-alarma`, rama `main`.
+- Proyecto: Seguimiento360; la cámara Arduino es un subproyecto del mismo repositorio.
+- Procedimiento y estructura: [Versionado, fuentes y flasheo](../infraestructura/versionado-y-flasheo.md).
+- Copia local utilizada hasta esta revisión: `seguimiento360-alarma-actualizado` bajo el workspace de la sesión. Está prevista su sustitución operativa por `proyectos/seguimiento360-alarma`, sin borrar ni mover copias anteriores. **Migración aún no ejecutada.**
+- Clon canónico del servidor creado: `~/proyectos/seguimiento360-alarma`, origen GitHub por SSH, limpio en `60593a2` al crearlo el 25 de noviembre. Se crearon directorios privados `config`, `releases`, `devices` y `backups` bajo `~/operacion/seguimiento360-alarma`, sin copiar secretos. Tras publicar esta revisión debe actualizarse por fast-forward y verificarse de nuevo. No usar el clon antiguo divergente ni el prototipo activo como fuentes de autoridad.
+
+## Versión instalada conocida: cámara
+
+- Fuente: commit `1da2d990d7a66c9550bcdc665b493da7cc29ded4`.
+- Validación documentada: commit `60593a2ac4ab7a38d88e221d3dabe8d750b10816`.
+- Aplicación desplegada: SHA-256 `06acd91c8bb92b0e51e302fb746cd43039cb6d204d2ccab4958814afd29650f5`.
+- Instalación: 24 de noviembre de 2026, aplicación en `0x10000`, sin borrado general ni actualización de particiones. Arduino-ESP32 `3.3.11`; compilación exitosa con Arduino CLI `1.2.2`.
+- Respaldo completo privado de 4 MiB existente y hash verificado. Ubicación y detalles de dispositivo se conservan en el servidor privado, no en Git.
+- Usuario confirmó foto, ráfaga visible de cinco y clip funcional. Servidor confirmó 5/5 y 30/30, sin comando pendiente tras el clip.
+- Incidencias: montaje de microSD intermitente; primera ráfaga demoró unos cinco minutos; apertura serie pudo reiniciar la cámara; acceso HTTP directo no confirmado. Ver [detalle de validación](../firmware/esp32cam-evidence.md).
+- No hay lectura independiente posterior del rango flasheado documentada: la evidencia de escritura es la verificación de hash de esptool más las pruebas funcionales. No atribuirle retrospectivamente el nuevo proceso.
+
+## Trabajo actual: 25 de noviembre de 2026
+
+Objetivo aprobado: GitHub como autoridad, una carpeta por proyecto, continuidad entre sesiones y procedimiento único trazable de compilación/flasheo. Se aprobó mantener el monorepo y no mover copias antiguas ni flashear la placa.
+
+### Hecho
+
+- Inventario inicial de clones y despliegue, sin modificar servicios.
+- Diseño de estructura, identidad de versiones, registros y controles de seguridad.
+- Validación histórica de foto/ráfaga/clip conservada; no se hicieron nuevas capturas ni reinicios en esta etapa.
+
+### En curso y pendiente
+
+1. Publicar esta revisión aprobada y verificar coincidencia con `main` remoto. La herramienta `scripts/camera_release.py` y sus 19 pruebas unitarias ya están implementadas; la versión final pasó las 19 en Ubuntu, con herramientas simuladas y sin hardware. Eso no equivale a una compilación real.
+2. Actualizar por fast-forward el nuevo clon canónico del servidor y validar una compilación real con plantilla, sin secretos ni puerto serie.
+3. Crear y verificar la copia canónica nueva del PC sin tocar las copias anteriores. El nuevo clon y directorios operativos del servidor ya se crearon; actualizar esta sección tras verificar la revisión publicada.
+4. Implementar y revisar el instalador automatizado conforme a FLASH-01 a FLASH-08. No está implementado todavía; no usar el nuevo diseño como autorización de escritura.
+5. Validar el proceso de compilación con plantilla en el servidor, sin secretos ni puerto serie. La prueba física requiere ventana y autorización nuevas.
+6. Revisar por separado cambios locales/commits no publicados en clones antiguos. No mezclarlos ni descartarlos en esta tarea.
+
+## Reanudar con seguridad
+
+1. Leer `AGENTS.md`, este documento y el procedimiento enlazado.
+2. Obtener directorio real de trabajo; verificar origen Git, rama, estado y HEAD remoto. Si este documento y Git difieren, registrar la diferencia antes de continuar.
+3. Revisar commits recientes y registros privados de instalaciones. El HEAD del repositorio puede ser más nuevo que la aplicación instalada y eso es normal.
+4. Retomar el primer pendiente comprobando su estado real. No repetir compilaciones o trabajos en segundo plano todavía activos.
+5. No abrir puerto serie, reiniciar servicios, capturar, borrar flash ni formatear SD sin acuerdo. Las pruebas unitarias no requieren hardware.
+
+## Cierre de cada sesión
+
+Actualizar: fecha, copia canónica real, versión instalada y evidencia, cambios publicados, pruebas ejecutadas, pendientes y siguiente paso seguro. No escribir «todo listo» si faltan pruebas o migración. Mantener este documento en un commit publicado para que la próxima sesión pueda encontrarlo desde GitHub. El identificador de ese mismo commit se obtiene con Git, no se inserta una autorreferencia imposible dentro del archivo.

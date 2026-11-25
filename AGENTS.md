@@ -8,6 +8,7 @@ Reglas para agentes de IA que trabajen en este repositorio.
 2. Lee [docs/gobernanza/README.md](docs/gobernanza/README.md).
 3. Si vas a tocar firmware, lee [docs/firmware/specs/00-gobierno-sdd.md](docs/firmware/specs/00-gobierno-sdd.md).
 4. Si vas a tocar backend, lee [docs/backend/README.md](docs/backend/README.md).
+5. Para retomar una sesión, lee [Continuidad de sesiones](docs/desarrollo/CONTINUIDAD.md) y [Versionado, fuentes y flasheo](docs/infraestructura/versionado-y-flasheo.md). Contrasta siempre con GitHub antes de elegir fuentes o instalar. No uses un despliegue activo como copia de desarrollo ni abras el puerto serie durante pruebas del usuario.
 
 ## Reglas de documentación
 
@@ -65,7 +66,8 @@ a través de Cloudflare Tunnel -> Node-RED -> PostgreSQL/InfluxDB -> PWA y notif
 
 REPOSITORIO
 Público: https://github.com/khalifa63/seguimiento360-alarma
-En el servidor márcalo en:  ~/seguimiento360-alarma  (rama local predeterminada: main)
+Clon canónico previsto del servidor: `~/proyectos/seguimiento360-alarma` (rama `main`).
+La ruta histórica `~/seguimiento360-alarma` no se modifica ni se usa automáticamente: consulta la migración real en [Continuidad de sesiones](docs/desarrollo/CONTINUIDAD.md).
 
 ENTORNO (UBUNTU SERVIDOR, bash)
 - Ubuntu 22.04 LTS.
@@ -104,7 +106,9 @@ PRIMERAS TAREAS (en orden)
 - FW-004: instrumentar ACK (<=50 ms) y RX->publish (<=250 ms).
 
 ENTORNO DE TRABAJO EN UBUNTU
-cd ~/seguimiento360-alarma
+Usar `~/proyectos/seguimiento360-alarma` solo después de verificar la migración en continuidad.
+Los comandos ESP-IDF siguientes son exclusivos del hub y sensor; no aplican a la cámara Arduino.
+cd ~/proyectos/seguimiento360-alarma
 
 # Firmware hub
 . $IDF_PATH/export.sh

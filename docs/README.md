@@ -6,6 +6,11 @@
 **Última revisión:** 2026-10-22.
 **Estado:** fase 3.2.3b completada (control de alarma en PWA). El detalle está en [Estado por fases](fases/RESUMEN_FASES.md).
 
+## Continuidad y operación
+
+- [Retomar una sesión y conocer la versión instalada](desarrollo/CONTINUIDAD.md).
+- [Estructura de proyectos, versiones, compilación y flasheo](infraestructura/versionado-y-flasheo.md).
+
 ## Por dónde empezar
 
 | Si eres... | Empieza por |

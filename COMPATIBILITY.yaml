@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 status: draft
 # Ninguna combinación se declara compatible sin evidencia.
 combinations:
@@ -6,6 +6,7 @@ combinations:
     node: S360-US
     hub_build: null
     node_build: null
+    interface: esp-now
     protocol_version: null
     status: not_tested
     evidence: null
@@ -13,6 +14,7 @@ combinations:
     node: S360-CAM
     hub_build: null
     node_build: null
+    interface: system-integration
     protocol_version: null
     status: not_tested
     evidence: null
@@ -20,6 +22,7 @@ combinations:
     node: S360-BUZ
     hub_build: null
     node_build: null
+    interface: esp-now
     protocol_version: null
     status: not_tested
     evidence: null
@@ -27,6 +30,7 @@ combinations:
     node: S360-REED
     hub_build: null
     node_build: null
+    interface: esp-now
     protocol_version: null
     status: not_tested
     evidence: null
@@ -34,6 +38,7 @@ combinations:
     node: S360-PANIC
     hub_build: null
     node_build: null
+    interface: esp-now
     protocol_version: null
     status: not_tested
     evidence: null

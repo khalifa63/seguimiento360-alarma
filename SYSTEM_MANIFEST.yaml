@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 project: seguimiento360.com
 system_version: null
 status: draft
@@ -8,7 +8,10 @@ components:
     id: S360-HUB
     source: firmware/hub
     firmware_version: null
+    source_commit: null
+    protocol_version: null
     build: null
+    artifact_sha256: null
     hardware_revision: null
     mechanical_revision: null
     manual_version: null
@@ -16,7 +19,10 @@ components:
     id: S360-US
     source: firmware/sensor-ultrasonic
     firmware_version: null
+    source_commit: null
+    protocol_version: null
     build: null
+    artifact_sha256: null
     hardware_revision: null
     mechanical_revision: null
     manual_version: null
@@ -24,7 +30,10 @@ components:
     id: S360-CAM
     source: firmware/esp32cam-evidence/arduino/sd-recovery-firmware
     firmware_version: null
+    source_commit: null
+    protocol_version: null
     build: null
+    artifact_sha256: null
     hardware_revision: null
     mechanical_revision: null
     manual_version: null
@@ -32,7 +41,10 @@ components:
     id: S360-BUZ
     source: firmware/buzzer
     firmware_version: null
+    source_commit: null
+    protocol_version: null
     build: null
+    artifact_sha256: null
     hardware_revision: null
     mechanical_revision: null
     manual_version: null
@@ -40,7 +52,10 @@ components:
     id: S360-REED
     source: firmware/reed-sensor
     firmware_version: null
+    source_commit: null
+    protocol_version: null
     build: null
+    artifact_sha256: null
     hardware_revision: null
     mechanical_revision: null
     manual_version: null
@@ -48,16 +63,29 @@ components:
     id: S360-PANIC
     source: firmware/boton-panico
     firmware_version: null
+    source_commit: null
+    protocol_version: null
     build: null
+    artifact_sha256: null
     hardware_revision: null
     mechanical_revision: null
     manual_version: null
   backend:
+    id: S360-BACKEND
+    source: backend
     version: null
+    source_commit: null
   frontend:
+    id: S360-PORTAL
+    source: frontend/portal
     version: null
+    source_commit: null
   infrastructure:
+    id: S360-INFRA
+    source: infrastructure
     version: null
+    source_commit: null
 validation:
   integration: pending
   approved: false
+  evidence: null

@@ -73,7 +73,7 @@
 | GET | `/api/config` | Web | Configuración actual (perfiles + comunes) |
 | POST | `/api/config` | Web | Actualiza perfiles Día/Noche y ajustes comunes |
 | GET | `/api/evidence` | Web | Lista evidencia (imágenes + clips) |
-| POST | `/api/capture-command` | Web | Encola `capture-image|burst|clip` |
+| POST | `/api/capture-command` | Web | Encola `capture-image`, `burst` o `clip` |
 | GET | `/api/camera-status` | Web | Estado de operación (polling) |
 | POST | `/api/camera-status` | Cámara | Cámara reporta progreso |
 | POST | `/api/upload` | Cámara | Sube JPEG individual |

@@ -12,6 +12,9 @@ para incluirse en la caja del producto y para publicarse en el sitio web.
 | [hub.md](usuario/hub.md) | Hub: la caja que conecta todo |
 | [sensor-ultrasonico.md](usuario/sensor-ultrasonico.md) | Sensor de movimiento por ultrasonido |
 | [portal.md](usuario/portal.md) | La cuenta web: registrarse, entrar y anadir dispositivos |
+| [buzzer.md](usuario/buzzer.md) | Sirena buzzer: borrador de usuario |
+| [reed.md](usuario/reed.md) | Sensor de apertura: borrador de usuario |
+| [panico.md](usuario/panico.md) | Botón de pánico: borrador de usuario |
 
 ## Para quien instala y mantiene
 
@@ -26,6 +29,14 @@ diagnosticar un problema.
 | [vinculacion.md](tecnico/vinculacion.md) | Como se vincula un nodo: fisico y logico |
 | [portal.md](tecnico/portal.md) | API, registro, sesion, informes y eventos |
 
+| [buzzer.md](tecnico/buzzer.md) | Sirena buzzer: borrador técnico |
+| [reed.md](tecnico/reed.md) | Sensor de apertura: borrador técnico |
+| [panico.md](tecnico/panico.md) | Botón de pánico: borrador técnico |
+
+## Manuales pendientes de consolidación
+
+La cámara dispone de [guía de usuario](https://github.com/khalifa63/seguimiento360-alarma/blob/main/firmware/esp32cam-evidence/docs/USER_GUIDE.md), cuyo alcance debe contrastarse con la versión Arduino instalada. Buzzer, reed y botón de pánico tienen código fuente; sus manuales de usuario y técnicos están preparados como borradores, pendientes de validación. La lista del generador debe ampliarse después de aprobarlos.
+
 ## Estado de los dispositivos
 
 **Existen y funcionan:**
@@ -38,8 +49,8 @@ Los dos estan desplegados y verificados en hardware.
 **Previstos, sin firmware todavia:**
 
 En `firmware/` hay carpetas reservadas para sensor de movimiento PIR, humo,
-inundacion, magnetico de puertas, temperatura, boton de panico, sirena y
-rastreador de vehiculo. **Estan vacias**: son sitios reservados, no productos.
+inundacion, temperatura y
+rastreador de vehiculo. Son rutas reservadas o prototipos, no productos aprobados.
 
 No tienen manual porque no existe nada que documentar. Cuando alguno tenga
 firmware, se le anaden sus dos manuales.
@@ -62,9 +73,7 @@ para cada tipo de nodo futuro:
 | `SOS` | emergencia |
 | `HUM` | humedad o inundacion |
 
-La nube **ya los trata como criticos**: cuando llegue uno, lo notifica por
-push ademas de guardarlo. Es decir, un nodo nuevo que emita uno de estos
-codigos funciona sin tocar el backend.
+El tratamiento de cada evento debe comprobarse en el backend y en pruebas de integración; el código reservado no garantiza entrega de notificaciones.
 
 Eso importa para el manual de cada nodo futuro: el codigo que emita tiene que
 estar en esta lista, o la alerta se guardara pero no avisara a nadie.

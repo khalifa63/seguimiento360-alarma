@@ -5,7 +5,7 @@ Guía de la base Arduino del prototipo aislado de evidencia visual, su compilaci
 ## Base del proyecto
 
 - Placa AI-Thinker ESP32-CAM, sensor OV2640 y microSD en modo de un bit.
-- [Sketch Arduino de recuperación](../../firmware/esp32cam-evidence/arduino/sd-recovery-firmware/sd-recovery-firmware.ino), basado en la fuente del 23 de noviembre de 2026. La fuente original local coincidía byte por byte con la del servidor (SHA-256 `676ce40c1f2da00918b86dc61dd1c2bd142262a6913bc10c9dfa879686d32bd0`). La copia versionada separa cuatro valores de despliegue sin cambiar la lógica.
+- [Sketch Arduino de recuperación](https://github.com/khalifa63/seguimiento360-alarma/blob/main/firmware/esp32cam-evidence/arduino/sd-recovery-firmware/sd-recovery-firmware.ino), basado en la fuente del 23 de noviembre de 2026. La fuente original local coincidía byte por byte con la del servidor (SHA-256 `676ce40c1f2da00918b86dc61dd1c2bd142262a6913bc10c9dfa879686d32bd0`). La copia versionada separa cuatro valores de despliegue sin cambiar la lógica.
 - El árbol ESP-IDF del mismo directorio es experimental: se conserva como referencia, no sustituye al Arduino ni está validado para flasheo.
 
 ## Cámara, servidor e interfaz

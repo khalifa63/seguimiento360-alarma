@@ -6,6 +6,19 @@
 **Última revisión:** 2026-10-22.
 **Estado:** fase 3.2.3b completada (control de alarma en PWA). El detalle está en [Estado por fases](fases/RESUMEN_FASES.md).
 
+## Ingeniería y ciclo de vida
+
+- [Plan maestro de ingeniería](ingenieria/PLAN_MAESTRO.md).
+- [Catálogo de componentes](ingenieria/CATALOGO_COMPONENTES.md).
+- [Diseño mecánico y fabricación](ingenieria/MECANICA_FABRICACION.md).
+- [Plantillas y registros](ingenieria/PLANTILLAS.md).
+- [Plan de adecuación](ingenieria/PLAN_ADECUACION.md).
+- [Cierre ENG-001](ingenieria/ENG-001.md).
+- [Fichas de componentes](ingenieria/componentes/README.md).
+- [Aceptación](ingenieria/ACEPTACION.md).
+- [Riesgos](ingenieria/RIESGOS.md).
+- [Registros privados](ingenieria/REGISTROS_PRIVADOS.md).
+
 ## Continuidad y operación
 
 - [Retomar una sesión y conocer la versión instalada](desarrollo/CONTINUIDAD.md).
@@ -22,7 +35,7 @@
 | Operaciones / servidor | [Estado actual de la infraestructura](infraestructura/ESTADO_ACTUAL.md) |
 | Hardware | [Hardware](hardware/README.md) |
 | Gestión / tesis | [Marco teórico](marco-teorico/portada.md) |
-| Agente de IA | [AGENTS.md](../AGENTS.md) |
+| Agente de IA | [AGENTS.md](https://github.com/khalifa63/seguimiento360-alarma/blob/main/AGENTS.md) |
 
 ## Mapa de la documentación
 
@@ -68,7 +81,7 @@ Para quien instala y mantiene:
 - [Base de datos PostgreSQL](backend/database.md)
 - [Flujos Node-RED](backend/nodered-flows.md)
 - [API de autenticación y usuarios](backend/api-auth.md)
-- [Plantilla de `settings.js`](../nodered/data/settings.js.example)
+- [Plantilla de `settings.js`](https://github.com/khalifa63/seguimiento360-alarma/blob/main/nodered/data/settings.js.example)
 
 ### 6. Infraestructura y operación
 
@@ -117,7 +130,7 @@ Para quien instala y mantiene:
 
 ## Reglas de la documentación
 
-1. La documentación vive **solo** en `docs/`.
+1. La documentación canónica nueva vive en `docs/`; se permiten README de subproyectos y excepciones históricas inventariadas.
 2. Un tema = un documento. No se duplica contenido.
 3. Lo obsoleto se mueve a `docs/_archivo/`; no se borra.
 4. No se publican secretos, tokens, contraseñas ni IPs privadas.

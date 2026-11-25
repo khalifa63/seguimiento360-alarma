@@ -10,10 +10,14 @@ Reglas para agentes de IA que trabajen en este repositorio.
 4. Si vas a tocar backend, lee [docs/backend/README.md](docs/backend/README.md).
 5. Para retomar una sesión, lee [Continuidad de sesiones](docs/desarrollo/CONTINUIDAD.md) y [Versionado, fuentes y flasheo](docs/infraestructura/versionado-y-flasheo.md). Contrasta siempre con GitHub antes de elegir fuentes o instalar. No uses un despliegue activo como copia de desarrollo ni abras el puerto serie durante pruebas del usuario.
 
+## Plan maestro de ingeniería
+
+Consultar [plan maestro](docs/ingenieria/PLAN_MAESTRO.md) y [catálogo de componentes](docs/ingenieria/CATALOGO_COMPONENTES.md). El plan es una propuesta y no sustituye contratos SDD aprobados. Al modificar un componente, revisar impacto sobre pruebas, compatibilidad, manuales y continuidad. No publicar archivos CAD propietarios, datos de fabricación sensibles ni registros privados.
+
 ## Reglas de documentación
 
-- La documentación vive **solo** en `docs/`.
-- No crees `.md` fuera de `docs/` salvo `README.md`, `AGENTS.md`, `SECURITY.md` y `CONTRIBUTING.md`.
+- La documentación canónica nueva vive en `docs/`.
+- Se permiten README de subproyectos y los archivos raíz autorizados por el validador. Los documentos históricos fuera de `docs/` se inventarían en `docs/ingenieria/markdown-legado.txt` de forma transitoria; no añadir excepciones sin revisión. No mover contratos ni documentación de cámara sin comprobar referencias y herramientas.
 - Un tema = un documento. No dupliques contenido entre archivos.
 - Lo obsoleto se mueve a `docs/_archivo/`; no se borra.
 - Cada documento empieza con un H1 y un párrafo de propósito.

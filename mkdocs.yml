@@ -26,6 +26,42 @@ nav:
   - Visión y alcance: 00-vision.md
   - Manual general: 01-manual-general.md
   - Estado por fases: fases/RESUMEN_FASES.md
+  - Ingeniería:
+      - ingenieria/PLAN_MAESTRO.md
+      - ingenieria/CATALOGO_COMPONENTES.md
+      - ingenieria/MECANICA_FABRICACION.md
+      - ingenieria/PLANTILLAS.md
+      - ingenieria/PLAN_ADECUACION.md
+      - ingenieria/ENG-001.md
+      - ingenieria/ACEPTACION.md
+      - ingenieria/RIESGOS.md
+      - ingenieria/REGISTROS_PRIVADOS.md
+      - Componentes:
+          - ingenieria/componentes/README.md
+          - ingenieria/componentes/hub.md
+          - ingenieria/componentes/ultrasonico.md
+          - ingenieria/componentes/camara.md
+          - ingenieria/componentes/buzzer.md
+          - ingenieria/componentes/reed.md
+          - ingenieria/componentes/panico.md
+  - Manuales:
+      - manuales/README.md
+      - Usuario:
+          - manuales/usuario/hub.md
+          - manuales/usuario/sensor-ultrasonico.md
+          - manuales/usuario/portal.md
+          - manuales/usuario/buzzer.md
+          - manuales/usuario/reed.md
+          - manuales/usuario/panico.md
+      - Técnico:
+          - manuales/tecnico/hub.md
+          - manuales/tecnico/sensor-ultrasonico.md
+          - manuales/tecnico/portal.md
+          - manuales/tecnico/protocolo-comun.md
+          - manuales/tecnico/vinculacion.md
+          - manuales/tecnico/buzzer.md
+          - manuales/tecnico/reed.md
+          - manuales/tecnico/panico.md
   - Hardware:
       - hardware/README.md
       - hardware/ARQUITECTURA_HUB.md
@@ -58,6 +94,7 @@ nav:
       - infraestructura/ESTADO_ACTUAL.md
       - infraestructura/FLUJOS_NODERED.md
       - infraestructura/CLOUDFLARE_RUTAS.md
+      - infraestructura/versionado-y-flasheo.md
   - Patrones: patrones/PATRONES_DISENO.md
   - Marco teórico:
       - marco-teorico/marco-teorico-firmware.md
@@ -82,3 +119,4 @@ nav:
       - desarrollo/README.md
       - desarrollo/PLAN-DE-ARRANQUE.md
       - desarrollo/AI-ROLES.md
+      - desarrollo/CONTINUIDAD.md

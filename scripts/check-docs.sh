@@ -9,6 +9,8 @@ allowed='^(README|AGENTS|CONTRIBUTING|CHANGELOG|SECURITY|CODE_OF_CONDUCT)\.md$'
 while IFS= read -r f; do
   [[ "$f" == docs/* ]] && continue
   [[ "$f" =~ $allowed ]] && continue
+  [[ "$f" =~ /README\.md$ ]] && continue
+  if grep -Fxq -- "$f" docs/ingenieria/markdown-legado.txt; then continue; fi
   echo "❌ Markdown fuera de docs/: $f"
   fail=1
 done < <(git ls-files '*.md' '*.markdown')
@@ -38,7 +40,7 @@ done < <(git ls-files '*.md')
 # 4) Secretos de alta señal
 if git grep -n -I -E 'sk-or-v1-|ghp_|github_pat_|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY' -- . ':!scripts/check-docs.sh' >/tmp/check-docs-secrets 2>/dev/null; then
   echo "❌ Posible secreto en el repositorio:"
-  cat /tmp/check-docs-secrets
+  echo 'Revisar coincidencias localmente; no publicar valores en logs.'
   fail=1
 fi
 

@@ -16,8 +16,8 @@ Consultar [plan maestro](docs/ingenieria/PLAN_MAESTRO.md) y [catálogo de compon
 
 ## Reglas de documentación
 
-- La documentación vive **solo** en `docs/`.
-- No crees `.md` fuera de `docs/` salvo `README.md`, `AGENTS.md`, `SECURITY.md` y `CONTRIBUTING.md`.
+- La documentación canónica nueva vive en `docs/`.
+- Se permiten README de subproyectos y los archivos raíz autorizados por el validador. Los documentos históricos fuera de `docs/` se inventarían en `docs/ingenieria/markdown-legado.txt` de forma transitoria; no añadir excepciones sin revisión. No mover contratos ni documentación de cámara sin comprobar referencias y herramientas.
 - Un tema = un documento. No dupliques contenido entre archivos.
 - Lo obsoleto se mueve a `docs/_archivo/`; no se borra.
 - Cada documento empieza con un H1 y un párrafo de propósito.

@@ -26,6 +26,10 @@ diagnosticar un problema.
 | [vinculacion.md](tecnico/vinculacion.md) | Como se vincula un nodo: fisico y logico |
 | [portal.md](tecnico/portal.md) | API, registro, sesion, informes y eventos |
 
+## Manuales pendientes de consolidación
+
+La cámara dispone de [guía de usuario](../../firmware/esp32cam-evidence/docs/USER_GUIDE.md), cuyo alcance debe contrastarse con la versión Arduino instalada. Buzzer, reed y botón de pánico tienen código fuente; sus manuales de usuario y técnicos están pendientes de consolidación y validación. La lista del generador debe ampliarse después de aprobarlos.
+
 ## Estado de los dispositivos
 
 **Existen y funcionan:**
@@ -38,7 +42,7 @@ Los dos estan desplegados y verificados en hardware.
 **Previstos, sin firmware todavia:**
 
 En `firmware/` hay carpetas reservadas para sensor de movimiento PIR, humo,
-inundacion, magnetico de puertas, temperatura, boton de panico, sirena y
+inundacion, magnetico de puertas, temperatura, sirena y
 rastreador de vehiculo. **Estan vacias**: son sitios reservados, no productos.
 
 No tienen manual porque no existe nada que documentar. Cuando alguno tenga

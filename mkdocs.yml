@@ -26,6 +26,12 @@ nav:
   - Visión y alcance: 00-vision.md
   - Manual general: 01-manual-general.md
   - Estado por fases: fases/RESUMEN_FASES.md
+  - Ingeniería:
+      - ingenieria/PLAN_MAESTRO.md
+      - ingenieria/CATALOGO_COMPONENTES.md
+      - ingenieria/MECANICA_FABRICACION.md
+      - ingenieria/PLANTILLAS.md
+      - ingenieria/PLAN_ADECUACION.md
   - Hardware:
       - hardware/README.md
       - hardware/ARQUITECTURA_HUB.md

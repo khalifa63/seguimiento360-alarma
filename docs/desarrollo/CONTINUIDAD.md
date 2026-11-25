@@ -66,6 +66,10 @@ ENG-001 se integró en main mediante PR 3, commit 251d4f6, con Markdownlint, che
 
 ENG-002 se integró en main mediante PR 4, commit b14da120, con CI documental aprobado (45660950832). ENG-003 prepara convenciones de versiones y validación de manifiestos; consultar [ENG-003](../ingenieria/ENG-003.md). La sincronización local y las versiones instaladas siguen pendientes de comprobación.
 
+## Preparación ENG-004 a ENG-010
+
+ENG-003 integrado mediante PR 5, commit 29df7f6; CI documental y de manifiestos aprobadas. ENG-004 tiene PR 6 independiente para compilaciones. Los preparativos de electrónica, CAD, fabricación, infraestructura, banco y aceptación se registran en [estado de hoja de ruta](../ingenieria/ESTADO_ENG.md). No constituyen aceptación física. No se ha comprobado sincronización del servidor.
+
 ## Reanudar con seguridad
 
 1. Leer `AGENTS.md`, este documento y el procedimiento enlazado.

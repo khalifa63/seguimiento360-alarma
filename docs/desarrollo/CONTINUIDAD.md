@@ -46,6 +46,18 @@ Objetivo aprobado: GitHub como autoridad, una carpeta por proyecto, continuidad 
 5. Validar el proceso de compilación con plantilla en el servidor, sin secretos ni puerto serie. La prueba física requiere ventana y autorización nuevas.
 6. Revisar por separado cambios locales/commits no publicados en clones antiguos. No mezclarlos ni descartarlos en esta tarea.
 
+## ENG-001 — cierre de preparación documental (25 de noviembre de 2026)
+
+El responsable autorizó cerrar la etapa de organización general. Entregables preparados: plan maestro, catálogo, normalización de ubicación documental con inventario de legado, fichas de seis componentes, manifiesto y matriz de compatibilidad en borrador, manuales preliminares, criterios de aceptación, riesgos y estructura de registros privados.
+
+- Clon canónico del servidor: se confirmó actualización local de main a 2254660 y recuperación del primer commit de ingeniería 327b93d en la rama docs/plan-maestro-ingenieria, con árbol limpio. Los clones antiguos no se han reconciliado.
+- Último antecedente de esta revisión: 9ff17e1. Los commits posteriores al primer commit local requieren confirmar publicación y sincronización; no asumir que main los contiene.
+- Validación estática: 137 Markdown inventariados, sin enlaces rotos en los 11 Markdown revisados en el último bloque y sin rutas inexistentes en la navegación. No se ejecutó el validador completo sobre esta revisión, Markdownlint ni MkDocs. No se certifican firmware, hardware ni seguridad.
+- Estado: preparación documental terminada; cierre de integración condicionado a publicación, revisión y verificaciones automatizadas satisfactorias. Los manuales siguen siendo borradores. No se autorizan despliegues.
+- Próximo paso seguro: confirmar rama remota y HEAD, ejecutar git diff --check, scripts/check-docs.sh, Markdownlint y MkDocs; revisar resultados antes de fusionar. Después iniciar ENG-002, continuidad independiente por componente. Conservar pendientes históricos de cámara y clones.
+
+Consultar [registro de cierre ENG-001](../ingenieria/ENG-001.md).
+
 ## Reanudar con seguridad
 
 1. Leer `AGENTS.md`, este documento y el procedimiento enlazado.

@@ -13,6 +13,7 @@
 - [Diseño mecánico y fabricación](ingenieria/MECANICA_FABRICACION.md).
 - [Plantillas y registros](ingenieria/PLANTILLAS.md).
 - [Plan de adecuación](ingenieria/PLAN_ADECUACION.md).
+- [Cierre ENG-001](ingenieria/ENG-001.md).
 - [Fichas de componentes](ingenieria/componentes/README.md).
 - [Aceptación](ingenieria/ACEPTACION.md).
 - [Riesgos](ingenieria/RIESGOS.md).

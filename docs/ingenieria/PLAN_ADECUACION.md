@@ -2,6 +2,10 @@
 
 Propuesta incremental; no autoriza despliegues ni flasheos.
 
+## Estado ENG-001
+
+Ver [registro de cierre](ENG-001.md). Preparación terminada; integración y validación automatizada pendientes.
+
 ## P0: preservar y consolidar
 
 - [ ] Evaluar privacidad y respaldos; revisar secretos expuestos sin reproducirlos.
@@ -11,8 +15,9 @@ Propuesta incremental; no autoriza despliegues ni flasheos.
 
 ## P1: documentación
 
-- [ ] Fichas por HUB y nodo, manifiesto de sistema y compatibilidad.
-- [ ] Manuales de buzzer, reed y pánico; integrar cámara sin duplicar.
+- [x] Preparar fichas de seis componentes, manifiesto y compatibilidad en borrador.
+- [x] Preparar borradores de manuales de buzzer, reed y pánico.
+- [ ] Validar manuales e integrar cámara sin duplicar.
 - [ ] Revisar generador de manuales, enlaces y publicación.
 
 ## P2: ingeniería

@@ -35,7 +35,7 @@ diagnosticar un problema.
 
 ## Manuales pendientes de consolidación
 
-La cámara dispone de [guía de usuario](../../firmware/esp32cam-evidence/docs/USER_GUIDE.md), cuyo alcance debe contrastarse con la versión Arduino instalada. Buzzer, reed y botón de pánico tienen código fuente; sus manuales de usuario y técnicos están preparados como borradores, pendientes de validación. La lista del generador debe ampliarse después de aprobarlos.
+La cámara dispone de [guía de usuario](https://github.com/khalifa63/seguimiento360-alarma/blob/main/firmware/esp32cam-evidence/docs/USER_GUIDE.md), cuyo alcance debe contrastarse con la versión Arduino instalada. Buzzer, reed y botón de pánico tienen código fuente; sus manuales de usuario y técnicos están preparados como borradores, pendientes de validación. La lista del generador debe ampliarse después de aprobarlos.
 
 ## Estado de los dispositivos
 

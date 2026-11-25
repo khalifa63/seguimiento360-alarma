@@ -9,7 +9,7 @@ Node-RED expone la API REST y ejecuta la lógica de negocio. PostgreSQL guarda c
 
 ## Configuración
 
-La plantilla segura está en [`nodered/data/settings.js.example`](../../nodered/data/settings.js.example). Copia el archivo como `settings.js` y define las variables en `.env`:
+La plantilla segura está en [`nodered/data/settings.js.example`](https://github.com/khalifa63/seguimiento360-alarma/blob/main/nodered/data/settings.js.example). Copia el archivo como `settings.js` y define las variables en `.env`:
 
 ```bash
 NODE_RED_ADMIN_HASH=...

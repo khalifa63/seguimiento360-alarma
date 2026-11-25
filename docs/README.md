@@ -35,7 +35,7 @@
 | Operaciones / servidor | [Estado actual de la infraestructura](infraestructura/ESTADO_ACTUAL.md) |
 | Hardware | [Hardware](hardware/README.md) |
 | Gestión / tesis | [Marco teórico](marco-teorico/portada.md) |
-| Agente de IA | [AGENTS.md](../AGENTS.md) |
+| Agente de IA | [AGENTS.md](https://github.com/khalifa63/seguimiento360-alarma/blob/main/AGENTS.md) |
 
 ## Mapa de la documentación
 
@@ -81,7 +81,7 @@ Para quien instala y mantiene:
 - [Base de datos PostgreSQL](backend/database.md)
 - [Flujos Node-RED](backend/nodered-flows.md)
 - [API de autenticación y usuarios](backend/api-auth.md)
-- [Plantilla de `settings.js`](../nodered/data/settings.js.example)
+- [Plantilla de `settings.js`](https://github.com/khalifa63/seguimiento360-alarma/blob/main/nodered/data/settings.js.example)
 
 ### 6. Infraestructura y operación
 

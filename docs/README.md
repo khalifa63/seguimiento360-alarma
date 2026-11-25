@@ -13,6 +13,7 @@
 - [Diseño mecánico y fabricación](ingenieria/MECANICA_FABRICACION.md).
 - [Plantillas y registros](ingenieria/PLANTILLAS.md).
 - [Plan de adecuación](ingenieria/PLAN_ADECUACION.md).
+- [Fichas de componentes](ingenieria/componentes/README.md).
 
 ## Continuidad y operación
 

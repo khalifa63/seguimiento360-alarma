@@ -1,0 +1,39 @@
+schema_version: 1
+status: draft
+# Ninguna combinación se declara compatible sin evidencia.
+combinations:
+  - hub: S360-HUB
+    node: S360-US
+    hub_build: null
+    node_build: null
+    protocol_version: null
+    status: not_tested
+    evidence: null
+  - hub: S360-HUB
+    node: S360-CAM
+    hub_build: null
+    node_build: null
+    protocol_version: null
+    status: not_tested
+    evidence: null
+  - hub: S360-HUB
+    node: S360-BUZ
+    hub_build: null
+    node_build: null
+    protocol_version: null
+    status: not_tested
+    evidence: null
+  - hub: S360-HUB
+    node: S360-REED
+    hub_build: null
+    node_build: null
+    protocol_version: null
+    status: not_tested
+    evidence: null
+  - hub: S360-HUB
+    node: S360-PANIC
+    hub_build: null
+    node_build: null
+    protocol_version: null
+    status: not_tested
+    evidence: null

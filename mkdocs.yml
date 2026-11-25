@@ -32,6 +32,14 @@ nav:
       - ingenieria/MECANICA_FABRICACION.md
       - ingenieria/PLANTILLAS.md
       - ingenieria/PLAN_ADECUACION.md
+      - Componentes:
+          - ingenieria/componentes/README.md
+          - ingenieria/componentes/hub.md
+          - ingenieria/componentes/ultrasonico.md
+          - ingenieria/componentes/camara.md
+          - ingenieria/componentes/buzzer.md
+          - ingenieria/componentes/reed.md
+          - ingenieria/componentes/panico.md
   - Hardware:
       - hardware/README.md
       - hardware/ARQUITECTURA_HUB.md

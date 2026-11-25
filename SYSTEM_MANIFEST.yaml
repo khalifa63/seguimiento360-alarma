@@ -1,0 +1,63 @@
+schema_version: 1
+project: seguimiento360.com
+system_version: null
+status: draft
+protocol_version: null
+components:
+  hub:
+    id: S360-HUB
+    source: firmware/hub
+    firmware_version: null
+    build: null
+    hardware_revision: null
+    mechanical_revision: null
+    manual_version: null
+  ultrasonico:
+    id: S360-US
+    source: firmware/sensor-ultrasonic
+    firmware_version: null
+    build: null
+    hardware_revision: null
+    mechanical_revision: null
+    manual_version: null
+  camara:
+    id: S360-CAM
+    source: firmware/esp32cam-evidence/arduino/sd-recovery-firmware
+    firmware_version: null
+    build: null
+    hardware_revision: null
+    mechanical_revision: null
+    manual_version: null
+  buzzer:
+    id: S360-BUZ
+    source: firmware/buzzer
+    firmware_version: null
+    build: null
+    hardware_revision: null
+    mechanical_revision: null
+    manual_version: null
+  reed:
+    id: S360-REED
+    source: firmware/reed-sensor
+    firmware_version: null
+    build: null
+    hardware_revision: null
+    mechanical_revision: null
+    manual_version: null
+  panico:
+    id: S360-PANIC
+    source: firmware/boton-panico
+    firmware_version: null
+    build: null
+    hardware_revision: null
+    mechanical_revision: null
+    manual_version: null
+  backend:
+    version: null
+  frontend:
+    version: null
+  infrastructure:
+    version: null
+validation:
+  integration: pending
+  approved: false

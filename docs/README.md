@@ -14,6 +14,9 @@
 - [Plantillas y registros](ingenieria/PLANTILLAS.md).
 - [Plan de adecuación](ingenieria/PLAN_ADECUACION.md).
 - [Fichas de componentes](ingenieria/componentes/README.md).
+- [Aceptación](ingenieria/ACEPTACION.md).
+- [Riesgos](ingenieria/RIESGOS.md).
+- [Registros privados](ingenieria/REGISTROS_PRIVADOS.md).
 
 ## Continuidad y operación
 
@@ -126,7 +129,7 @@ Para quien instala y mantiene:
 
 ## Reglas de la documentación
 
-1. La documentación vive **solo** en `docs/`.
+1. La documentación canónica nueva vive en `docs/`; se permiten README de subproyectos y excepciones históricas inventariadas.
 2. Un tema = un documento. No se duplica contenido.
 3. Lo obsoleto se mueve a `docs/_archivo/`; no se borra.
 4. No se publican secretos, tokens, contraseñas ni IPs privadas.

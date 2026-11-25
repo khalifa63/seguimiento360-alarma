@@ -32,6 +32,9 @@ nav:
       - ingenieria/MECANICA_FABRICACION.md
       - ingenieria/PLANTILLAS.md
       - ingenieria/PLAN_ADECUACION.md
+      - ingenieria/ACEPTACION.md
+      - ingenieria/RIESGOS.md
+      - ingenieria/REGISTROS_PRIVADOS.md
       - Componentes:
           - ingenieria/componentes/README.md
           - ingenieria/componentes/hub.md
@@ -40,6 +43,24 @@ nav:
           - ingenieria/componentes/buzzer.md
           - ingenieria/componentes/reed.md
           - ingenieria/componentes/panico.md
+  - Manuales:
+      - manuales/README.md
+      - Usuario:
+          - manuales/usuario/hub.md
+          - manuales/usuario/sensor-ultrasonico.md
+          - manuales/usuario/portal.md
+          - manuales/usuario/buzzer.md
+          - manuales/usuario/reed.md
+          - manuales/usuario/panico.md
+      - Técnico:
+          - manuales/tecnico/hub.md
+          - manuales/tecnico/sensor-ultrasonico.md
+          - manuales/tecnico/portal.md
+          - manuales/tecnico/protocolo-comun.md
+          - manuales/tecnico/vinculacion.md
+          - manuales/tecnico/buzzer.md
+          - manuales/tecnico/reed.md
+          - manuales/tecnico/panico.md
   - Hardware:
       - hardware/README.md
       - hardware/ARQUITECTURA_HUB.md

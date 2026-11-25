@@ -1,5 +1,11 @@
 # ESP32-CAM Evidence — Firmware
 
+La base de trabajo es el [sketch Arduino del 23 de noviembre de 2026](arduino/sd-recovery-firmware/sd-recovery-firmware.ino). Consulta la [guía de firmware y proyecto](../../docs/firmware/esp32cam-evidence.md) para compilarlo y validar un despliegue.
+
+## Proyecto ESP-IDF experimental
+
+Las secciones siguientes describen el árbol histórico para ESP-IDF, que no está validado para sustituir al firmware Arduino. No sigas sus instrucciones de flasheo para la cámara activa.
+
 Firmware para AI-Thinker ESP32-CAM que captura fotos, ráfagas y clips (secuencias JPEG), los guarda en microSD y los sube a un servidor Node.js aislado vía HTTPS. Diseñado como prototipo de evidencia visual para una alarma existente.
 
 ## Características

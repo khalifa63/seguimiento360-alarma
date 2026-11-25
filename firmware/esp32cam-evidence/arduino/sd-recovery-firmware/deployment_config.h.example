@@ -1,0 +1,7 @@
+#pragma once
+
+// Copy to deployment_config.h and keep real values outside Git.
+static const char *HOST = "camera.example.invalid";
+static const char *CAMERA_TOKEN = "example-camera-token-not-for-deployment";
+static const char *WEB_TOKEN = "example-web-token-not-for-deployment";
+static const char *GALLERY_URL = "https://camera.example.invalid/";

@@ -5,6 +5,7 @@ Documentación de implementación y contratos del firmware. El código vive en `
 | Documento | Qué contiene |
 |---|---|
 | [Hub ESP32-S3](hub.md) | Arquitectura M2, tareas, tópicos, build y validación |
+| [ESP32-CAM Evidence](esp32cam-evidence.md) | Base Arduino, sincronización, microSD y validación |
 | [Spec 00 · Gobierno SDD](specs/00-gobierno-sdd.md) | Reglas del proceso de diseño |
 | [Spec 01 · Requisitos](specs/01-requisitos.md) | Requisitos funcionales y no funcionales |
 | [Spec 02 · Interfaces](specs/02-interfaces.md) | Contratos entre firmware, hub y nube |

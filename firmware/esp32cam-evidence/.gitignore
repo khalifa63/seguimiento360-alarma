@@ -8,6 +8,7 @@ sdkconfig.old
 
 # Secrets
 tokens.h
+/arduino/sd-recovery-firmware/deployment_config.h
 *.token
 *.key
 

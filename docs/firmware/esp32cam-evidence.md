@@ -31,7 +31,23 @@ La plantilla basta para probar la compilación, no para desplegar. Para un entor
 
 ## Validación y mantenimiento
 
-La documentación operativa del servidor registra pruebas anteriores de montaje y lectura/escritura de microSD, una foto, una ráfaga de cinco y un clip corto de dos fotogramas. Esas pruebas no demuestran estabilidad prolongada ni validan directamente un binario recompilado. La primera recompilación de la fuente histórica generó un binario distinto del artefacto etiquetado como flasheado el 23 de noviembre; la coincidencia exacta con la flash no se da por supuesta. El 24 de noviembre se compiló también el sketch publicable con la plantilla y con la configuración local; la tabla de particiones generada coincide con la del artefacto histórico, pero aún debe cotejarse con la placa antes de actualizarla.
+La documentación operativa del servidor registra pruebas anteriores de montaje y lectura/escritura de microSD, una foto, una ráfaga de cinco y un clip corto de dos fotogramas. Esas pruebas no demuestran estabilidad prolongada. La recompilación no reprodujo byte por byte el artefacto del 23 de noviembre: no se debe confundir correspondencia del código con reproducibilidad binaria.
+
+### Validación del 24 de noviembre de 2026
+
+- Se compiló el sketch publicable con la plantilla y con la configuración local, usando Arduino-ESP32 `3.3.11`.
+- Antes de actualizar se confirmó la identidad de la placa, se respaldaron sus 4 MiB de flash y se comprobó que la aplicación leída coincidía byte por byte con el artefacto histórico del 23 de noviembre. La tabla de particiones también coincidía con la del candidato. El respaldo privado no forma parte del repositorio.
+- Se flasheó la aplicación del commit `1da2d99` en `0x10000`, sin borrado general ni escritura de NVS, bootloader o tabla de particiones. La herramienta verificó el hash después de escribir. Tras reiniciar se observaron conexión Wi-Fi, inicio HTTP y recepción periódica de configuración y comandos.
+- El usuario confirmó foto, visualización de las cinco imágenes de la ráfaga y funcionamiento del clip. El servidor confirmó la ráfaga completa (5/5) y el clip completo (30/30), con subidas confirmadas y sin comando pendiente tras el clip.
+
+Se acepta esta base para continuar el desarrollo, no como una certificación de estabilidad o de seguridad. Quedan pendientes:
+
+- La primera ráfaga permaneció unos cinco minutos sin actualizarse. Coincidió con un nuevo arranque observado al abrir el puerto serie y terminó después; no se ha determinado la causa del retraso ni si abrir el puerto provocó ese reinicio.
+- La microSD falló al montar tras un arranque y pudo utilizarse en la ráfaga y el clip posteriores. No se formateó; falta diagnosticar la intermitencia.
+- Las consultas HTTP directas desde el servidor agotaron su tiempo de espera, aunque la comunicación saliente de la cámara y las capturas por la interfaz funcionaron. El diagnóstico de red local sigue pendiente.
+- El botón Informe cámara conserva las limitaciones descritas arriba. No se añadió `/cam-diag`.
+
+Evita abrir el puerto serie durante pruebas funcionales: incluso sin solicitar reset explícito, el adaptador puede alterar las líneas de control. No reinicies ni envíes capturas de prueba cuando el usuario esté validando una operación.
 
 1. Confirma que no haya una captura en curso y acuerda una ventana de mantenimiento. Identifica la placa por su MAC, no por el nombre del puerto; entrar al cargador serie puede interrumpir el servicio.
 2. Respalda la flash, incluidas tabla de particiones y configuración persistente. Verifica tamaño y huella del respaldo y conserva un método de restauración. Trata el respaldo como secreto.

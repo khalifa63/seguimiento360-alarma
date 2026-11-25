@@ -8,8 +8,14 @@ on:
       - "firmware/hub/**"
       - "firmware/sensor-ultrasonic/**"
       - "firmware/shared/**"
+      - "firmware/buzzer/**"
+      - "firmware/reed-sensor/**"
+      - "firmware/boton-panico/**"
       - ".github/workflows/firmware.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -24,9 +30,30 @@ jobs:
           - project: firmware/sensor-ultrasonic
             target: esp32s3
             name: sensor-ultrasonic
+          - project: firmware/buzzer
+            target: esp32c3
+            name: buzzer
+          - project: firmware/reed-sensor
+            target: esp32
+            name: reed
+          - project: firmware/boton-panico
+            target: esp32s3
+            name: panico
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
+
+      # Firma efímera exclusivamente para CI: nunca usar una clave OTA real.
+      - name: Prepare disposable CI signing key
+        if: matrix.name == 'hub' || matrix.name == 'sensor-ultrasonic'
+        working-directory: ${{ matrix.project }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          openssl genrsa -out ci-signing-key.pem 3072
+          grep -q '^CONFIG_SECURE_BOOT_SIGNING_KEY=' sdkconfig.defaults
+          sed -i 's|^CONFIG_SECURE_BOOT_SIGNING_KEY=.*|CONFIG_SECURE_BOOT_SIGNING_KEY="ci-signing-key.pem"|' sdkconfig.defaults
 
       # Misma version de IDF que el entorno de desarrollo, para que el CI no
       # valide algo distinto de lo que se flashea.
@@ -35,3 +62,8 @@ jobs:
           esp_idf_version: v5.2.2
           target: ${{ matrix.target }}
           path: ${{ matrix.project }}
+
+      - name: Remove disposable signing key
+        if: always()
+        working-directory: ${{ matrix.project }}
+        run: rm -f ci-signing-key.pem

@@ -1,0 +1,34 @@
+name: camera-build
+
+on:
+  pull_request:
+    paths:
+      - "firmware/esp32cam-evidence/arduino/**"
+      - "scripts/camera_release.py"
+      - "tests/test_camera_release.py"
+      - ".github/workflows/camera-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  camera:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -B -m unittest discover -s tests -p test_camera_release.py -v
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: "1.2.2"
+      - run: |
+          arduino-cli config init
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - working-directory: firmware/esp32cam-evidence/arduino/sd-recovery-firmware
+        run: |
+          cp deployment_config.h.example deployment_config.h
+          arduino-cli compile --fqbn esp32:esp32:esp32cam --build-property build.code_debug=3 --build-property build.warn_data_percentage=75 .

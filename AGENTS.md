@@ -10,6 +10,10 @@ Reglas para agentes de IA que trabajen en este repositorio.
 4. Si vas a tocar backend, lee [docs/backend/README.md](docs/backend/README.md).
 5. Para retomar una sesión, lee [Continuidad de sesiones](docs/desarrollo/CONTINUIDAD.md) y [Versionado, fuentes y flasheo](docs/infraestructura/versionado-y-flasheo.md). Contrasta siempre con GitHub antes de elegir fuentes o instalar. No uses un despliegue activo como copia de desarrollo ni abras el puerto serie durante pruebas del usuario.
 
+## Plan maestro de ingeniería
+
+Consultar [plan maestro](docs/ingenieria/PLAN_MAESTRO.md) y [catálogo de componentes](docs/ingenieria/CATALOGO_COMPONENTES.md). El plan es una propuesta y no sustituye contratos SDD aprobados. Al modificar un componente, revisar impacto sobre pruebas, compatibilidad, manuales y continuidad. No publicar archivos CAD propietarios, datos de fabricación sensibles ni registros privados.
+
 ## Reglas de documentación
 
 - La documentación vive **solo** en `docs/`.

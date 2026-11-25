@@ -6,6 +6,14 @@
 **Última revisión:** 2026-10-22.
 **Estado:** fase 3.2.3b completada (control de alarma en PWA). El detalle está en [Estado por fases](fases/RESUMEN_FASES.md).
 
+## Ingeniería y ciclo de vida
+
+- [Plan maestro de ingeniería](ingenieria/PLAN_MAESTRO.md).
+- [Catálogo de componentes](ingenieria/CATALOGO_COMPONENTES.md).
+- [Diseño mecánico y fabricación](ingenieria/MECANICA_FABRICACION.md).
+- [Plantillas y registros](ingenieria/PLANTILLAS.md).
+- [Plan de adecuación](ingenieria/PLAN_ADECUACION.md).
+
 ## Continuidad y operación
 
 - [Retomar una sesión y conocer la versión instalada](desarrollo/CONTINUIDAD.md).

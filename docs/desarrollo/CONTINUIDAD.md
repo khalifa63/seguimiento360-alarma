@@ -58,6 +58,10 @@ El responsable autorizó cerrar la etapa de organización general. Entregables p
 
 Consultar [registro de cierre ENG-001](../ingenieria/ENG-001.md).
 
+## ENG-002 — continuidad por subproyecto
+
+ENG-001 se integró en main mediante PR 3, commit 251d4f6, con Markdownlint, check-docs y MkDocs estricto aprobados en ejecución 45660228480. La sincronización local posterior sigue sin comprobarse. Consultar el [índice de subproyectos](subproyectos/README.md) y [ENG-002](../ingenieria/ENG-002.md) para retomar un área. Los pendientes físicos y operativos anteriores se mantienen.
+
 ## Reanudar con seguridad
 
 1. Leer `AGENTS.md`, este documento y el procedimiento enlazado.

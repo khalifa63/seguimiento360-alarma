@@ -33,6 +33,7 @@ nav:
       - ingenieria/PLANTILLAS.md
       - ingenieria/PLAN_ADECUACION.md
       - ingenieria/ENG-001.md
+      - ingenieria/ENG-002.md
       - ingenieria/ACEPTACION.md
       - ingenieria/RIESGOS.md
       - ingenieria/REGISTROS_PRIVADOS.md
@@ -120,3 +121,17 @@ nav:
       - desarrollo/PLAN-DE-ARRANQUE.md
       - desarrollo/AI-ROLES.md
       - desarrollo/CONTINUIDAD.md
+      - Subproyectos:
+          - desarrollo/subproyectos/README.md
+          - desarrollo/subproyectos/PLANTILLA.md
+          - desarrollo/subproyectos/hub.md
+          - desarrollo/subproyectos/ultrasonico.md
+          - desarrollo/subproyectos/camara.md
+          - desarrollo/subproyectos/buzzer.md
+          - desarrollo/subproyectos/reed.md
+          - desarrollo/subproyectos/panico.md
+          - desarrollo/subproyectos/backend.md
+          - desarrollo/subproyectos/portal.md
+          - desarrollo/subproyectos/infraestructura.md
+          - desarrollo/subproyectos/simulador.md
+          - desarrollo/subproyectos/pir.md

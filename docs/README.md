@@ -14,6 +14,8 @@
 - [Plantillas y registros](ingenieria/PLANTILLAS.md).
 - [Plan de adecuación](ingenieria/PLAN_ADECUACION.md).
 - [Cierre ENG-001](ingenieria/ENG-001.md).
+- [ENG-002](ingenieria/ENG-002.md).
+- [Continuidad por subproyecto](desarrollo/subproyectos/README.md).
 - [Fichas de componentes](ingenieria/componentes/README.md).
 - [Aceptación](ingenieria/ACEPTACION.md).
 - [Riesgos](ingenieria/RIESGOS.md).

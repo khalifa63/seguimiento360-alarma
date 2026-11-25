@@ -13,7 +13,9 @@ La evidencia histórica de instalación y pruebas del 24 de noviembre se conserv
 
 ## Pendientes y siguiente paso
 
-Validar compilación con plantilla sin puerto serie; conservar pendientes de microSD y diagnóstico.
+El 25 de noviembre se confirmó build real y verify local con plantilla, commit `b3057a729929a416a7b50db5887a069689407f7d`, Arduino CLI 1.2.2 y core ESP32 3.3.11. Cinco binarios; aplicación 1281104 bytes. El manifiesto y artefactos permanecen privados. Las 19 pruebas unitarias también pasaron. No se instaló el release de prueba.
+
+Siguiente paso: implementar y probar de forma simulada el instalador FLASH-01 a FLASH-08; mantener pendientes de microSD y diagnóstico. La versión instalada histórica no cambia.
 
 ## Cierre de sesión
 

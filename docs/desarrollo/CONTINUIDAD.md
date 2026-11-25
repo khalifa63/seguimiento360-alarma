@@ -27,7 +27,18 @@ Copia este mensaje y adjunta este archivo, o pide leer su versión actual en Git
 - Incidencias: montaje de microSD intermitente; primera ráfaga demoró unos cinco minutos; apertura serie pudo reiniciar la cámara; acceso HTTP directo no confirmado. Ver [detalle de validación](../firmware/esp32cam-evidence.md).
 - No hay lectura independiente posterior del rango flasheado documentada: la evidencia de escritura es la verificación de hash de esptool más las pruebas funcionales. No atribuirle retrospectivamente el nuevo proceso.
 
-## Trabajo actual: 25 de noviembre de 2026
+## Validación del entorno Ubuntu: 25 de noviembre de 2026
+
+Evidencia comunicada por el operador: clon canónico en rama main, HEAD y origin/main coincidentes en `b3057a729929a416a7b50db5887a069689407f7d`, árbol limpio. Directorios privados de configuración, releases, dispositivos y respaldos con permisos 700. Los clones antiguos se conservan.
+
+- Herramientas: Git 2.56.0, Python 3.14.4, PyYAML 6.0.3, Node 22.22.1, npm 9.2.0, ESP-IDF 5.2.2, Arduino CLI 1.2.2, core ESP32 3.3.11, Docker 29.9.2 y Compose 5.6.1.
+- Esptool del entorno IDF: 4.12.0. El futuro instalador requiere 5.3.1 en entorno separado; no actualizar el entorno IDF globalmente.
+- Validaciones locales: diff sin errores visibles, manifiestos válidos, 9 pruebas de manifiestos y 19 de cámara aprobadas. La ejecución de check-docs no mostró salida; no se registró su código de retorno por separado.
+- Compilación real con plantilla pública copiada fuera del clon: build y verify de camera_release.py exitosos; manifiesto privado y cinco binarios, aplicación de 1281104 bytes, imagen combinada de 4194304 bytes. Release de prueba de 50 MB. Árbol Git limpio después de compilar. No instalar este artefacto.
+- CI del PR 6: docs y cámara aprobadas; HUB, buzzer, reed y pánico compilados; ultrasónico falló por campo distance_cm ausente en espnow_payload_v1_t. Firma OTA de CI aislada; no implica firma de producción. Pendiente revisar contrato y corregir en rama independiente.
+- Estado: adecuación de desarrollo del servidor comprobada al commit indicado; versiones instaladas, migración de registros privados, copia canónica del PC, instalador seguro y aceptación física pendientes. La evidencia histórica de cámara del 24 de noviembre no cambia. Sin reinicios ni flasheos.
+
+## Trabajo histórico: 25 de noviembre de 2026
 
 Objetivo aprobado: GitHub como autoridad, una carpeta por proyecto, continuidad entre sesiones y procedimiento único trazable de compilación/flasheo. Se aprobó mantener el monorepo y no mover copias antiguas ni flashear la placa.
 
@@ -37,7 +48,7 @@ Objetivo aprobado: GitHub como autoridad, una carpeta por proyecto, continuidad 
 - Diseño de estructura, identidad de versiones, registros y controles de seguridad.
 - Validación histórica de foto/ráfaga/clip conservada; no se hicieron nuevas capturas ni reinicios en esta etapa.
 
-### En curso y pendiente
+### Pendientes originales (históricos; consultar validación posterior)
 
 1. Publicar esta revisión aprobada y verificar coincidencia con `main` remoto. La herramienta `scripts/camera_release.py` y sus 19 pruebas unitarias ya están implementadas; la versión final pasó las 19 en Ubuntu, con herramientas simuladas y sin hardware. Eso no equivale a una compilación real.
 2. Actualizar por fast-forward el nuevo clon canónico del servidor y validar una compilación real con plantilla, sin secretos ni puerto serie.
@@ -46,7 +57,7 @@ Objetivo aprobado: GitHub como autoridad, una carpeta por proyecto, continuidad 
 5. Validar el proceso de compilación con plantilla en el servidor, sin secretos ni puerto serie. La prueba física requiere ventana y autorización nuevas.
 6. Revisar por separado cambios locales/commits no publicados en clones antiguos. No mezclarlos ni descartarlos en esta tarea.
 
-## ENG-001 — cierre de preparación documental (25 de noviembre de 2026)
+## ENG-001 — cierre de preparación documental (registro histórico) (25 de noviembre de 2026)
 
 El responsable autorizó cerrar la etapa de organización general. Entregables preparados: plan maestro, catálogo, normalización de ubicación documental con inventario de legado, fichas de seis componentes, manifiesto y matriz de compatibilidad en borrador, manuales preliminares, criterios de aceptación, riesgos y estructura de registros privados.
 
@@ -58,15 +69,15 @@ El responsable autorizó cerrar la etapa de organización general. Entregables p
 
 Consultar [registro de cierre ENG-001](../ingenieria/ENG-001.md).
 
-## ENG-002 — continuidad por subproyecto
+## ENG-002 — continuidad por subproyecto (registro histórico)
 
 ENG-001 se integró en main mediante PR 3, commit 251d4f6, con Markdownlint, check-docs y MkDocs estricto aprobados en ejecución 45660228480. La sincronización local posterior sigue sin comprobarse. Consultar el [índice de subproyectos](subproyectos/README.md) y [ENG-002](../ingenieria/ENG-002.md) para retomar un área. Los pendientes físicos y operativos anteriores se mantienen.
 
-## ENG-003 — versionado y trazabilidad
+## ENG-003 — versionado y trazabilidad (registro histórico)
 
 ENG-002 se integró en main mediante PR 4, commit b14da120, con CI documental aprobado (45660950832). ENG-003 prepara convenciones de versiones y validación de manifiestos; consultar [ENG-003](../ingenieria/ENG-003.md). La sincronización local y las versiones instaladas siguen pendientes de comprobación.
 
-## Preparación ENG-004 a ENG-010
+## Preparación ENG-004 a ENG-010 (registro histórico)
 
 ENG-003 integrado mediante PR 5, commit 29df7f6; CI documental y de manifiestos aprobadas. ENG-004 tiene PR 6 independiente para compilaciones. Los preparativos de electrónica, CAD, fabricación, infraestructura, banco y aceptación se registran en [estado de hoja de ruta](../ingenieria/ESTADO_ENG.md). No constituyen aceptación física. No se ha comprobado sincronización del servidor.
 

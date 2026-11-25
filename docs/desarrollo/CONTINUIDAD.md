@@ -62,6 +62,10 @@ Consultar [registro de cierre ENG-001](../ingenieria/ENG-001.md).
 
 ENG-001 se integró en main mediante PR 3, commit 251d4f6, con Markdownlint, check-docs y MkDocs estricto aprobados en ejecución 45660228480. La sincronización local posterior sigue sin comprobarse. Consultar el [índice de subproyectos](subproyectos/README.md) y [ENG-002](../ingenieria/ENG-002.md) para retomar un área. Los pendientes físicos y operativos anteriores se mantienen.
 
+## ENG-003 — versionado y trazabilidad
+
+ENG-002 se integró en main mediante PR 4, commit b14da120, con CI documental aprobado (45660950832). ENG-003 prepara convenciones de versiones y validación de manifiestos; consultar [ENG-003](../ingenieria/ENG-003.md). La sincronización local y las versiones instaladas siguen pendientes de comprobación.
+
 ## Reanudar con seguridad
 
 1. Leer `AGENTS.md`, este documento y el procedimiento enlazado.

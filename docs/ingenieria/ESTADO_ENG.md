@@ -7,7 +7,7 @@ Registro de preparación y bloqueos; consultar GitHub para confirmar integració
 | ENG-001 | Organización integrada | Ninguno documental |
 | ENG-002 | Continuidad integrada | Ninguno documental |
 | ENG-003 | Versionado integrado | Verificar instalaciones reales en etapas posteriores |
-| ENG-004 | CI de compilaciones propuesta en PR 6 | Resultados, artefactos privados e instalador |
+| ENG-004 | Cinco compilaciones CI aprobadas y release local de cámara verificado | Corregir ultrasónico, integrar PR 6 e implementar instalador |
 | ENG-005 | Inventario electrónico preliminar | BOM real, esquemas y mediciones |
 | ENG-006 | Procedimiento CAD | Originales y prototipo |
 | ENG-007 | Orden e inspección | Proveedor, lote y recepción |
@@ -15,4 +15,4 @@ Registro de preparación y bloqueos; consultar GitHub para confirmar integració
 | ENG-009 | Protocolo de banco | Hardware y pruebas |
 | ENG-010 | Puertas de aceptación | Integración real y aprobación |
 
-No iniciar operaciones destructivas ni publicar material privado. El siguiente paso seguro es revisar CI de ENG-004 y contrastar inventario físico cuando exista acceso.
+No iniciar operaciones destructivas ni publicar material privado. La preparación de ENG-005 a ENG-010 se integró por PR 7. El servidor se sincronizó y aprobó 28 pruebas locales; la cámara compiló con plantilla. Consultar [continuidad](../desarrollo/CONTINUIDAD.md). El siguiente paso es revisar el contrato del ultrasónico y los pendientes físicos.

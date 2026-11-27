@@ -233,7 +233,7 @@ static void on_data_recv(const esp_now_recv_info_t *info, const uint8_t *data, i
             memcpy(pong.event_code, "PONG", 4);
             pong.seq           = seq_counter++;
             pong.battery_level = 95;
-            pong.distance_cm   = 0;
+            pong.value   = 0;
 
             espnow_frame_t respuesta;
             if (espnow_build_frame(&respuesta, ESPNOW_FT_DATA_EVENT, pong.seq,
@@ -334,7 +334,7 @@ static void send_event(const char *event_code, uint8_t distance_cm)
     memcpy(payload.event_code, event_code, sizeof(payload.event_code));
     payload.seq           = seq_counter++;
     payload.battery_level = 95;
-    payload.distance_cm   = distance_cm;
+    payload.value   = distance_cm;
 
     /* Sin hub vinculado no se envian eventos: solo el PAIR, que es lo que
      * permite descubrirlo. Ver el bucle de app_main. */
@@ -401,7 +401,7 @@ static void send_pair_request(void)
     memcpy(payload.event_code, "PAIR", 4);
     payload.seq           = seq_counter++;
     payload.battery_level = 95;
-    payload.distance_cm   = 0;
+    payload.value   = 0;
 
     if (ensure_hub_peer() != ESP_OK) {
         return;
